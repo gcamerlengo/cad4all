@@ -1,0 +1,11 @@
+; Pianta di esempio: due stanze, una porta e un tavolo rotondo.
+; Ogni spazio o a capo equivale a Invio, come negli script di AutoCAD.
+RETTANGOLO 0,0 @1000,600
+RETTANGOLO 30,30 @940,540
+LINEA 500,30 @0,350 
+LINEA 500,470 @0,100 
+LINEA 500,380 @90,0 
+ARCO 590,380 563.64,443.64 500,470
+CERCHIO 250,300 80
+CERCHIO 760,300 D 120
+PLINEA 650,120 @220,0 @0,60 @-220,0 C

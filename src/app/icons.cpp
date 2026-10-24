@@ -1,0 +1,164 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include "icons.h"
+
+#include <QApplication>
+#include <QIconEngine>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPalette>
+
+#include <functional>
+
+namespace icons {
+
+namespace {
+
+using Painter = std::function<void(QPainter&)>;
+
+// Paints on a 24x24 canvas scaled to the requested size.
+class CodeIconEngine : public QIconEngine {
+public:
+    explicit CodeIconEngine(Painter painter) : painter_(std::move(painter)) {}
+
+    void paint(QPainter* p, const QRect& rect, QIcon::Mode mode, QIcon::State) override
+    {
+        p->save();
+        p->setRenderHint(QPainter::Antialiasing);
+        p->translate(rect.topLeft());
+        p->scale(rect.width() / 24.0, rect.height() / 24.0);
+        const QPalette pal = QApplication::palette();
+        QColor ink = pal.color(mode == QIcon::Disabled ? QPalette::Disabled : QPalette::Active, QPalette::WindowText);
+        p->setPen(QPen(ink, 1.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p->setBrush(Qt::NoBrush);
+        painter_(*p);
+        p->restore();
+    }
+
+    QIconEngine* clone() const override { return new CodeIconEngine(painter_); }
+
+    QPixmap pixmap(const QSize& size, QIcon::Mode mode, QIcon::State state) override
+    {
+        QPixmap pm(size);
+        pm.fill(Qt::transparent);
+        QPainter p(&pm);
+        paint(&p, QRect(QPoint(0, 0), size), mode, state);
+        return pm;
+    }
+
+private:
+    Painter painter_;
+};
+
+const QColor kAccent(52, 140, 230);
+
+void accentPen(QPainter& p)
+{
+    QPen pen = p.pen();
+    pen.setColor(kAccent);
+    p.setPen(pen);
+}
+
+void dot(QPainter& p, QPointF c)
+{
+    p.save();
+    p.setBrush(p.pen().color());
+    p.drawEllipse(c, 1.6, 1.6);
+    p.restore();
+}
+
+void square(QPainter& p, QPointF origin)
+{
+    p.drawRect(QRectF(origin, QSizeF(8, 8)));
+}
+
+} // namespace
+
+QIcon make(const QString& name)
+{
+    Painter painter;
+    if (name == QLatin1String("line")) {
+        painter = [](QPainter& p) {
+            p.drawLine(QPointF(4, 20), QPointF(20, 4));
+            dot(p, {4, 20});
+            dot(p, {20, 4});
+        };
+    } else if (name == QLatin1String("polyline")) {
+        painter = [](QPainter& p) {
+            p.drawPolyline(QPolygonF({{3, 19}, {9, 7}, {15, 15}, {21, 5}}));
+        };
+    } else if (name == QLatin1String("circle")) {
+        painter = [](QPainter& p) {
+            p.drawEllipse(QPointF(12, 12), 8.5, 8.5);
+            dot(p, {12, 12});
+        };
+    } else if (name == QLatin1String("arc")) {
+        painter = [](QPainter& p) {
+            QPainterPath path;
+            path.arcMoveTo(QRectF(3, 5, 18, 18), 0);
+            path.arcTo(QRectF(3, 5, 18, 18), 0, 180);
+            p.drawPath(path);
+        };
+    } else if (name == QLatin1String("rectangle")) {
+        painter = [](QPainter& p) { p.drawRect(QRectF(3.5, 6.5, 17, 11)); };
+    } else if (name == QLatin1String("erase")) {
+        painter = [](QPainter& p) {
+            p.drawLine(QPointF(4, 18), QPointF(16, 6));
+            accentPen(p);
+            p.drawLine(QPointF(12, 14), QPointF(20, 22));
+            p.drawLine(QPointF(20, 14), QPointF(12, 22));
+        };
+    } else if (name == QLatin1String("move")) {
+        painter = [](QPainter& p) {
+            p.drawLine(QPointF(12, 3), QPointF(12, 21));
+            p.drawLine(QPointF(3, 12), QPointF(21, 12));
+            p.drawPolyline(QPolygonF({{9, 6}, {12, 3}, {15, 6}}));
+            p.drawPolyline(QPolygonF({{9, 18}, {12, 21}, {15, 18}}));
+            p.drawPolyline(QPolygonF({{6, 9}, {3, 12}, {6, 15}}));
+            p.drawPolyline(QPolygonF({{18, 9}, {21, 12}, {18, 15}}));
+        };
+    } else if (name == QLatin1String("copy")) {
+        painter = [](QPainter& p) {
+            square(p, {4, 4});
+            accentPen(p);
+            square(p, {12, 12});
+        };
+    } else if (name == QLatin1String("rotate")) {
+        painter = [](QPainter& p) {
+            QPainterPath path;
+            path.arcMoveTo(QRectF(4, 4, 16, 16), 90);
+            path.arcTo(QRectF(4, 4, 16, 16), 90, 270);
+            p.drawPath(path);
+            p.drawPolyline(QPolygonF({{9, 1}, {12, 4}, {9, 7}}));
+        };
+    } else if (name == QLatin1String("scale")) {
+        painter = [](QPainter& p) {
+            p.drawRect(QRectF(3, 11, 10, 10));
+            accentPen(p);
+            p.drawRect(QRectF(3, 3, 18, 18));
+        };
+    } else if (name == QLatin1String("mirror")) {
+        painter = [](QPainter& p) {
+            p.drawPolygon(QPolygonF({{3, 19}, {10, 19}, {10, 7}}));
+            accentPen(p);
+            p.drawPolygon(QPolygonF({{21, 19}, {14, 19}, {14, 7}}));
+            QPen dashed = p.pen();
+            dashed.setStyle(Qt::DashLine);
+            dashed.setWidthF(1.0);
+            p.setPen(dashed);
+            p.drawLine(QPointF(12, 2), QPointF(12, 22));
+        };
+    } else if (name == QLatin1String("zoomExtents")) {
+        painter = [](QPainter& p) {
+            p.drawEllipse(QPointF(10, 10), 6, 6);
+            p.drawLine(QPointF(14.5, 14.5), QPointF(21, 21));
+            p.drawPolyline(QPolygonF({{2, 6}, {2, 2}, {6, 2}}));
+            p.drawPolyline(QPolygonF({{18, 2}, {22, 2}, {22, 6}}));
+            p.drawPolyline(QPolygonF({{2, 18}, {2, 22}, {6, 22}}));
+        };
+    } else {
+        return {};
+    }
+    return QIcon(new CodeIconEngine(std::move(painter)));
+}
+
+} // namespace icons

@@ -1,0 +1,71 @@
+# CAD4All
+
+CAD 2D e 3D parametrico per tecnici, open source. Il disegno 2D funziona come AutoCAD (comandi, alias, riga di comando, snap); il 3D parametrico in stile ArchiCAD arriverà dalle prossime versioni.
+
+![CAD4All 0.1](docs/immagini/cad4all-0.1.png)
+
+## Stato
+
+Versione 0.1, nucleo 2D. Funziona già:
+
+- **Disegno:** linea, polilinea, cerchio (raggio o diametro), arco per tre punti, rettangolo.
+- **Modifica:** cancella, sposta, copia (multipla), ruota, scala, specchio.
+- **Precisione:** coordinate assolute e relative (`10,20`, `@5,0`, `@10<45`), inserimento diretto della distanza, snap ad oggetto (fine, punto medio, centro, quadrante, intersezione), orto.
+- **Selezione:** clic, finestra (da sinistra a destra) e interseca (da destra a sinistra), Maiusc+clic per togliere.
+- **Organizzazione:** layer con colore, visibilità e blocco.
+- **File:** formato nativo `.c4a` (JSON leggibile), annulla e ripristina illimitati, script di comandi `.scr`.
+
+In arrivo: offset, taglia, estendi, raccorda, quote, testi, tratteggi, import ed export DXF, lettura DWG con LibreDWG, stampa PDF, poi muri, porte e finestre parametrici in 3D.
+
+## Comandi
+
+Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio o Spazio confermano, Esc annulla, Invio a vuoto ripete l'ultimo comando. Il tasto destro del mouse vale come Invio.
+
+| Comando | Alias | Opzioni |
+| --- | --- | --- |
+| LINEA / LINE | L | Annulla, Chiudi |
+| PLINEA / PLINE | PL | Annulla, Chiudi |
+| CERCHIO / CIRCLE | C | Diametro |
+| ARCO / ARC | A | tre punti |
+| RETTANGOLO / RECTANG | REC | |
+| CANCELLA / ERASE | E | (anche tasto Canc) |
+| SPOSTA / MOVE | M | |
+| COPIA / COPY | CO, CP | Esci |
+| RUOTA / ROTATE | RO | angolo in gradi o punto |
+| SCALA / SCALE | SC | fattore o punto |
+| SPECCHIO / MIRROR | MI | Cancellare oggetti sorgente? Sì/No |
+| ZOOM | Z | Estensioni |
+| LAYER | LA | apre il pannello layer |
+| ANNULLA / UNDO | U | (anche Ctrl+Z) |
+| RIPRISTINA / REDO | | (anche Ctrl+Y) |
+
+Tasti: F3 snap ad oggetto, F7 griglia, F8 orto. Rotella per lo zoom, tasto centrale per spostare la vista, doppio clic del tasto centrale per lo zoom estensioni.
+
+## Compilare
+
+Servono CMake 3.21 o successivo, un compilatore C++20 e Qt 6.4 o successivo.
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+./build/src/app/CAD4All
+```
+
+Su Ubuntu 24.04 le dipendenze si installano con `sudo apt install cmake ninja-build qt6-base-dev libgtest-dev`. Su Windows e macOS basta l'installer ufficiale di Qt. Ad ogni modifica GitHub Actions compila e prova il programma sui tre sistemi e conserva i pacchetti di Windows e macOS.
+
+Per provare uno script: `CAD4All --script docs/esempi/pianta.scr`.
+
+## Struttura
+
+| Cartella | Contenuto |
+| --- | --- |
+| `src/core` | Geometria, entità e documento con annulla; C++ puro, senza Qt |
+| `src/io` | Lettura e scrittura dei file |
+| `src/engine` | Motore dei comandi e comandi stile AutoCAD (usa solo QtCore, si prova senza finestra) |
+| `src/app` | Interfaccia Qt: vista di disegno, riga di comando, pannello layer |
+| `tests` | Test automatici (GoogleTest) |
+
+## Licenza
+
+CAD4All è software libero: puoi ridistribuirlo e modificarlo secondo i termini della GNU General Public License, versione 3 o successiva. Il testo completo è nel file [LICENSE](LICENSE).
