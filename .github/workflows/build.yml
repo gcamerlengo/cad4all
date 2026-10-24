@@ -59,9 +59,14 @@ jobs:
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
-          macdeployqt build/src/app/CAD4All.app -dmg
+          macdeployqt build/src/app/CAD4All.app
+          # macdeployqt changes the binaries and breaks their signature, which
+          # macOS reports as a "damaged" app. Re-sign ad hoc until we have a
+          # Developer ID certificate.
+          codesign --force --deep --sign - build/src/app/CAD4All.app
+          codesign --verify --deep --strict build/src/app/CAD4All.app
           mkdir -p dist
-          mv build/src/app/CAD4All.dmg dist/
+          hdiutil create -volname CAD4All -srcfolder build/src/app/CAD4All.app -ov -format UDZO dist/CAD4All.dmg
 
       - name: Package (Linux)
         if: runner.os == 'Linux'
