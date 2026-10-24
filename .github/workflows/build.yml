@@ -1,0 +1,85 @@
+# Builds and tests CAD4All on Linux, Windows and macOS, and keeps the
+# Windows and macOS packages as downloadable artifacts.
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-24.04
+          - name: Windows
+            os: windows-2022
+          - name: macOS
+            os: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.*'
+          cache: true
+
+      - name: Install Linux packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libxkbcommon-x11-0 libxcb-cursor0
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          # The output folder depends on the Qt version's project defaults.
+          $exe = Get-ChildItem build -Recurse -Filter CAD4All.exe | Where-Object { $_.FullName -match 'Release' } | Select-Object -First 1
+          Copy-Item $exe.FullName dist/
+          windeployqt --release --no-translations dist/CAD4All.exe
+          Copy-Item LICENSE dist/LICENSE.txt
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          macdeployqt build/src/app/CAD4All.app
+          # macdeployqt changes the binaries and breaks their signature, which
+          # macOS reports as a "damaged" app. Re-sign ad hoc until we have a
+          # Developer ID certificate.
+          codesign --force --deep --sign - build/src/app/CAD4All.app
+          codesign --verify --deep --strict build/src/app/CAD4All.app
+          # Disk image with the app and a shortcut to Applications.
+          mkdir -p dmg dist
+          cp -R build/src/app/CAD4All.app dmg/
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname CAD4All -srcfolder dmg -ov -format UDZO dist/CAD4All.dmg
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist
+          cp build/src/app/CAD4All LICENSE dist/
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAD4All-${{ matrix.name }}
+          path: dist
+          retention-days: 14
