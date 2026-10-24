@@ -57,4 +57,6 @@ private:
     QToolButton* orthoButton_;
     QToolButton* gridButton_;
     QString filePath_;
+    // The DWG the drawing was read from, which is never written.
+    QString dwgSource_;
 };

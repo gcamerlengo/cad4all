@@ -5,6 +5,7 @@
 #include "commandline.h"
 #include "icons.h"
 #include "layerpanel.h"
+#include "dwgreader.h"
 #include "dxf.h"
 #include "nativeformat.h"
 #include "plot.h"
@@ -28,13 +29,18 @@ using namespace cad;
 
 namespace {
 
-const QString kOpenFilter = QObject::tr("Disegni (*.c4a *.dxf);;Disegni CAD4All (*.c4a);;DXF (*.dxf)");
+const QString kOpenFilter = QObject::tr("Disegni (*.c4a *.dxf *.dwg);;Disegni CAD4All (*.c4a);;DXF (*.dxf);;DWG di AutoCAD (*.dwg)");
 const QString kNativeFilter = QObject::tr("Disegni CAD4All (*.c4a)");
 const QString kDxfFilter = QObject::tr("DXF R12 per AutoCAD e altri CAD (*.dxf)");
 
 bool isDxf(const QString& path)
 {
     return path.endsWith(QLatin1String(".dxf"), Qt::CaseInsensitive);
+}
+
+bool isDwg(const QString& path)
+{
+    return path.endsWith(QLatin1String(".dwg"), Qt::CaseInsensitive);
 }
 
 bool isPdf(const QString& path)
@@ -252,7 +258,9 @@ void MainWindow::updateToggles()
 
 void MainWindow::updateTitle()
 {
-    const QString name = filePath_.isEmpty() ? tr("Senza nome") : QFileInfo(filePath_).fileName();
+    QString name = filePath_.isEmpty() ? tr("Senza nome") : QFileInfo(filePath_).fileName();
+    if (filePath_.isEmpty() && !dwgSource_.isEmpty())
+        name = tr("%1 (DWG in sola lettura)").arg(QFileInfo(dwgSource_).fileName());
     setWindowTitle(QStringLiteral("%1[*] - CAD4All").arg(name));
     setWindowModified(doc_.isModified());
 }
@@ -265,6 +273,7 @@ void MainWindow::newDrawing()
     engine_.clearSelection();
     doc_.reset();
     filePath_.clear();
+    dwgSource_.clear();
     view_->zoomExtents();
     engine_.documentChanged();
 }
@@ -283,14 +292,18 @@ bool MainWindow::openFile(const QString& path)
     engine_.cancel();
     engine_.clearSelection();
     QString message;
-    const bool loaded = isDxf(path) ? io::loadDxf(doc_, path, &message) : io::loadNative(doc_, path, &message);
+    const bool loaded = isDwg(path)   ? io::loadDwg(doc_, path, &message)
+                        : isDxf(path) ? io::loadDxf(doc_, path, &message)
+                                      : io::loadNative(doc_, path, &message);
     if (!loaded) {
         QMessageBox::warning(this, tr("Apri disegno"), tr("Impossibile aprire %1:\n%2").arg(path, message));
         return false;
     }
     if (!message.isEmpty())
         commandLine_->appendMessage(message);
-    filePath_ = path;
+    // DWG is read only: Save asks where to keep it, as .c4a or .dxf.
+    filePath_ = isDwg(path) ? QString() : path;
+    dwgSource_ = isDwg(path) ? path : QString();
     view_->zoomExtents();
     engine_.documentChanged();
     commandLine_->appendMessage(tr("Aperto %1").arg(QFileInfo(path).fileName()));
@@ -316,7 +329,8 @@ bool MainWindow::save()
 bool MainWindow::saveAs()
 {
     QString filter = isDxf(filePath_) ? kDxfFilter : kNativeFilter;
-    QString path = QFileDialog::getSaveFileName(this, tr("Salva con nome"), filePath_,
+    const QString suggested = filePath_.isEmpty() && !dwgSource_.isEmpty() ? dwgSource_.left(dwgSource_.size() - 4) : filePath_;
+    QString path = QFileDialog::getSaveFileName(this, tr("Salva con nome"), suggested,
                                                 kNativeFilter + QStringLiteral(";;") + kDxfFilter, &filter);
     if (path.isEmpty())
         return false;
@@ -325,6 +339,7 @@ bool MainWindow::saveAs()
     if (!path.endsWith(suffix, Qt::CaseInsensitive))
         path += suffix;
     filePath_ = path;
+    dwgSource_.clear();
     return save();
 }
 

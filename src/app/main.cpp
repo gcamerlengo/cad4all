@@ -17,7 +17,7 @@ int main(int argc, char* argv[])
     parser.setApplicationDescription(QStringLiteral("CAD 2D e 3D parametrico"));
     parser.addHelpOption();
     parser.addVersionOption();
-    parser.addPositionalArgument(QStringLiteral("disegno"), QStringLiteral("Disegno .c4a o .dxf da aprire."));
+    parser.addPositionalArgument(QStringLiteral("disegno"), QStringLiteral("Disegno .c4a, .dxf o .dwg da aprire."));
     const QCommandLineOption scriptOption(QStringLiteral("script"), QStringLiteral("Esegue uno script di comandi (.scr)."), QStringLiteral("file"));
     const QCommandLineOption screenshotOption(QStringLiteral("screenshot"), QStringLiteral("Salva un'immagine della finestra ed esce."), QStringLiteral("png"));
     const QCommandLineOption exportOption(QStringLiteral("export"), QStringLiteral("Salva il disegno (.c4a, .dxf o .pdf) dopo lo script."), QStringLiteral("file"));

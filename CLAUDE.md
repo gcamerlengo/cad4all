@@ -10,7 +10,9 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Screenshot without a display: `QT_QPA_PLATFORM=offscreen ./build/src/app/CAD4All --script docs/esempi/pianta.scr --screenshot out.png`.
+LibreDWG is fetched with git and built at configure time (`CAD4ALL_WITH_DWG`, default ON); to reuse a local clone pass `-DFETCHCONTENT_SOURCE_DIR_LIBREDWG=/path/to/libredwg`. Only `src/io/dwg_shim.c` touches LibreDWG.
+
+Screenshot without a display: `QT_QPA_PLATFORM=offscreen ./build/src/app/CAD4All --script docs/esempi/pianta.scr --screenshot out.png`. `--export out.dxf|out.pdf|out.c4a` writes the drawing and exits when no screenshot is asked.
 
 ## Layout and rules
 
