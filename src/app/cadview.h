@@ -6,6 +6,7 @@
 
 #include "commandengine.h"
 
+#include <QFont>
 #include <QWidget>
 
 #include <optional>
@@ -43,10 +44,13 @@ private:
 
     void drawGrid(QPainter& p) const;
     void drawShape(QPainter& p, const cad::Shape& shape) const;
+    void drawText(QPainter& p, const cad::Text& text) const;
     void drawSnapMarker(QPainter& p, const cad::SnapPoint& snap) const;
     void drawCrosshair(QPainter& p) const;
 
     cad::CommandEngine& engine_;
+    // Drawn at a fixed pixel size and scaled, so text of any height is exact.
+    QFont textFont_;
 
     // View: world point at the widget centre and pixels per drawing unit.
     cad::Vec2 center_{0.0, 0.0};

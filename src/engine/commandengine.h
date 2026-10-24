@@ -56,6 +56,9 @@ public:
     // True when the next click names a single object (TRIM, OFFSET...): the
     // view shows the pick box and sends the raw point, without snapping.
     bool wantsObjectPick() const;
+    // True when the command waits for free text (TEXT): Space is then part
+    // of the text and only Enter confirms it.
+    bool wantsText() const;
     // Pick box size in drawing units; the view keeps it equal to a few pixels.
     double pickTolerance() const { return pickTolerance_; }
     void setPickTolerance(double tolerance) { pickTolerance_ = tolerance; }
@@ -131,7 +134,7 @@ private:
     Vec2 cursor_;
 
     bool osnap_ = true;
-    unsigned osnapMask_ = SnapEndpoint | SnapMidpoint | SnapCenter | SnapQuadrant | SnapIntersection;
+    unsigned osnapMask_ = SnapEndpoint | SnapMidpoint | SnapCenter | SnapQuadrant | SnapIntersection | SnapInsertion;
     bool ortho_ = false;
 };
 
@@ -150,6 +153,9 @@ public:
     virtual void enter() { engine->finish(); }
     virtual bool wantsSelection() const { return false; }
     virtual bool wantsObjectPick() const { return false; }
+    virtual bool wantsText() const { return false; }
+    // A line of free text, when wantsText() is true. Empty text goes to enter().
+    virtual void text(const QString&) {}
     virtual void preview(Vec2, std::vector<Shape>&) const {}
     // Point the rubber band starts from (also used by ortho).
     virtual std::optional<Vec2> base() const { return std::nullopt; }

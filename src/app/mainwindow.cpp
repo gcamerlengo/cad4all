@@ -55,6 +55,8 @@ MainWindow::MainWindow()
     connect(&engine_, &CommandEngine::promptChanged, commandLine_, &CommandLine::setPrompt);
     connect(&engine_, &CommandEngine::messageAdded, commandLine_, &CommandLine::appendMessage);
     connect(&engine_, &CommandEngine::changed, this, &MainWindow::updateTitle);
+    // While TEXT waits for the text itself, Space types a space.
+    connect(&engine_, &CommandEngine::changed, input, [this, input] { input->setSpaceIsText(engine_.wantsText()); });
     connect(&engine_, &CommandEngine::settingsChanged, this, &MainWindow::updateToggles);
     connect(&engine_, &CommandEngine::layerManagerRequested, this, [this] {
         layerDock_->show();
@@ -140,6 +142,23 @@ void MainWindow::createActions()
     };
     modify->addActions(modifyActions);
     modifyBar->addActions(modifyActions);
+
+    // Annotations
+    QMenu* annotate = menuBar()->addMenu(tr("&Annota"));
+    QToolBar* annotateBar = addToolBar(tr("Annota"));
+    annotateBar->setObjectName(QStringLiteral("annotateToolBar"));
+    const QList<QAction*> annotateActions = {
+        commandAction(tr("Testo"), QStringLiteral("TEXT"), icons::make(QStringLiteral("text"))),
+        commandAction(tr("Quota lineare"), QStringLiteral("DIMLINEAR"), icons::make(QStringLiteral("dimLinear"))),
+        commandAction(tr("Quota allineata"), QStringLiteral("DIMALIGNED"), icons::make(QStringLiteral("dimAligned"))),
+        commandAction(tr("Quota raggio"), QStringLiteral("DIMRADIUS"), icons::make(QStringLiteral("dimRadius"))),
+        commandAction(tr("Quota diametro"), QStringLiteral("DIMDIAMETER"), icons::make(QStringLiteral("dimDiameter"))),
+    };
+    annotate->addActions(annotateActions);
+    annotateBar->addActions(annotateActions);
+    annotate->addSeparator();
+    annotate->addAction(commandAction(tr("Modifica testo"), QStringLiteral("TEXTEDIT"), QIcon()));
+    annotate->addAction(commandAction(tr("Scala quote"), QStringLiteral("DIMSCALE"), QIcon()));
 
     // View
     QMenu* viewMenu = menuBar()->addMenu(tr("&Visualizza"));
@@ -321,8 +340,15 @@ bool MainWindow::runScript(const QString& path)
     for (const QString& line : content.split(QLatin1Char('\n'))) {
         if (line.trimmed().startsWith(QLatin1Char(';')))
             continue; // comment
-        for (const QString& token : line.split(QLatin1Char(' ')))
-            engine_.submit(token);
+        const QStringList tokens = line.split(QLatin1Char(' '));
+        for (qsizetype i = 0; i < tokens.size(); ++i) {
+            if (engine_.wantsText()) {
+                // Free text (TEXT command): spaces belong to it, up to the end of the line.
+                engine_.submit(tokens.mid(i).join(QLatin1Char(' ')));
+                break;
+            }
+            engine_.submit(tokens[i]);
+        }
     }
     return true;
 }

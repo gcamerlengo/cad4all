@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "cadview.h"
 
+#include <QFontMetricsF>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -40,6 +41,7 @@ QString snapLabel(SnapType type)
     case SnapQuadrant: return CadView::tr("Quadrante");
     case SnapIntersection: return CadView::tr("Intersezione");
     case SnapNearest: return CadView::tr("Vicino");
+    case SnapInsertion: return CadView::tr("Inserimento");
     }
     return {};
 }
@@ -55,6 +57,8 @@ CadView::CadView(CommandEngine& engine, QWidget* parent)
     setCursor(Qt::BlankCursor);
     setAttribute(Qt::WA_OpaquePaintEvent);
     setMinimumSize(320, 240);
+    textFont_.setStyleHint(QFont::SansSerif);
+    textFont_.setPixelSize(100);
     connect(&engine_, &CommandEngine::changed, this, [this] {
         // A command may have started or ended: refresh snap and preview.
         if (mouseInside_)
@@ -325,7 +329,47 @@ void CadView::drawShape(QPainter& p, const Shape& shape) const
             p.drawPolygon(poly);
         else
             p.drawPolyline(poly);
+    } else if (const auto* t = std::get_if<Text>(&shape)) {
+        drawText(p, *t);
+    } else if (const auto* d = std::get_if<Dimension>(&shape)) {
+        const DimensionGeometry g = dimensionGeometry(*d);
+        for (const Line& l : g.lines)
+            p.drawLine(toScreen(l.a), toScreen(l.b));
+        p.save();
+        p.setBrush(p.pen().color());
+        QPen solid = p.pen();
+        solid.setStyle(Qt::SolidLine);
+        p.setPen(solid);
+        for (const auto& arrow : g.arrows)
+            p.drawPolygon(QPolygonF({toScreen(arrow[0]), toScreen(arrow[1]), toScreen(arrow[2])}));
+        p.restore();
+        drawText(p, g.label);
     }
+}
+
+void CadView::drawText(QPainter& p, const Text& t) const
+{
+    if (t.content.empty())
+        return;
+    const double px = t.height * scale_;
+    if (px < 1.5) {
+        // Too small to read: a line along the baseline shows where it is.
+        const auto c = textCorners(t);
+        p.drawLine(toScreen(c[0]), toScreen(c[1]));
+        return;
+    }
+    const QFontMetricsF fm(textFont_);
+    const QString s = QString::fromStdString(t.content);
+    const double w = fm.horizontalAdvance(s);
+    const double x = t.align == Text::Align::Left ? 0.0 : t.align == Text::Align::Center ? -w / 2.0 : -w;
+    const double k = px / fm.capHeight();
+    p.save();
+    p.translate(toScreen(t.position));
+    p.rotate(-radToDeg(t.rotation));
+    p.scale(k, k);
+    p.setFont(textFont_);
+    p.drawText(QPointF(x, 0.0), s);
+    p.restore();
 }
 
 void CadView::drawSnapMarker(QPainter& p, const SnapPoint& snap) const
@@ -353,6 +397,11 @@ void CadView::drawSnapMarker(QPainter& p, const SnapPoint& snap) const
         break;
     case SnapNearest:
         p.drawPolygon(QPolygonF({{c.x() - s, c.y() - s}, {c.x() + s, c.y() - s}, {c.x() - s, c.y() + s}, {c.x() + s, c.y() + s}}));
+        break;
+    case SnapInsertion:
+        // Two overlapping squares, as in AutoCAD.
+        p.drawRect(QRectF(c.x() - s, c.y() - s, s * 1.3, s * 1.3));
+        p.drawRect(QRectF(c.x() - s * 0.3, c.y() - s * 0.3, s * 1.3, s * 1.3));
         break;
     }
     p.setPen(kSnap);

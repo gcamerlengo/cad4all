@@ -9,6 +9,8 @@
 
 #include <QCoreApplication>
 
+#include <limits>
+
 namespace cad {
 
 namespace {
@@ -882,6 +884,537 @@ private:
     Vec2 firstPick_;
 };
 
+// ---------------------------------------------------------------- text and dimensions
+
+// Remembered between runs, like AutoCAD's TEXTSIZE and DIMSCALE.
+double gTextHeight = 2.5;
+double gTextRotation = 0.0;  // degrees
+Text::Align gTextAlign = Text::Align::Left;
+double gDimScale = 1.0;
+
+constexpr double kLineSpacing = 1.667;  // DTEXT line spacing, in text heights
+
+// TEXT works like AutoCAD's DTEXT: each line typed becomes a text object and
+// the next one starts below it; an empty line ends the command.
+class TextCommand : public Command {
+public:
+    void start() override { toStart(); }
+
+    bool keyword(const QString& w) override
+    {
+        if (step_ == Step::Start && isAny(w, {"G", "GIUSTIFICA", "J", "JUSTIFY"})) {
+            step_ = Step::Justify;
+            engine->setPrompt(t("Immettere un'opzione [Sinistra/Centro/Destra]:"));
+            return true;
+        }
+        if (step_ != Step::Justify)
+            return false;
+        if (isAny(w, {"S", "SINISTRA", "L", "LEFT"}))
+            gTextAlign = Text::Align::Left;
+        else if (isAny(w, {"C", "CENTRO", "CENTER"}))
+            gTextAlign = Text::Align::Center;
+        else if (isAny(w, {"D", "DESTRA", "R", "RIGHT"}))
+            gTextAlign = Text::Align::Right;
+        else
+            return false;
+        toStart();
+        return true;
+    }
+
+    bool point(Vec2 p) override
+    {
+        switch (step_) {
+        case Step::Start:
+            position_ = p;
+            step_ = Step::Height;
+            engine->setPrompt(t("Specificare altezza <%1>:").arg(gTextHeight));
+            return true;
+        case Step::Height:
+            setHeight(distance(position_, p));
+            return true;
+        case Step::Rotation:
+            gTextRotation = radToDeg(angleOf(p - position_));
+            toContent();
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    bool number(double value) override
+    {
+        if (step_ == Step::Height) {
+            setHeight(value);
+            return true;
+        }
+        if (step_ == Step::Rotation) {
+            gTextRotation = value;
+            toContent();
+            return true;
+        }
+        return false;
+    }
+
+    void enter() override
+    {
+        switch (step_) {
+        case Step::Justify: toStart(); break;
+        case Step::Height: toRotation(); break;
+        case Step::Rotation: toContent(); break;
+        default: engine->finish(); break;
+        }
+    }
+
+    bool wantsText() const override { return step_ == Step::Content; }
+
+    void text(const QString& s) override
+    {
+        Text tx;
+        tx.position = position_;
+        tx.height = gTextHeight;
+        tx.rotation = degToRad(gTextRotation);
+        tx.content = s.toStdString();
+        tx.align = gTextAlign;
+        engine->document().add(tx);
+        position_ = position_ - perpendicular(polar(1.0, tx.rotation)) * (gTextHeight * kLineSpacing);
+        engine->setPrompt(t("Immettere testo (Invio a vuoto per terminare):"));
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (step_ == Step::Height || step_ == Step::Rotation)
+            out.push_back(Line{position_, cursor});
+    }
+
+    std::optional<Vec2> base() const override
+    {
+        if (step_ == Step::Height || step_ == Step::Rotation)
+            return position_;
+        return std::nullopt;
+    }
+
+private:
+    enum class Step { Start, Justify, Height, Rotation, Content };
+
+    void toStart()
+    {
+        step_ = Step::Start;
+        engine->setPrompt(t("Specificare punto iniziale del testo o [Giustifica]:"));
+    }
+
+    void setHeight(double h)
+    {
+        if (h <= kEps) {
+            engine->message(t("L'altezza deve essere positiva."));
+            return;
+        }
+        gTextHeight = h;
+        toRotation();
+    }
+
+    void toRotation()
+    {
+        step_ = Step::Rotation;
+        engine->setPrompt(t("Specificare angolo di rotazione del testo <%1>:").arg(gTextRotation));
+    }
+
+    void toContent()
+    {
+        step_ = Step::Content;
+        engine->setPrompt(t("Immettere testo:"));
+    }
+
+    Step step_ = Step::Start;
+    Vec2 position_;
+};
+
+// Changes the content of texts, or the label of dimensions ("<>" = measured value).
+class TextEditCommand : public Command {
+public:
+    void start() override { toPick(); }
+
+    bool point(Vec2 p) override
+    {
+        if (editing_)
+            return false;
+        const auto id = pickObject(engine, p);
+        if (!id)
+            return false;
+        const Shape& shape = engine->document().entity(*id)->shape;
+        QString current;
+        if (const auto* tx = std::get_if<Text>(&shape)) {
+            current = QString::fromStdString(tx->content);
+        } else if (const auto* d = std::get_if<Dimension>(&shape)) {
+            current = d->text.empty() ? QStringLiteral("<>") : QString::fromStdString(d->text);
+        } else {
+            engine->message(t("L'oggetto selezionato non è un testo né una quota."));
+            return false;
+        }
+        target_ = *id;
+        editing_ = true;
+        engine->setPrompt(t("Immettere nuovo testo <%1>:").arg(current));
+        return true;
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (editing_ || !isExitWord(w))
+            return false;
+        engine->finish();
+        return true;
+    }
+
+    void enter() override
+    {
+        if (editing_)
+            toPick();  // keep the current text
+        else
+            engine->finish();
+    }
+
+    bool wantsObjectPick() const override { return !editing_; }
+    bool wantsText() const override { return editing_; }
+
+    void text(const QString& s) override
+    {
+        Document& doc = engine->document();
+        if (const Entity* e = doc.entity(target_)) {
+            Shape shape = e->shape;
+            if (auto* tx = std::get_if<Text>(&shape))
+                tx->content = s.toStdString();
+            else if (auto* d = std::get_if<Dimension>(&shape))
+                d->text = s.trimmed() == QLatin1String("<>") ? std::string() : s.toStdString();
+            doc.replace(target_, shape);
+        }
+        toPick();
+    }
+
+private:
+    void toPick()
+    {
+        editing_ = false;
+        engine->setPrompt(t("Selezionare un testo o una quota o [Esci]:"));
+    }
+
+    bool editing_ = false;
+    EntityId target_ = 0;
+};
+
+// New dimensions use the ISO-25 sizes (2.5 units) times DIMSCALE.
+Dimension newDimension(Dimension::Kind kind)
+{
+    Dimension d;
+    d.kind = kind;
+    d.textHeight = 2.5 * gDimScale;
+    d.arrowSize = 2.5 * gDimScale;
+    return d;
+}
+
+void reportDimension(CommandEngine* engine, const Dimension& d)
+{
+    engine->message(t("Testo di quota = %1").arg(QString::fromStdString(dimensionGeometry(d).label.content)));
+}
+
+class DimLinearCommand : public Command {
+public:
+    explicit DimLinearCommand(bool aligned) : aligned_(aligned) {}
+
+    void start() override
+    {
+        engine->setPrompt(t("Specificare origine prima linea di estensione o <seleziona oggetto>:"));
+    }
+
+    void enter() override
+    {
+        if (step_ == Step::First) {
+            step_ = Step::Object;
+            engine->setPrompt(t("Selezionare oggetto da quotare:"));
+        } else if (step_ == Step::Text || step_ == Step::Angle) {
+            toLocation();
+        } else {
+            engine->finish();
+        }
+    }
+
+    bool point(Vec2 p) override
+    {
+        switch (step_) {
+        case Step::First:
+            p1_ = p;
+            step_ = Step::Second;
+            engine->setPrompt(t("Specificare origine seconda linea di estensione:"));
+            return true;
+        case Step::Second:
+            if (almostEqual(p, p1_))
+                return false;
+            p2_ = p;
+            toLocation();
+            return true;
+        case Step::Object:
+            return pickEnds(p);
+        case Step::Location: {
+            const Dimension d = build(p);
+            engine->document().add(d);
+            reportDimension(engine, d);
+            engine->finish();
+            return true;
+        }
+        default:
+            return false;
+        }
+    }
+
+    bool number(double value) override
+    {
+        if (step_ != Step::Angle)
+            return false;
+        orientation_ = Orientation::Rotated;
+        rotation_ = degToRad(value);
+        toLocation();
+        return true;
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (step_ != Step::Location)
+            return false;
+        if (isAny(w, {"T", "TESTO", "TEXT"})) {
+            step_ = Step::Text;
+            engine->setPrompt(t("Immettere testo di quota (<> = valore misurato):"));
+            return true;
+        }
+        if (aligned_)
+            return false;
+        if (isAny(w, {"O", "ORIZZONTALE", "H", "HORIZONTAL"})) {
+            orientation_ = Orientation::Horizontal;
+        } else if (isAny(w, {"V", "VERTICALE", "VERTICAL"})) {
+            orientation_ = Orientation::Vertical;
+        } else if (isAny(w, {"R", "RUOTATO", "ROTATED"})) {
+            step_ = Step::Angle;
+            engine->setPrompt(t("Specificare angolo della linea di quota <%1>:").arg(radToDeg(rotation_)));
+            return true;
+        } else {
+            return false;
+        }
+        toLocation();
+        return true;
+    }
+
+    bool wantsObjectPick() const override { return step_ == Step::Object; }
+    bool wantsText() const override { return step_ == Step::Text; }
+
+    void text(const QString& s) override
+    {
+        text_ = s.toStdString();
+        toLocation();
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (step_ == Step::Second)
+            out.push_back(Line{p1_, cursor});
+        else if (step_ == Step::Location)
+            out.push_back(build(cursor));
+    }
+
+    std::optional<Vec2> base() const override
+    {
+        return step_ == Step::Second ? std::optional<Vec2>(p1_) : std::nullopt;
+    }
+
+private:
+    enum class Step { First, Second, Object, Location, Text, Angle };
+    enum class Orientation { Auto, Horizontal, Vertical, Rotated };
+
+    void toLocation()
+    {
+        step_ = Step::Location;
+        engine->setPrompt(aligned_ ? t("Specificare posizione della linea di quota o [Testo]:")
+                                   : t("Specificare posizione della linea di quota o [Testo/Orizzontale/Verticale/Ruotato]:"));
+    }
+
+    bool pickEnds(Vec2 p)
+    {
+        const auto id = pickObject(engine, p);
+        if (!id)
+            return false;
+        const Shape& shape = engine->document().entity(*id)->shape;
+        if (const auto* l = std::get_if<Line>(&shape)) {
+            p1_ = l->a;
+            p2_ = l->b;
+        } else if (const auto* pl = std::get_if<Polyline>(&shape)) {
+            // The segment under the pick box.
+            double best = std::numeric_limits<double>::infinity();
+            const size_t n = pl->points.size();
+            for (size_t i = 0; i < n; ++i) {
+                if (i + 1 == n && !pl->closed)
+                    break;
+                const Vec2 a = pl->points[i];
+                const Vec2 b = pl->points[(i + 1) % n];
+                const double d = distanceToSegment(p, a, b);
+                if (d < best) {
+                    best = d;
+                    p1_ = a;
+                    p2_ = b;
+                }
+            }
+        } else {
+            engine->message(t("Selezionare una linea o un segmento di polilinea."));
+            return false;
+        }
+        toLocation();
+        return true;
+    }
+
+    Dimension build(Vec2 location) const
+    {
+        Dimension d = newDimension(aligned_ ? Dimension::Kind::Aligned : Dimension::Kind::Linear);
+        d.p1 = p1_;
+        d.p2 = p2_;
+        d.location = location;
+        d.text = text_;
+        switch (orientation_) {
+        case Orientation::Auto: d.angle = aligned_ ? angleOf(p2_ - p1_) : autoAngle(location); break;
+        case Orientation::Horizontal: d.angle = 0.0; break;
+        case Orientation::Vertical: d.angle = kPi / 2.0; break;
+        case Orientation::Rotated: d.angle = rotation_; break;
+        }
+        return d;
+    }
+
+    // As in AutoCAD: a horizontal dimension when the cursor is above or
+    // below the two points, a vertical one when it is beside them.
+    double autoAngle(Vec2 location) const
+    {
+        const BBox box = BBox::fromCorners(p1_, p2_);
+        const double outX = std::max({box.min.x - location.x, location.x - box.max.x, 0.0});
+        const double outY = std::max({box.min.y - location.y, location.y - box.max.y, 0.0});
+        return outX > outY ? kPi / 2.0 : 0.0;
+    }
+
+    bool aligned_;
+    Step step_ = Step::First;
+    Orientation orientation_ = Orientation::Auto;
+    double rotation_ = 0.0;
+    Vec2 p1_, p2_;
+    std::string text_;
+};
+
+class DimRadialCommand : public Command {
+public:
+    explicit DimRadialCommand(bool diameter) : diameter_(diameter) {}
+
+    void start() override { engine->setPrompt(t("Selezionare arco o cerchio:")); }
+
+    bool point(Vec2 p) override
+    {
+        if (step_ == Step::Location) {
+            const Dimension d = build(p);
+            engine->document().add(d);
+            reportDimension(engine, d);
+            engine->finish();
+            return true;
+        }
+        if (step_ != Step::Pick)
+            return false;
+        const auto id = pickObject(engine, p);
+        if (!id)
+            return false;
+        const Shape& shape = engine->document().entity(*id)->shape;
+        if (const auto* c = std::get_if<Circle>(&shape)) {
+            center_ = c->center;
+            radius_ = c->radius;
+        } else if (const auto* a = std::get_if<Arc>(&shape)) {
+            center_ = a->center;
+            radius_ = a->radius;
+        } else {
+            engine->message(t("Selezionare un arco o un cerchio."));
+            return false;
+        }
+        toLocation();
+        return true;
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (step_ != Step::Location || !isAny(w, {"T", "TESTO", "TEXT"}))
+            return false;
+        step_ = Step::Text;
+        engine->setPrompt(t("Immettere testo di quota (<> = valore misurato):"));
+        return true;
+    }
+
+    void enter() override
+    {
+        if (step_ == Step::Text)
+            toLocation();
+        else
+            engine->finish();
+    }
+
+    bool wantsObjectPick() const override { return step_ == Step::Pick; }
+    bool wantsText() const override { return step_ == Step::Text; }
+
+    void text(const QString& s) override
+    {
+        text_ = s.toStdString();
+        toLocation();
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (step_ == Step::Location)
+            out.push_back(build(cursor));
+    }
+
+private:
+    enum class Step { Pick, Location, Text };
+
+    void toLocation()
+    {
+        step_ = Step::Location;
+        engine->setPrompt(t("Specificare posizione della linea di quota o [Testo]:"));
+    }
+
+    Dimension build(Vec2 location) const
+    {
+        Dimension d = newDimension(diameter_ ? Dimension::Kind::Diameter : Dimension::Kind::Radius);
+        Vec2 u = normalized(location - center_);
+        if (length(u) < kEps)
+            u = {1.0, 0.0};
+        d.p1 = center_;
+        d.p2 = center_ + u * radius_;
+        d.location = location;
+        d.text = text_;
+        return d;
+    }
+
+    bool diameter_;
+    Step step_ = Step::Pick;
+    Vec2 center_;
+    double radius_ = 0.0;
+    std::string text_;
+};
+
+class DimScaleCommand : public Command {
+public:
+    void start() override
+    {
+        engine->setPrompt(t("Immettere nuovo valore per DIMSCALE <%1>:").arg(gDimScale));
+    }
+
+    bool number(double value) override
+    {
+        if (value <= kEps) {
+            engine->message(t("Il valore deve essere positivo."));
+            return true;
+        }
+        gDimScale = value;
+        engine->finish();
+        return true;
+    }
+};
+
 // ---------------------------------------------------------------- view
 
 class ZoomCommand : public Command {
@@ -932,6 +1465,11 @@ std::unique_ptr<Command> makeOffsetCommand() { return std::make_unique<OffsetCom
 std::unique_ptr<Command> makeTrimCommand() { return std::make_unique<TrimExtendCommand>(false); }
 std::unique_ptr<Command> makeExtendCommand() { return std::make_unique<TrimExtendCommand>(true); }
 std::unique_ptr<Command> makeFilletCommand() { return std::make_unique<FilletCommand>(); }
+std::unique_ptr<Command> makeTextCommand() { return std::make_unique<TextCommand>(); }
+std::unique_ptr<Command> makeTextEditCommand() { return std::make_unique<TextEditCommand>(); }
+std::unique_ptr<Command> makeDimLinearCommand(bool aligned) { return std::make_unique<DimLinearCommand>(aligned); }
+std::unique_ptr<Command> makeDimRadialCommand(bool diameter) { return std::make_unique<DimRadialCommand>(diameter); }
+std::unique_ptr<Command> makeDimScaleCommand() { return std::make_unique<DimScaleCommand>(); }
 std::unique_ptr<Command> makeZoomCommand() { return std::make_unique<ZoomCommand>(); }
 std::unique_ptr<Command> makeLayerCommand() { return std::make_unique<LayerCommand>(); }
 

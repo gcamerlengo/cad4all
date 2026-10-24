@@ -2,6 +2,10 @@
 #include "shapes.h"
 
 #include <algorithm>
+#include <iomanip>
+#include <limits>
+#include <locale>
+#include <sstream>
 
 namespace cad {
 
@@ -67,6 +71,12 @@ std::vector<Piece> pieces(const Shape& shape)
                        if (pl.closed && n > 2)
                            out.push_back(Piece::segment(pl.points[n - 1], pl.points[0]));
                    },
+                   // Text is not a curve: it never cuts or snaps to other objects.
+                   [&](const Text&) {},
+                   [&](const Dimension& d) {
+                       for (const Line& l : dimensionGeometry(d).lines)
+                           out.push_back(Piece::segment(l.a, l.b));
+                   },
                },
                shape);
     return out;
@@ -105,7 +115,209 @@ Vec2 nearestOnPiece(const Piece& piece, Vec2 p)
     return distance(p, s) <= distance(p, e) ? s : e;
 }
 
+// Average advance of a character relative to the text height, measured on
+// common sans-serif fonts (capital height about 0.72 of the em).
+constexpr double kCharWidth = 0.8;
+
+bool insideText(const Text& text, Vec2 p)
+{
+    const auto c = textCorners(text);
+    const Vec2 d = c[1] - c[0];
+    const Vec2 up = c[3] - c[0];
+    const double along = dot(p - c[0], d);
+    const double across = dot(p - c[0], up);
+    return along >= 0.0 && along <= dot(d, d) && across >= 0.0 && across <= dot(up, up);
+}
+
+Polyline textOutline(const Text& text)
+{
+    const auto c = textCorners(text);
+    return Polyline{{c[0], c[1], c[2], c[3]}, true};
+}
+
+double distanceToText(const Text& text, Vec2 p)
+{
+    return insideText(text, p) ? 0.0 : distanceTo(textOutline(text), p);
+}
+
+size_t codePoints(const std::string& s)
+{
+    return static_cast<size_t>(std::count_if(s.begin(), s.end(), [](char c) { return (static_cast<unsigned char>(c) & 0xC0) != 0x80; }));
+}
+
+// Direction for text along `dir` that reads left to right (or bottom to top).
+Vec2 readable(Vec2 dir)
+{
+    if (dir.x < -1e-9 || (std::abs(dir.x) <= 1e-9 && dir.y < 0.0))
+        return dir * -1.0;
+    return dir;
+}
+
+std::array<Vec2, 3> arrowHead(Vec2 tip, Vec2 dir, double size)
+{
+    // ISO closed filled arrow: length `size`, width a third of it.
+    const Vec2 back = tip - dir * size;
+    const Vec2 side = perpendicular(dir) * (size / 6.0);
+    return {tip, back + side, back - side};
+}
+
+std::string labelText(const Dimension& d)
+{
+    std::string value = formatMeasurement(d.measurement());
+    if (d.kind == Dimension::Kind::Radius)
+        value = "R" + value;
+    else if (d.kind == Dimension::Kind::Diameter)
+        value = "\xC3\x98" + value;  // Ø in UTF-8
+    if (d.text.empty())
+        return value;
+    std::string out = d.text;
+    for (size_t pos = out.find("<>"); pos != std::string::npos; pos = out.find("<>", pos + value.size()))
+        out.replace(pos, 2, value);
+    return out;
+}
+
+void linearGeometry(const Dimension& d, DimensionGeometry& g)
+{
+    Vec2 dir = d.kind == Dimension::Kind::Aligned ? normalized(d.p2 - d.p1) : polar(1.0, d.angle);
+    if (length(dir) < kEps)
+        dir = {1.0, 0.0};
+    const Vec2 n = perpendicular(dir);
+    const Vec2 q1 = d.p1 + n * dot(d.location - d.p1, n);
+    const Vec2 q2 = d.p2 + n * dot(d.location - d.p2, n);
+    const double gap = d.arrowSize * 0.25;     // between object and extension line
+    const double beyond = d.arrowSize * 0.5;   // extension past the dimension line
+
+    for (const auto& [from, to] : {std::pair{d.p1, q1}, std::pair{d.p2, q2}}) {
+        const double len = distance(from, to);
+        if (len > gap) {
+            const Vec2 u = (to - from) * (1.0 / len);
+            g.lines.push_back(Line{from + u * gap, to + u * beyond});
+        }
+    }
+
+    const double span = distance(q1, q2);
+    const bool arrowsOutside = span < 2.5 * d.arrowSize;
+    if (span < kEps) {
+        g.lines.push_back(Line{q1, q2});
+    } else {
+        const Vec2 u = (q2 - q1) * (1.0 / span);
+        if (!arrowsOutside) {
+            g.lines.push_back(Line{q1, q2});
+            g.arrows.push_back(arrowHead(q1, u * -1.0, d.arrowSize));
+            g.arrows.push_back(arrowHead(q2, u, d.arrowSize));
+        } else {
+            // Not enough room: arrows outside, pointing in.
+            g.lines.push_back(Line{q1 - u * (2.0 * d.arrowSize), q2 + u * (2.0 * d.arrowSize)});
+            g.arrows.push_back(arrowHead(q1, u, d.arrowSize));
+            g.arrows.push_back(arrowHead(q2, u * -1.0, d.arrowSize));
+        }
+    }
+
+    const Vec2 rd = readable(dir);
+    g.label.align = Text::Align::Center;
+    g.label.height = d.textHeight;
+    g.label.rotation = angleOf(rd);
+    const Vec2 lift = perpendicular(rd) * (d.textHeight * 0.25);
+    const double w = estimatedTextWidth(g.label);
+    if (span >= w + 2.0 * d.arrowSize) {
+        g.label.position = midpoint(q1, q2) + lift;
+        return;
+    }
+    // The text does not fit between the extension lines: it goes beside the
+    // one further along the reading direction, over an extended dimension line.
+    const Vec2 far = dot(q2 - q1, rd) >= 0.0 ? q2 : q1;
+    const double start = (arrowsOutside ? 2.0 * d.arrowSize : 0.0) + d.textHeight * 0.5;
+    g.lines.push_back(Line{far, far + rd * (start + w)});
+    g.label.position = far + rd * (start + w / 2.0) + lift;
+}
+
+void radialGeometry(const Dimension& d, DimensionGeometry& g)
+{
+    const Vec2 c = d.p1;
+    const double r = distance(d.p1, d.p2);
+    Vec2 u = normalized(d.p2 - c);
+    if (length(u) < kEps)
+        u = {1.0, 0.0};
+    const Vec2 onCurve = c + u * r;
+    const Vec2 opposite = c - u * r;
+    const bool diameter = d.kind == Dimension::Kind::Diameter;
+    g.label.height = d.textHeight;
+
+    if (distance(d.location, c) > r + kEps) {
+        // Label outside: leader from the curve, short horizontal landing, text.
+        const double side = d.location.x >= c.x ? 1.0 : -1.0;
+        const Vec2 landingEnd = d.location + Vec2{side * d.arrowSize, 0.0};
+        g.lines.push_back(Line{onCurve, d.location});
+        g.lines.push_back(Line{d.location, landingEnd});
+        g.arrows.push_back(arrowHead(onCurve, u * -1.0, d.arrowSize));
+        g.label.align = side > 0.0 ? Text::Align::Left : Text::Align::Right;
+        g.label.position = landingEnd + Vec2{side * d.textHeight * 0.25, -d.textHeight / 2.0};
+        return;
+    }
+
+    // Label inside: the dimension line runs across (diameter) or from the centre.
+    g.lines.push_back(Line{diameter ? opposite : c, onCurve});
+    g.arrows.push_back(arrowHead(onCurve, u, d.arrowSize));
+    if (diameter)
+        g.arrows.push_back(arrowHead(opposite, u * -1.0, d.arrowSize));
+    g.label.align = Text::Align::Center;
+    g.label.position = d.location + Vec2{0.0, d.textHeight * 0.25};
+}
+
 } // namespace
+
+double Dimension::measurement() const
+{
+    switch (kind) {
+    case Kind::Linear: return std::abs(dot(p2 - p1, polar(1.0, angle)));
+    case Kind::Aligned: return distance(p1, p2);
+    case Kind::Radius: return distance(p1, p2);
+    case Kind::Diameter: return 2.0 * distance(p1, p2);
+    }
+    return 0.0;
+}
+
+std::string formatMeasurement(double value)
+{
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out << std::fixed << std::setprecision(2) << value;
+    std::string s = out.str();
+    while (!s.empty() && s.back() == '0')
+        s.pop_back();
+    if (!s.empty() && s.back() == '.')
+        s.pop_back();
+    if (s == "-0")
+        s = "0";
+    std::replace(s.begin(), s.end(), '.', ',');
+    return s;
+}
+
+double estimatedTextWidth(const Text& text)
+{
+    return static_cast<double>(codePoints(text.content)) * text.height * kCharWidth;
+}
+
+std::array<Vec2, 4> textCorners(const Text& text)
+{
+    const Vec2 d = polar(1.0, text.rotation);
+    const Vec2 up = perpendicular(d) * text.height;
+    const double w = estimatedTextWidth(text);
+    const double shift = text.align == Text::Align::Left ? 0.0 : text.align == Text::Align::Center ? w / 2.0 : w;
+    const Vec2 start = text.position - d * shift;
+    return {start, start + d * w, start + d * w + up, start + up};
+}
+
+DimensionGeometry dimensionGeometry(const Dimension& dim)
+{
+    DimensionGeometry g;
+    g.label.content = labelText(dim);
+    if (dim.kind == Dimension::Kind::Linear || dim.kind == Dimension::Kind::Aligned)
+        linearGeometry(dim, g);
+    else
+        radialGeometry(dim, g);
+    return g;
+}
 
 BBox boundingBox(const Shape& shape)
 {
@@ -132,6 +344,22 @@ BBox boundingBox(const Shape& shape)
                        for (Vec2 p : pl.points)
                            box.add(p);
                    },
+                   [&](const Text& t) {
+                       for (Vec2 p : textCorners(t))
+                           box.add(p);
+                   },
+                   [&](const Dimension& d) {
+                       const DimensionGeometry g = dimensionGeometry(d);
+                       for (const Line& l : g.lines) {
+                           box.add(l.a);
+                           box.add(l.b);
+                       }
+                       for (const auto& arrow : g.arrows)
+                           for (Vec2 p : arrow)
+                               box.add(p);
+                       for (Vec2 p : textCorners(g.label))
+                           box.add(p);
+                   },
                },
                shape);
     return box;
@@ -139,6 +367,8 @@ BBox boundingBox(const Shape& shape)
 
 Vec2 nearestPoint(const Shape& shape, Vec2 p)
 {
+    if (const auto* t = std::get_if<Text>(&shape))
+        return t->position;
     Vec2 best = p;
     double bestDist = std::numeric_limits<double>::infinity();
     for (const Piece& piece : pieces(shape)) {
@@ -154,7 +384,13 @@ Vec2 nearestPoint(const Shape& shape, Vec2 p)
 
 double distanceTo(const Shape& shape, Vec2 p)
 {
-    return distance(p, nearestPoint(shape, p));
+    // Text is picked anywhere inside its box, a dimension also by its label.
+    if (const auto* t = std::get_if<Text>(&shape))
+        return distanceToText(*t, p);
+    const double d = distance(p, nearestPoint(shape, p));
+    if (const auto* dim = std::get_if<Dimension>(&shape))
+        return std::min(d, distanceToText(dimensionGeometry(*dim).label, p));
+    return d;
 }
 
 Shape transformed(const Shape& shape, const Transform& t)
@@ -180,6 +416,37 @@ Shape transformed(const Shape& shape, const Transform& t)
                               r.points.reserve(pl.points.size());
                               for (Vec2 p : pl.points)
                                   r.points.push_back(t.apply(p));
+                              return r;
+                          },
+                          [&](const Text& tx) -> Shape {
+                              Text r = tx;
+                              r.height = tx.height * t.scaleFactor();
+                              const Vec2 d = polar(1.0, tx.rotation);
+                              const Vec2 nd = normalized(t.applyVector(d));
+                              r.rotation = angleOf(nd);
+                              r.position = t.apply(tx.position);
+                              if (t.isMirroring()) {
+                                  // Keep the text readable (AutoCAD MIRRTEXT = 0): the
+                                  // mirrored box is reused, read from its other side.
+                                  if (dot(nd, d) >= 0.0) {
+                                      r.position = t.apply(tx.position + perpendicular(d) * tx.height);
+                                  } else {
+                                      const double w = estimatedTextWidth(tx);
+                                      const double shift = tx.align == Text::Align::Left ? w : tx.align == Text::Align::Right ? -w : 0.0;
+                                      r.position = t.apply(tx.position + d * shift);
+                                      r.rotation = angleOf(nd * -1.0);
+                                  }
+                              }
+                              return r;
+                          },
+                          [&](const Dimension& dim) -> Shape {
+                              Dimension r = dim;
+                              r.p1 = t.apply(dim.p1);
+                              r.p2 = t.apply(dim.p2);
+                              r.location = t.apply(dim.location);
+                              r.angle = angleOf(t.applyVector(polar(1.0, dim.angle)));
+                              r.textHeight = dim.textHeight * t.scaleFactor();
+                              r.arrowSize = dim.arrowSize * t.scaleFactor();
                               return r;
                           },
                       },
@@ -223,6 +490,13 @@ void collectSnapPoints(const Shape& shape, unsigned mask, std::vector<SnapPoint>
                        if (pl.closed && n > 2)
                            add(midpoint(pl.points[n - 1], pl.points[0]), SnapMidpoint);
                    },
+                   [&](const Text& t) { add(t.position, SnapInsertion); },
+                   [&](const Dimension& d) {
+                       for (const Line& l : dimensionGeometry(d).lines) {
+                           add(l.a, SnapEndpoint);
+                           add(l.b, SnapEndpoint);
+                       }
+                   },
                },
                shape);
 }
@@ -251,6 +525,13 @@ bool crossesBox(const Shape& shape, const BBox& box)
         return false;
     if (box.contains(ext))
         return true;
+    if (const auto* t = std::get_if<Text>(&shape))
+        return crossesBox(textOutline(*t), box) || insideText(*t, box.center());
+    if (const auto* d = std::get_if<Dimension>(&shape)) {
+        const DimensionGeometry g = dimensionGeometry(*d);
+        return std::any_of(g.lines.begin(), g.lines.end(), [&](const Line& l) { return crossesBox(l, box); })
+            || crossesBox(g.label, box);
+    }
     const Polyline border{{box.min, {box.max.x, box.min.y}, box.max, {box.min.x, box.max.y}}, true};
     if (!intersections(shape, border).empty())
         return true;
