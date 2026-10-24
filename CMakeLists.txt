@@ -49,6 +49,10 @@ if(CAD4ALL_WITH_DWG)
     if(NOT MSVC)
         target_compile_options(${CAD4ALL_LIBREDWG_TARGET} PRIVATE -w)
     endif()
+    # Its config.h sets _POSIX_C_SOURCE, which on macOS hides memmem.
+    if(APPLE)
+        target_compile_definitions(${CAD4ALL_LIBREDWG_TARGET} PRIVATE _DARWIN_C_SOURCE)
+    endif()
 endif()
 
 # Our warning level, set after LibreDWG so it applies to our code only.
