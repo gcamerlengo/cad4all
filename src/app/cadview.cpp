@@ -76,6 +76,11 @@ QPointF CadView::toScreen(Vec2 w) const
     return {width() / 2.0 + (w.x - center_.x) * scale_, height() / 2.0 - (w.y - center_.y) * scale_};
 }
 
+BBox CadView::visibleArea() const
+{
+    return BBox::fromCorners(toWorld({0, 0}), toWorld(QPointF(width(), height())));
+}
+
 void CadView::setGridVisible(bool on)
 {
     grid_ = on;

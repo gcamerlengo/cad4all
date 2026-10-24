@@ -404,6 +404,7 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("HATCH"), {QStringLiteral("TRATTEGGIO"), QStringLiteral("TRATTEGGIA"), QStringLiteral("BHATCH"), QStringLiteral("H"), QStringLiteral("BH")}, [] { return makeHatchCommand(); });
     add(QStringLiteral("HATCHEDIT"), {QStringLiteral("MODIFICATRATTEGGIO"), QStringLiteral("HE")}, [] { return makeHatchEditCommand(); });
     add(QStringLiteral("ZOOM"), {QStringLiteral("Z")}, [] { return makeZoomCommand(); });
+    add(QStringLiteral("PLOT"), {QStringLiteral("STAMPA"), QStringLiteral("PRINT")}, [] { return makePlotCommand(); });
     add(QStringLiteral("LAYER"), {QStringLiteral("LA")}, [] { return makeLayerCommand(); });
 }
 

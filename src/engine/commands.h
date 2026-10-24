@@ -33,5 +33,6 @@ std::unique_ptr<Command> makeHatchCommand();
 std::unique_ptr<Command> makeHatchEditCommand();
 std::unique_ptr<Command> makeZoomCommand();
 std::unique_ptr<Command> makeLayerCommand();
+std::unique_ptr<Command> makePlotCommand();
 
 } // namespace cad

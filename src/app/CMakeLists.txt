@@ -3,11 +3,13 @@ qt_add_executable(cad4all
     mainwindow.h mainwindow.cpp
     cadview.h cadview.cpp
     drawingpainter.h drawingpainter.cpp
+    plot.h plot.cpp
+    plotdialog.h plotdialog.cpp
     commandline.h commandline.cpp
     layerpanel.h layerpanel.cpp
     icons.h icons.cpp
 )
-target_link_libraries(cad4all PRIVATE cad4all_core cad4all_io cad4all_engine Qt6::Widgets)
+target_link_libraries(cad4all PRIVATE cad4all_core cad4all_io cad4all_engine Qt6::Widgets Qt6::PrintSupport)
 target_compile_definitions(cad4all PRIVATE CAD4ALL_VERSION="${PROJECT_VERSION}")
 
 set_target_properties(cad4all PROPERTIES

@@ -100,6 +100,17 @@ QIcon make(const QString& name)
         };
     } else if (name == QLatin1String("rectangle")) {
         painter = [](QPainter& p) { p.drawRect(QRectF(3.5, 6.5, 17, 11)); };
+    } else if (name == QLatin1String("hatch")) {
+        painter = [](QPainter& p) {
+            p.drawRect(QRectF(3.5, 5.5, 17, 13));
+            accentPen(p);
+            QPen pen = p.pen();
+            pen.setWidthF(1.1);
+            p.setPen(pen);
+            p.setClipRect(QRectF(4.5, 6.5, 15, 11));
+            for (double x = -8; x < 22; x += 4)
+                p.drawLine(QPointF(x, 18), QPointF(x + 12, 6));
+        };
     } else if (name == QLatin1String("erase")) {
         painter = [](QPainter& p) {
             p.drawLine(QPointF(4, 18), QPointF(16, 6));

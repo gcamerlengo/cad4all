@@ -23,7 +23,7 @@ endif()
 
 find_package(Qt6 6.4 REQUIRED COMPONENTS Core)
 if(CAD4ALL_BUILD_APP)
-    find_package(Qt6 6.4 REQUIRED COMPONENTS Gui Widgets)
+    find_package(Qt6 6.4 REQUIRED COMPONENTS Gui Widgets PrintSupport)
 endif()
 qt_standard_project_setup()
 

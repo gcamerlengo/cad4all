@@ -7,6 +7,8 @@
 #include "layerpanel.h"
 #include "dxf.h"
 #include "nativeformat.h"
+#include "plot.h"
+#include "plotdialog.h"
 
 #include <QAction>
 #include <QApplication>
@@ -33,6 +35,11 @@ const QString kDxfFilter = QObject::tr("DXF R12 per AutoCAD e altri CAD (*.dxf)"
 bool isDxf(const QString& path)
 {
     return path.endsWith(QLatin1String(".dxf"), Qt::CaseInsensitive);
+}
+
+bool isPdf(const QString& path)
+{
+    return path.endsWith(QLatin1String(".pdf"), Qt::CaseInsensitive);
 }
 
 } // namespace
@@ -66,6 +73,7 @@ MainWindow::MainWindow()
     // While TEXT waits for the text itself, Space types a space.
     connect(&engine_, &CommandEngine::changed, input, [this, input] { input->setSpaceIsText(engine_.wantsText()); });
     connect(&engine_, &CommandEngine::settingsChanged, this, &MainWindow::updateToggles);
+    connect(&engine_, &CommandEngine::plotRequested, this, &MainWindow::plot, Qt::QueuedConnection);
     connect(&engine_, &CommandEngine::layerManagerRequested, this, [this] {
         layerDock_->show();
         layerDock_->raise();
@@ -103,6 +111,8 @@ void MainWindow::createActions()
     file->addAction(tr("Salva &con nome..."), QKeySequence::SaveAs, this, &MainWindow::saveAs);
     file->addAction(tr("Esporta &DXF..."), this, &MainWindow::exportDxf);
     file->addSeparator();
+    file->addAction(tr("S&tampa..."), QKeySequence::Print, this, &MainWindow::plot);
+    file->addSeparator();
     file->addAction(tr("Esegui sc&ript..."), this, &MainWindow::runScriptDialog);
     file->addSeparator();
     file->addAction(tr("&Esci"), QKeySequence::Quit, this, &QWidget::close);
@@ -129,9 +139,11 @@ void MainWindow::createActions()
         commandAction(tr("Cerchio"), QStringLiteral("CIRCLE"), icons::make(QStringLiteral("circle"))),
         commandAction(tr("Arco"), QStringLiteral("ARC"), icons::make(QStringLiteral("arc"))),
         commandAction(tr("Rettangolo"), QStringLiteral("RECTANG"), icons::make(QStringLiteral("rectangle"))),
+        commandAction(tr("Tratteggio"), QStringLiteral("HATCH"), icons::make(QStringLiteral("hatch"))),
     };
     draw->addActions(drawActions);
     drawBar->addActions(drawActions);
+    draw->addAction(commandAction(tr("Modifica tratteggio"), QStringLiteral("HATCHEDIT"), QIcon()));
 
     // Modify
     QMenu* modify = menuBar()->addMenu(tr("&Edita"));
@@ -319,10 +331,29 @@ bool MainWindow::saveAs()
 bool MainWindow::exportTo(const QString& path)
 {
     QString error;
-    const bool saved = isDxf(path) ? io::saveDxf(doc_, path, &error) : io::saveNative(doc_, path, &error);
+    bool saved = false;
+    if (isPdf(path)) {
+        // The whole drawing fitted on an A3 sheet, in black and white.
+        PlotSettings settings;
+        settings.paper = QPageSize::A3;
+        saved = writePdf(path, doc_, settings, doc_.extents(), &error);
+    } else {
+        saved = isDxf(path) ? io::saveDxf(doc_, path, &error) : io::saveNative(doc_, path, &error);
+    }
     if (!saved)
         commandLine_->appendMessage(tr("Impossibile salvare %1: %2").arg(path, error));
     return saved;
+}
+
+void MainWindow::plot()
+{
+    engine_.cancel();
+    const QString name = filePath_.isEmpty() ? tr("Senza nome") : QFileInfo(filePath_).completeBaseName();
+    PlotDialog dialog(doc_, doc_.extents(), view_->visibleArea(), name, this);
+    const QString result = dialog.plot();
+    if (!result.isEmpty())
+        commandLine_->appendMessage(result);
+    commandLine_->input()->setFocus();
 }
 
 void MainWindow::exportDxf()

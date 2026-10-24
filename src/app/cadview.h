@@ -21,6 +21,8 @@ public:
     void setGridVisible(bool on);
 
     cad::Vec2 toWorld(QPointF screen) const;
+    // The part of the drawing shown.
+    cad::BBox visibleArea() const;
     QPointF toScreen(cad::Vec2 world) const;
 
 signals:

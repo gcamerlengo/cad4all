@@ -2071,6 +2071,15 @@ public:
     }
 };
 
+class PlotCommand : public Command {
+public:
+    void start() override
+    {
+        engine->finish();
+        engine->requestPlot();
+    }
+};
+
 class LayerCommand : public Command {
 public:
     void start() override
@@ -2103,6 +2112,7 @@ std::unique_ptr<Command> makeTextEditCommand() { return std::make_unique<TextEdi
 std::unique_ptr<Command> makeDimLinearCommand(bool aligned) { return std::make_unique<DimLinearCommand>(aligned); }
 std::unique_ptr<Command> makeDimRadialCommand(bool diameter) { return std::make_unique<DimRadialCommand>(diameter); }
 std::unique_ptr<Command> makeDimScaleCommand() { return std::make_unique<DimScaleCommand>(); }
+std::unique_ptr<Command> makePlotCommand() { return std::make_unique<PlotCommand>(); }
 std::unique_ptr<Command> makeHatchCommand() { return std::make_unique<HatchCommand>(); }
 std::unique_ptr<Command> makeHatchEditCommand() { return std::make_unique<HatchEditCommand>(); }
 std::unique_ptr<Command> makeZoomCommand() { return std::make_unique<ZoomCommand>(); }
