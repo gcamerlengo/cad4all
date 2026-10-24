@@ -12,7 +12,7 @@ ctest --test-dir build --output-on-failure
 
 LibreDWG is fetched with git and built at configure time (`CAD4ALL_WITH_DWG`, default ON); to reuse a local clone pass `-DFETCHCONTENT_SOURCE_DIR_LIBREDWG=/path/to/libredwg`. Only `src/io/dwg_shim.c` touches LibreDWG.
 
-Screenshot without a display: `QT_QPA_PLATFORM=offscreen ./build/src/app/CAD4All --script docs/esempi/pianta.scr --screenshot out.png`. `--export out.dxf|out.pdf|out.c4a` writes the drawing and exits when no screenshot is asked.
+Screenshot without a display: `QT_QPA_PLATFORM=offscreen ./build/src/app/CAD4All --script docs/esempi/pianta.scr --screenshot out.png`. `--export out.dxf|out.pdf|out.c4a` writes the drawing and exits when no screenshot is asked. `--screenshot3d out.png` saves the 3D view (1200×800).
 
 ## Layout and rules
 
@@ -21,3 +21,4 @@ Screenshot without a display: `QT_QPA_PLATFORM=offscreen ./build/src/app/CAD4All
 - New commands: subclass `Command` (or `SelectionCommand`) in `src/engine/commands.cpp`, register name + Italian name + alias in `CommandEngine::registerCommands`, add a test in `tests/commands_test.cpp`.
 - User-facing text is Italian, prompts follow Italian AutoCAD ("Specificare ..."). Code, comments and identifiers are English.
 - Each source file starts with `// SPDX-License-Identifier: GPL-3.0-or-later`.
+- Walls, doors and windows: `Wall` (with its `Opening`s) is a shape; joins, plan symbols and the 3D mesh are computed in `src/core/building.cpp`. The 3D view (`src/app/view3d.cpp`) uses the software renderer in `render3d.cpp`, so it needs no OpenGL.

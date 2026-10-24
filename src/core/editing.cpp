@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "editing.h"
 
+#include "building.h"
+
 #include <algorithm>
 
 namespace cad {
@@ -895,6 +897,20 @@ Shape stretchShape(const Shape& shape, const BBox& window, Vec2 offset)
         Hatch r = *h;
         for (Polyline& loop : r.loops)
             loop = std::get<Polyline>(stretchShape(loop, window, offset));
+        return r;
+    }
+    if (const auto* w = std::get_if<Wall>(&shape)) {
+        Wall r = *w;
+        r.start = move(w->start);
+        r.end = move(w->end);
+        if (window.contains(w->start) && window.contains(w->end))
+            return r;
+        // Doors and windows stay where they are in the drawing, inside the wall.
+        const double len = wallLength(r);
+        for (Opening& o : r.openings) {
+            const double t = wallParam(r, wallPoint(*w, o.position));
+            o.position = std::clamp(t, std::min(o.width / 2.0, len / 2.0), std::max(len - o.width / 2.0, len / 2.0));
+        }
         return r;
     }
     if (const auto* d = std::get_if<Dimension>(&shape)) {

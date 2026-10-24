@@ -403,6 +403,11 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("DIMSCALE"), {QStringLiteral("SCALAQUOTE")}, [] { return makeDimScaleCommand(); });
     add(QStringLiteral("HATCH"), {QStringLiteral("TRATTEGGIO"), QStringLiteral("TRATTEGGIA"), QStringLiteral("BHATCH"), QStringLiteral("H"), QStringLiteral("BH")}, [] { return makeHatchCommand(); });
     add(QStringLiteral("HATCHEDIT"), {QStringLiteral("MODIFICATRATTEGGIO"), QStringLiteral("HE")}, [] { return makeHatchEditCommand(); });
+    add(QStringLiteral("WALL"), {QStringLiteral("MURO"), QStringLiteral("MU")}, [] { return makeWallCommand(); });
+    add(QStringLiteral("DOOR"), {QStringLiteral("PORTA"), QStringLiteral("PO")}, [] { return makeDoorCommand(); });
+    add(QStringLiteral("WINDOW"), {QStringLiteral("FINESTRA"), QStringLiteral("FI")}, [] { return makeWindowCommand(); });
+    add(QStringLiteral("WALLEDIT"), {QStringLiteral("MODIFICAMURO"), QStringLiteral("MM")}, [] { return makeWallEditCommand(); });
+    add(QStringLiteral("VIEW3D"), {QStringLiteral("VISTA3D"), QStringLiteral("3D")}, [] { return makeView3dCommand(); });
     add(QStringLiteral("ZOOM"), {QStringLiteral("Z")}, [] { return makeZoomCommand(); });
     add(QStringLiteral("PLOT"), {QStringLiteral("STAMPA"), QStringLiteral("PRINT")}, [] { return makePlotCommand(); });
     add(QStringLiteral("LAYER"), {QStringLiteral("LA")}, [] { return makeLayerCommand(); });

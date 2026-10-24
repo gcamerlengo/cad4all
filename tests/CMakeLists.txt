@@ -18,6 +18,7 @@ add_executable(cad4all_tests
     dxf_test.cpp
     dwg_test.cpp
     hatch_test.cpp
+    building_test.cpp
     commands_test.cpp
     editing_test.cpp
 )

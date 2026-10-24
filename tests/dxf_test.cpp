@@ -265,3 +265,25 @@ TEST(Dxf, WritesHatchesAsBlocks)
     EXPECT_GT(shapes<Line>(back).size(), 3u);
     EXPECT_FALSE(shapes<Polyline>(back).empty());
 }
+
+TEST(Dxf, WritesWallsAsTheirPlan)
+{
+    Document doc;
+    Wall a;
+    a.start = {0, 0};
+    a.end = {3000, 0};
+    Opening door;
+    door.position = 1500;
+    a.openings.push_back(door);
+    Wall b = a;
+    b.start = {3000, 0};
+    b.end = {3000, 2000};
+    b.openings.clear();
+    doc.add(a);
+    doc.add(b);
+    Document back;
+    ASSERT_TRUE(io::fromDxf(io::toDxf(doc), back));
+    // Wall a: 4 face pieces, 1 free end, 2 jambs, the leaf; wall b: 2 faces, 1 end.
+    EXPECT_EQ(shapes<Line>(back).size(), 11u);
+    EXPECT_EQ(shapes<Arc>(back).size(), 1u);
+}

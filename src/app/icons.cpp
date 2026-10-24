@@ -111,6 +111,47 @@ QIcon make(const QString& name)
             for (double x = -8; x < 22; x += 4)
                 p.drawLine(QPointF(x, 18), QPointF(x + 12, 6));
         };
+    } else if (name == QLatin1String("wall")) {
+        painter = [](QPainter& p) {
+            p.drawPolyline(QPolygonF({{3, 20.5}, {3, 3.5}, {20.5, 3.5}}));
+            p.drawPolyline(QPolygonF({{8.5, 20.5}, {8.5, 8.5}, {20.5, 8.5}}));
+            accentPen(p);
+            QPen pen = p.pen();
+            pen.setWidthF(1.1);
+            p.setPen(pen);
+            p.setClipRect(QRectF(3.5, 4, 17, 16.5));
+            QPainterPath inside;
+            inside.addPolygon(QPolygonF({{3.5, 20.5}, {3.5, 4}, {20.5, 4}, {20.5, 8}, {8, 8}, {8, 20.5}}));
+            p.setClipPath(inside);
+            for (double x = -20; x < 24; x += 3.5)
+                p.drawLine(QPointF(x, 22), QPointF(x + 20, 2));
+        };
+    } else if (name == QLatin1String("door")) {
+        painter = [](QPainter& p) {
+            p.drawLine(QPointF(2, 19.5), QPointF(6, 19.5));
+            p.drawLine(QPointF(18, 19.5), QPointF(22, 19.5));
+            accentPen(p);
+            p.drawLine(QPointF(6, 19.5), QPointF(6, 7.5));
+            QPainterPath swing;
+            swing.moveTo(6, 7.5);
+            swing.arcTo(QRectF(-6, 7.5, 24, 24), 90, -90);
+            p.drawPath(swing);
+        };
+    } else if (name == QLatin1String("window")) {
+        painter = [](QPainter& p) {
+            p.drawRect(QRectF(2.5, 9.5, 19, 5));
+            accentPen(p);
+            p.drawLine(QPointF(7.5, 9.5), QPointF(7.5, 14.5));
+            p.drawLine(QPointF(16.5, 9.5), QPointF(16.5, 14.5));
+            p.drawLine(QPointF(7.5, 12), QPointF(16.5, 12));
+        };
+    } else if (name == QLatin1String("view3d")) {
+        painter = [](QPainter& p) {
+            p.drawPolygon(QPolygonF({{12, 3}, {20.5, 7.5}, {20.5, 16.5}, {12, 21}, {3.5, 16.5}, {3.5, 7.5}}));
+            accentPen(p);
+            p.drawPolyline(QPolygonF({{3.5, 7.5}, {12, 12}, {20.5, 7.5}}));
+            p.drawLine(QPointF(12, 12), QPointF(12, 21));
+        };
     } else if (name == QLatin1String("erase")) {
         painter = [](QPainter& p) {
             p.drawLine(QPointF(4, 18), QPointF(16, 6));

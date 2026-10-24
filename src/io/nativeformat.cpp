@@ -180,6 +180,31 @@ QJsonObject shapeToJson(const Shape& shape)
             lines.append(lo);
         }
         o[QStringLiteral("lines")] = lines;
+    } else if (const auto* w = std::get_if<Wall>(&shape)) {
+        o[QStringLiteral("type")] = QStringLiteral("wall");
+        o[QStringLiteral("start")] = toJson(w->start);
+        o[QStringLiteral("end")] = toJson(w->end);
+        o[QStringLiteral("thickness")] = w->thickness;
+        o[QStringLiteral("height")] = w->height;
+        o[QStringLiteral("justification")] = w->justification == Wall::Justification::Left    ? QStringLiteral("left")
+                                             : w->justification == Wall::Justification::Right ? QStringLiteral("right")
+                                                                                              : QStringLiteral("center");
+        QJsonArray openings;
+        for (const Opening& op : w->openings) {
+            QJsonObject oo;
+            oo[QStringLiteral("kind")] = op.kind == Opening::Kind::Door ? QStringLiteral("door") : QStringLiteral("window");
+            oo[QStringLiteral("position")] = op.position;
+            oo[QStringLiteral("width")] = op.width;
+            oo[QStringLiteral("height")] = op.height;
+            oo[QStringLiteral("sill")] = op.sill;
+            if (op.swingRight)
+                oo[QStringLiteral("swingRight")] = true;
+            if (op.hingeAtEnd)
+                oo[QStringLiteral("hingeAtEnd")] = true;
+            openings.append(oo);
+        }
+        if (!openings.isEmpty())
+            o[QStringLiteral("openings")] = openings;
     }
     return o;
 }
@@ -249,6 +274,31 @@ std::optional<Shape> shapeFromJson(const QJsonObject& o)
         }
         if (!h.loops.empty() && h.scale > 0.0)
             return h;
+    } else if (type == QLatin1String("wall")) {
+        Wall w;
+        w.thickness = o[QStringLiteral("thickness")].toDouble(-1.0);
+        w.height = o[QStringLiteral("height")].toDouble(-1.0);
+        const QString just = o[QStringLiteral("justification")].toString();
+        if (just == QLatin1String("left"))
+            w.justification = Wall::Justification::Left;
+        else if (just == QLatin1String("right"))
+            w.justification = Wall::Justification::Right;
+        for (const QJsonValue& v : o[QStringLiteral("openings")].toArray()) {
+            const QJsonObject oo = v.toObject();
+            Opening op;
+            op.kind = oo[QStringLiteral("kind")].toString() == QLatin1String("window") ? Opening::Kind::Window : Opening::Kind::Door;
+            op.position = oo[QStringLiteral("position")].toDouble();
+            op.width = oo[QStringLiteral("width")].toDouble();
+            op.height = oo[QStringLiteral("height")].toDouble();
+            op.sill = oo[QStringLiteral("sill")].toDouble();
+            op.swingRight = oo[QStringLiteral("swingRight")].toBool();
+            op.hingeAtEnd = oo[QStringLiteral("hingeAtEnd")].toBool();
+            if (op.width > 0.0 && op.height > 0.0)
+                w.openings.push_back(op);
+        }
+        if (fromJson(o[QStringLiteral("start")], w.start) && fromJson(o[QStringLiteral("end")], w.end) && w.thickness > 0.0
+            && w.height > 0.0)
+            return w;
     }
     return std::nullopt;
 }

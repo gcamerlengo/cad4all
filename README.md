@@ -1,14 +1,15 @@
 # CAD4All
 
-CAD 2D e 3D parametrico per tecnici, open source. Il disegno 2D funziona come AutoCAD (comandi, alias, riga di comando, snap); il 3D parametrico in stile ArchiCAD arriverà dalle prossime versioni.
+CAD 2D e 3D parametrico per tecnici, open source. Il disegno 2D funziona come AutoCAD (comandi, alias, riga di comando, snap); il 3D parametrico è in stile ArchiCAD: si disegnano in pianta muri, porte e finestre e la vista 3D accanto si aggiorna mentre si disegna.
 
 ![CAD4All 0.1](docs/immagini/cad4all-0.1.png)
 
 ## Stato
 
-Versione 0.1, nucleo 2D. Funziona già:
+Versione 0.1. Funziona già:
 
 - **Disegno:** linea, polilinea con tratti dritti e archi, cerchio (raggio o diametro), arco per tre punti, rettangolo, tratteggio (contorno trovato cliccando un punto interno, con le isole, o scegliendo oggetti chiusi; 17 motivi ISO tra cui ANSI31, NET, BRICK, EARTH e il pieno SOLID).
+- **Architettura:** muri con spessore, altezza e giustificazione (centro, sinistra, destra) che si uniscono da soli negli angoli a L, negli incroci a T e quando proseguono dritti; porte con lato e verso di apertura e finestre con davanzale, che forano il muro; vista 3D con rotazione, spostamento e zoom.
 - **Modifica:** cancella, sposta, copia (multipla), ruota, scala, specchio, offset (a distanza o per punto), taglia, estendi, raccordo tra linee, archi e cerchi (con raggio o a spigolo vivo), cima tra linee (due distanze o lunghezza e angolo), raccordo e cima su tutti gli angoli di una polilinea, stira con finestra interseca.
 - **Annotazioni:** testo su una o più righe (allineato a sinistra, al centro o a destra, con rotazione), quote lineari (orizzontali, verticali, ruotate), allineate, di raggio e di diametro, con testo personalizzabile e scala delle quote.
 - **Precisione:** coordinate assolute e relative (`10,20`, `@5,0`, `@10<45`), inserimento diretto della distanza, snap ad oggetto (fine, punto medio, centro, quadrante, intersezione, inserimento), orto.
@@ -16,7 +17,7 @@ Versione 0.1, nucleo 2D. Funziona già:
 - **Organizzazione:** layer con colore, visibilità e blocco.
 - **File:** formato nativo `.c4a` (JSON leggibile), apertura dei DWG di AutoCAD, apertura e salvataggio DXF, stampa su stampante e in PDF in scala, annulla e ripristina illimitati, script di comandi `.scr`.
 
-In arrivo: muri, porte e finestre parametrici in 3D.
+In arrivo: solai, piani dell'edificio, tetti e scale; esportazione del modello 3D.
 
 ## Comandi
 
@@ -31,6 +32,11 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | RETTANGOLO / RECTANG | REC | |
 | TRATTEGGIO / HATCH | H, BH | punto interno o Oggetti, Motivo (? per l'elenco), Scala, ANgolo; Invio crea il tratteggio |
 | MODIFICATRATTEGGIO / HATCHEDIT | HE | Motivo, Scala, ANgolo di un tratteggio esistente |
+| MURO / WALL | MU | Spessore, Altezza, Giustificazione (Centro/Sinistra/Destra), Chiudi, ANnulla; un muro per ogni tratto |
+| PORTA / DOOR | PO | punto sul muro (centro della porta), poi lato di apertura; Larghezza, Altezza |
+| FINESTRA / WINDOW | FI | punto sul muro (centro della finestra); Larghezza, Altezza, Davanzale |
+| MODIFICAMURO / WALLEDIT | MM | Spessore, Altezza, Giustificazione di un muro, Elimina apertura |
+| VISTA3D / VIEW3D | 3D | apre la vista 3D |
 | CANCELLA / ERASE | E | (anche tasto Canc) |
 | SPOSTA / MOVE | M | |
 | COPIA / COPY | CO, CP | Esci |
@@ -86,6 +92,18 @@ File > Salva con estensione `.dxf` o File > Esporta DXF scrivono un DXF R12, che
 
 ![Polilinee con archi, raccordi e cime](docs/immagini/polilinee.png)
 
+## Muri, porte e finestre
+
+MURO (alias MU) disegna una catena di muri come LINEA: ogni tratto è un muro. Spessore, altezza e giustificazione (dove passa la linea che si disegna: in asse, sulla faccia sinistra o sulla faccia destra) restano per i muri successivi. I muri che si toccano si uniscono da soli: a L negli angoli, a T quando un muro finisce contro un altro, e proseguono senza giunti se sono in linea. Le misure sono nell'unità del disegno: i valori iniziali (spessore 300, altezza 2700, porta 900 × 2100, finestra 1200 × 1400 con davanzale a 900) sono in millimetri.
+
+PORTA e FINESTRA si mettono cliccando sul muro, nel punto che diventa il centro dell'apertura (lo snap al punto medio la centra nel muro). Per la porta un secondo clic indica dove apre: la parte del muro verso cui gira e lo stipite su cui è incernierata. MODIFICAMURO cambia un muro già disegnato o toglie una sua apertura; SPOSTA, RUOTA, SPECCHIO, SCALA e STIRA funzionano anche sui muri, con le loro porte e finestre.
+
+La vista 3D si apre da sola con il primo muro (o con VISTA3D, o da Architettura > Vista 3D): si ruota trascinando, si sposta con il tasto destro o centrale, la rotella fa lo zoom e il doppio clic mostra tutto. Nel DXF i muri escono come le linee e gli archi della pianta. L'esempio [casa.scr](docs/esempi/casa.scr) disegna una piccola casa.
+
+![Pianta con muri, porte e finestre](docs/immagini/casa.png)
+
+![La stessa casa in 3D](docs/immagini/casa-3d.png)
+
 ## Tratteggi
 
 TRATTEGGIO (alias H) chiede un punto interno: il contorno chiuso più piccolo attorno al punto viene trovato da solo, anche se è fatto di linee separate che si incrociano, e gli oggetti chiusi al suo interno (un tavolo, un pilastro) restano vuoti. Si possono cliccare più zone, Invio crea il tratteggio. I motivi hanno le misure di AutoCAD in millimetri (`acadiso.pat`): per un disegno in centimetri o in metri la Scala va aumentata; se il motivo è troppo fitto CAD4All lo dice e suggerisce una scala.
@@ -103,7 +121,7 @@ File > Stampa (Ctrl+P, o il comando STAMPA) stampa su una stampante o salva un P
 | `src/core` | Geometria, entità e documento con annulla; C++ puro, senza Qt |
 | `src/io` | Lettura e scrittura dei file (formato nativo, DXF, DWG con LibreDWG) |
 | `src/engine` | Motore dei comandi e comandi stile AutoCAD (usa solo QtCore, si prova senza finestra) |
-| `src/app` | Interfaccia Qt: vista di disegno, riga di comando, pannello layer, stampa |
+| `src/app` | Interfaccia Qt: vista di disegno, vista 3D, riga di comando, pannello layer, stampa |
 | `tests` | Test automatici (GoogleTest) |
 
 ## Licenza

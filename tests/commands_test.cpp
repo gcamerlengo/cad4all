@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Drives the command engine the way a user does from the command line.
 #include "commandengine.h"
+#include "building.h"
 #include "hatch.h"
 
 #include <gtest/gtest.h>
@@ -469,4 +470,84 @@ TEST_F(Commands, HatchBySelectingObjects)
     ASSERT_EQ(hatches[0].loops.size(), 2u);
     EXPECT_TRUE(insideHatch(hatches[0], {3, 0}));
     EXPECT_FALSE(insideHatch(hatches[0], {0, 0}));
+}
+
+TEST_F(Commands, WallChainWithOptions)
+{
+    type({"MURO", "S", "250", "A", "3000", "G", "S", "0,0", "5000,0", "@0,4000", "AN", "5000,3000", "@-5000,0", "C"});
+    EXPECT_FALSE(engine.isActive());
+    const auto walls = shapes<Wall>();
+    ASSERT_EQ(walls.size(), 4u);
+    EXPECT_DOUBLE_EQ(walls[0].thickness, 250);
+    EXPECT_DOUBLE_EQ(walls[0].height, 3000);
+    EXPECT_EQ(walls[0].justification, Wall::Justification::Left);
+    EXPECT_EQ(walls[1].end, (Vec2{5000, 3000}));
+    EXPECT_EQ(walls[3].end, (Vec2{0, 0}));
+    // All four corners are joined.
+    for (const WallFaces& f : joinWalls(walls))
+        EXPECT_TRUE(f.startJoined && f.endJoined);
+    type({"U"});
+    EXPECT_TRUE(shapes<Wall>().empty());
+    type({"MU", "S", "300", "A", "2700", "G", "C", ""});
+}
+
+TEST_F(Commands, DoorsAndWindows)
+{
+    type({"MURO", "0,0", "6000,0", ""});
+    engine.setPickTolerance(10);
+    // A door near the start is moved inside the wall; the side is picked.
+    type({"PORTA", "L", "1000", "100,50", "300,-500", ""});
+    auto w = shapes<Wall>()[0];
+    ASSERT_EQ(w.openings.size(), 1u);
+    EXPECT_DOUBLE_EQ(w.openings[0].position, 500);
+    EXPECT_DOUBLE_EQ(w.openings[0].width, 1000);
+    EXPECT_TRUE(w.openings[0].swingRight);
+    EXPECT_FALSE(w.openings[0].hingeAtEnd);
+
+    // Overlapping and off-wall points are refused, Enter takes the default side.
+    type({"PO", "600,0", "3000,5000", "3000,0", "", ""});
+    w = shapes<Wall>()[0];
+    ASSERT_EQ(w.openings.size(), 2u);
+    EXPECT_FALSE(w.openings[1].swingRight);
+
+    type({"FINESTRA", "D", "1000", "A", "1200", "5000,0", ""});
+    w = shapes<Wall>()[0];
+    ASSERT_EQ(w.openings.size(), 3u);
+    EXPECT_EQ(w.openings[2].kind, Opening::Kind::Window);
+    EXPECT_DOUBLE_EQ(w.openings[2].sill, 1000);
+    EXPECT_DOUBLE_EQ(w.openings[2].height, 1200);
+
+    type({"MODIFICAMURO", "4000,0", "S", "400", "E", "3000,0", "A", "3500", ""});
+    w = shapes<Wall>()[0];
+    EXPECT_DOUBLE_EQ(w.thickness, 400);
+    EXPECT_DOUBLE_EQ(w.height, 3500);
+    ASSERT_EQ(w.openings.size(), 2u);
+    EXPECT_EQ(w.openings[1].kind, Opening::Kind::Window);
+    type({"PORTA", "L", "900", "", "FI", "D", "900", "A", "1400", ""});
+}
+
+TEST_F(Commands, EditingCommandsAcceptWalls)
+{
+    type({"MURO", "0,0", "5000,0", "5000,4000", ""});
+    type({"L", "2500,-1000", "2500,1000", ""});
+    engine.setPickTolerance(10);
+    // Commands made for lines and arcs leave walls alone, without failing.
+    type({"OFFSET", "500", "2500,0", "2500,500", ""});
+    type({"TAGLIA", "", "2500,0", ""});
+    type({"ESTENDI", "", "2500,0", ""});
+    type({"RACCORDO", "2500,0", "5000,2000", ""});
+    EXPECT_EQ(shapes<Wall>().size(), 2u);
+    // Moving, rotating, stretching and scaling do work.
+    const EntityId first = doc.entities().begin()->first;
+    engine.select({first});
+    type({"SPOSTA", "0,0", "100,0"});
+    EXPECT_EQ(shapes<Wall>()[0].start, (Vec2{100, 0}));
+    engine.select({first});
+    type({"RUOTA", "0,0", "90"});
+    EXPECT_NEAR(shapes<Wall>()[0].end.y, 5100, 1e-9);
+    type({"STIRA", "-500,5000", "500,5200", "0,0", "0,1000"});
+    EXPECT_NEAR(shapes<Wall>()[0].end.y, 6100, 1e-9);
+    engine.select({first});
+    type({"SCALA", "0,0", "2"});
+    EXPECT_DOUBLE_EQ(shapes<Wall>()[0].thickness, 600);
 }

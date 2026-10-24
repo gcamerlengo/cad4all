@@ -10,6 +10,7 @@
 #include "nativeformat.h"
 #include "plot.h"
 #include "plotdialog.h"
+#include "view3d.h"
 
 #include <QAction>
 #include <QApplication>
@@ -69,6 +70,13 @@ MainWindow::MainWindow()
     layerDock_->setWidget(layerPanel_);
     addDockWidget(Qt::RightDockWidgetArea, layerDock_);
 
+    view3d_ = new View3D(doc_, this);
+    view3dDock_ = new QDockWidget(tr("Vista 3D"), this);
+    view3dDock_->setObjectName(QStringLiteral("view3dDock"));
+    view3dDock_->setWidget(view3d_);
+    addDockWidget(Qt::RightDockWidgetArea, view3dDock_);
+    view3dDock_->hide();
+
     CommandInput* input = commandLine_->input();
     connect(input, &CommandInput::submitted, &engine_, &CommandEngine::submit);
     connect(input, &CommandInput::escapePressed, &engine_, &CommandEngine::cancel);
@@ -80,6 +88,12 @@ MainWindow::MainWindow()
     connect(&engine_, &CommandEngine::changed, input, [this, input] { input->setSpaceIsText(engine_.wantsText()); });
     connect(&engine_, &CommandEngine::settingsChanged, this, &MainWindow::updateToggles);
     connect(&engine_, &CommandEngine::plotRequested, this, &MainWindow::plot, Qt::QueuedConnection);
+    connect(&engine_, &CommandEngine::changed, this, [this] {
+        view3d_->refresh();
+        if (view3d_->hasModel() && !view3dShown_)
+            showView3d();
+    });
+    connect(&engine_, &CommandEngine::view3dRequested, this, &MainWindow::showView3d);
     connect(&engine_, &CommandEngine::layerManagerRequested, this, [this] {
         layerDock_->show();
         layerDock_->raise();
@@ -105,6 +119,14 @@ QAction* MainWindow::commandAction(const QString& text, const QString& command, 
         commandLine_->input()->setFocus();
     });
     return action;
+}
+
+void MainWindow::showView3d()
+{
+    view3dShown_ = true;
+    view3dDock_->show();
+    view3dDock_->raise();
+    view3d_->refresh();
 }
 
 void MainWindow::createActions()
@@ -150,6 +172,23 @@ void MainWindow::createActions()
     draw->addActions(drawActions);
     drawBar->addActions(drawActions);
     draw->addAction(commandAction(tr("Modifica tratteggio"), QStringLiteral("HATCHEDIT"), QIcon()));
+
+    // Architecture
+    QMenu* architecture = menuBar()->addMenu(tr("A&rchitettura"));
+    QToolBar* architectureBar = addToolBar(tr("Architettura"));
+    architectureBar->setObjectName(QStringLiteral("architectureToolBar"));
+    const QList<QAction*> architectureActions = {
+        commandAction(tr("Muro"), QStringLiteral("WALL"), icons::make(QStringLiteral("wall"))),
+        commandAction(tr("Porta"), QStringLiteral("DOOR"), icons::make(QStringLiteral("door"))),
+        commandAction(tr("Finestra"), QStringLiteral("WINDOW"), icons::make(QStringLiteral("window"))),
+    };
+    architecture->addActions(architectureActions);
+    architectureBar->addActions(architectureActions);
+    architecture->addAction(commandAction(tr("Modifica muro"), QStringLiteral("WALLEDIT"), QIcon()));
+    architecture->addSeparator();
+    QAction* show3d = architecture->addAction(icons::make(QStringLiteral("view3d")), tr("Vista &3D"), this, &MainWindow::showView3d);
+    show3d->setToolTip(tr("Vista 3D (VISTA3D)"));
+    architectureBar->addAction(show3d);
 
     // Modify
     QMenu* modify = menuBar()->addMenu(tr("&Edita"));
@@ -216,6 +255,7 @@ void MainWindow::createActions()
                             [this](bool on) { engine_.setOrthoEnabled(on); });
     viewMenu->addSeparator();
     viewMenu->addAction(layerDock_->toggleViewAction());
+    viewMenu->addAction(view3dDock_->toggleViewAction());
 
     // The status bar buttons share these actions.
     osnapButton_ = new QToolButton(this);

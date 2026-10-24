@@ -97,6 +97,7 @@ public:
     void requestZoomExtents() { emit zoomExtentsRequested(); }
     void requestLayerManager() { emit layerManagerRequested(); }
     void requestPlot() { emit plotRequested(); }
+    void requestView3d() { emit view3dRequested(); }
 
 signals:
     void promptChanged(const QString& prompt);
@@ -106,6 +107,7 @@ signals:
     void zoomExtentsRequested();
     void layerManagerRequested();
     void plotRequested();
+    void view3dRequested();
     void settingsChanged();
 
 private:

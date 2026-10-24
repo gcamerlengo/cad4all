@@ -17,6 +17,14 @@ constexpr double kMinPatternSpacing = 2.0;
 
 } // namespace
 
+BBox drawnBox(const Shape& shape)
+{
+    const BBox box = boundingBox(shape);
+    if (const auto* w = std::get_if<Wall>(&shape))
+        return box.inflated(4.0 * w->thickness);
+    return box;
+}
+
 DrawingPainter::DrawingPainter(QPainter& painter, Vec2 center, double scale, QPointF deviceCenter)
     : p_(painter), center_(center), scale_(scale), deviceCenter_(deviceCenter)
 {
@@ -98,7 +106,28 @@ void DrawingPainter::drawShape(const Shape& shape)
         drawText(g.label);
     } else if (const auto* h = std::get_if<Hatch>(&shape)) {
         drawHatch(*h);
+    } else if (const auto* w = std::get_if<Wall>(&shape)) {
+        drawWall(*w, wallFaces(*w));
     }
+}
+
+void DrawingPainter::drawWall(const Wall& w, const WallFaces& faces)
+{
+    // The cut parts get a light tint of the wall colour, as walls are
+    // usually shown filled in plan.
+    QColor tint = p_.pen().color();
+    tint.setAlpha(45);
+    QPainterPath solid;
+    for (const auto& part : wallSolidParts(w, faces)) {
+        QPolygonF poly;
+        for (Vec2 v : part)
+            poly << toDevice(v);
+        poly << poly.front();
+        solid.addPolygon(poly);
+    }
+    p_.fillPath(solid, tint);
+    for (const Shape& s : wallPlan(w, faces))
+        drawShape(s);
 }
 
 void DrawingPainter::drawHatch(const Hatch& h)

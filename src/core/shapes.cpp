@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "shapes.h"
 
+#include "building.h"
 #include "hatch.h"
 
 #include <algorithm>
@@ -92,6 +93,12 @@ std::vector<Piece> pieces(const Shape& shape)
                    // Nor is a hatch: its outline usually lies on walls that
                    // must stay the cutting edges.
                    [&](const Hatch&) {},
+                   [&](const Wall& w) {
+                       for (const Shape& s : wallPlan(w)) {
+                           const auto sub = pieces(s);
+                           out.insert(out.end(), sub.begin(), sub.end());
+                       }
+                   },
                },
                shape);
     return out;
@@ -486,6 +493,12 @@ BBox boundingBox(const Shape& shape)
                        for (const Polyline& loop : h.loops)
                            box.add(boundingBox(loop));
                    },
+                   [&](const Wall& w) {
+                       for (const Shape& s : wallPlan(w))
+                           box.add(boundingBox(s));
+                       box.add(w.start);
+                       box.add(w.end);
+                   },
                },
                shape);
     return box;
@@ -540,6 +553,15 @@ double distanceTo(const Shape& shape, Vec2 p)
     }
     if (const auto* dim = std::get_if<Dimension>(&shape))
         return std::min(d, distanceToText(dimensionGeometry(*dim).label, p));
+    // A wall is picked anywhere inside its thickness.
+    if (const auto* w = std::get_if<Wall>(&shape)) {
+        if (wallLength(*w) > kEps) {
+            const double t = wallParam(*w, p);
+            const double o = dot(p - w->start, wallNormal(*w));
+            if (t >= 0.0 && t <= wallLength(*w) && o >= wallRightOffset(*w) && o <= wallLeftOffset(*w))
+                return 0.0;
+        }
+    }
     return d;
 }
 
@@ -613,6 +635,31 @@ Shape transformed(const Shape& shape, const Transform& t)
                                   r.angle = angleOf(t.applyVector(polar(1.0, h.angle)));
                               return r;
                           },
+                          [&](const Wall& w) -> Shape {
+                              Wall r = w;
+                              const double s = t.scaleFactor();
+                              r.start = t.apply(w.start);
+                              r.end = t.apply(w.end);
+                              r.thickness = w.thickness * s;
+                              r.height = w.height * s;
+                              // A mirror swaps the sides of the wall, so a door
+                              // that swung to the left now swings to the right.
+                              if (t.isMirroring()) {
+                                  if (w.justification == Wall::Justification::Left)
+                                      r.justification = Wall::Justification::Right;
+                                  else if (w.justification == Wall::Justification::Right)
+                                      r.justification = Wall::Justification::Left;
+                              }
+                              for (Opening& o : r.openings) {
+                                  o.position *= s;
+                                  o.width *= s;
+                                  o.height *= s;
+                                  o.sill *= s;
+                                  if (t.isMirroring())
+                                      o.swingRight = !o.swingRight;
+                              }
+                              return r;
+                          },
                       },
                       shape);
 }
@@ -662,6 +709,13 @@ void collectSnapPoints(const Shape& shape, unsigned mask, std::vector<SnapPoint>
                        }
                    },
                    [&](const Hatch&) {},
+                   [&](const Wall& w) {
+                       add(w.start, SnapEndpoint);
+                       add(w.end, SnapEndpoint);
+                       add(midpoint(w.start, w.end), SnapMidpoint);
+                       for (Vec2 c : wallFaces(w).corners)
+                           add(c, SnapEndpoint);
+                   },
                },
                shape);
 }
@@ -700,6 +754,11 @@ bool crossesBox(const Shape& shape, const BBox& box)
     if (const auto* h = std::get_if<Hatch>(&shape)) {
         return std::any_of(h->loops.begin(), h->loops.end(), [&](const Polyline& l) { return crossesBox(l, box); })
             || insideHatch(*h, box.center());
+    }
+    if (const auto* w = std::get_if<Wall>(&shape)) {
+        const auto plan = wallPlan(*w);
+        return std::any_of(plan.begin(), plan.end(), [&](const Shape& s) { return crossesBox(s, box); })
+            || distanceTo(*w, box.center()) == 0.0;
     }
     const Polyline border{{box.min, {box.max.x, box.min.y}, box.max, {box.min.x, box.max.y}}, true};
     if (!intersections(shape, border).empty())

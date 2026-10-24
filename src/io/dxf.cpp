@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "dxf.h"
 
+#include "building.h"
 #include "hatch.h"
 
 #include <QFile>
@@ -1343,8 +1344,16 @@ QByteArray toDxf(const Document& doc)
     QByteArray blocks;
     int dimCount = 0;
     DxfWriter entities;
-    for (const auto& [id, e] : doc.entities())
+    // DXF has no walls: they go out as the lines and arcs they draw in plan.
+    const std::map<EntityId, WallFaces> walls = joinedWalls(doc);
+    for (const auto& [id, e] : doc.entities()) {
+        if (const auto* wall = std::get_if<Wall>(&e.shape)) {
+            for (const Shape& s : wallPlan(*wall, walls.at(id)))
+                entities.shape(e.layer, s, dimCount, blocks);
+            continue;
+        }
         entities.shape(e.layer, e.shape, dimCount, blocks);
+    }
 
     w.group(0, "SECTION");
     w.group(2, "BLOCKS");

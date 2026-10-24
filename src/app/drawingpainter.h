@@ -4,10 +4,15 @@
 // and by printing, so paper and screen show the same thing.
 #pragma once
 
+#include "building.h"
 #include "shapes.h"
 
 #include <QFont>
 #include <QPainter>
+
+// Extent of what a shape draws: a joined wall can reach past its own box by
+// the length of its mitred corners.
+cad::BBox drawnBox(const cad::Shape& shape);
 
 class DrawingPainter {
 public:
@@ -24,6 +29,8 @@ public:
     void drawShape(const cad::Shape& shape);
     void drawText(const cad::Text& text);
     void drawHatch(const cad::Hatch& hatch);
+    // A wall with its joined faces (drawShape draws it on its own).
+    void drawWall(const cad::Wall& wall, const cad::WallFaces& faces);
 
 private:
     QPainterPath polylinePath(const cad::Polyline& pl) const;

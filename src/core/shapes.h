@@ -119,7 +119,37 @@ struct Hatch {
     bool solid() const { return lines.empty(); }
 };
 
-using Shape = std::variant<Line, Circle, Arc, Polyline, Text, Dimension, Hatch>;
+// Door or window in a wall. Sizes are in drawing units; the opening goes
+// through the whole thickness of its wall.
+struct Opening {
+    enum class Kind { Door, Window };
+
+    Kind kind = Kind::Door;
+    double position = 0.0;  // centre, as distance from the wall start along its axis
+    double width = 900.0;
+    double height = 2100.0;
+    double sill = 0.0;  // bottom of the opening above the base of the wall
+    // Doors: the leaf swings to the right of the wall (walking from start to
+    // end) instead of the left, and hangs on the jamb nearer to the end.
+    bool swingRight = false;
+    bool hingeAtEnd = false;
+};
+
+// Straight wall drawn along its reference line from `start` to `end`. The
+// justification tells where the reference line runs: on the axis, on the
+// left face or on the right face (walking from start to end). Walls whose
+// ends meet are joined in plan and in 3D (see building.h).
+struct Wall {
+    enum class Justification { Center, Left, Right };
+
+    Vec2 start, end;
+    double thickness = 300.0;
+    double height = 2700.0;
+    Justification justification = Justification::Center;
+    std::vector<Opening> openings;
+};
+
+using Shape = std::variant<Line, Circle, Arc, Polyline, Text, Dimension, Hatch, Wall>;
 
 // Arc of a polyline segment from `from` to `to`: always counter-clockwise, so
 // a negative bulge gives an arc from `to` to `from`.

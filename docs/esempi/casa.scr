@@ -1,0 +1,13 @@
+; Esempio di MURO, PORTA e FINESTRA: una casa di 10 x 8 metri (misure in millimetri).
+; I muri che si toccano si uniscono da soli, a L e a T; la vista 3D si apre con il primo muro.
+; Muri esterni da 30 cm, alti 2,70 m.
+MURO S 300 A 2700 G C 0,0 10000,0 10000,8000 0,8000 C
+; Tramezzi da 12 cm che finiscono contro i muri esterni.
+MURO S 120 6000,0 6000,8000 
+MURO 6000,4500 10000,4500 
+; Porta d'ingresso da 1 m che apre verso l'interno, porte interne da 80 cm.
+PORTA L 1000 3000,0 3600,600 
+PORTA L 800 6000,2000 6600,2600 8000,4500 8600,4000 
+; Finestre da 1,20 m con il davanzale a 90 cm, una porta-finestra larga.
+FINESTRA L 1200 A 1400 D 900 1500,8000 4500,8000 10000,2200 10000,6300 0,4000 8000,0 
+FINESTRA L 2000 A 2400 D 0 8000,8000 
