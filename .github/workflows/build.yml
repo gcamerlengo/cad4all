@@ -50,7 +50,9 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item build/src/app/Release/CAD4All.exe dist/
+          # The output folder depends on the Qt version's project defaults.
+          $exe = Get-ChildItem build -Recurse -Filter CAD4All.exe | Where-Object { $_.FullName -match 'Release' } | Select-Object -First 1
+          Copy-Item $exe.FullName dist/
           windeployqt --release --no-translations dist/CAD4All.exe
           Copy-Item LICENSE dist/LICENSE.txt
 
