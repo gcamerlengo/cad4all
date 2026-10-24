@@ -22,6 +22,8 @@ std::unique_ptr<Command> makeOffsetCommand();
 std::unique_ptr<Command> makeTrimCommand();
 std::unique_ptr<Command> makeExtendCommand();
 std::unique_ptr<Command> makeFilletCommand();
+std::unique_ptr<Command> makeChamferCommand();
+std::unique_ptr<Command> makeStretchCommand();
 std::unique_ptr<Command> makeTextCommand();
 std::unique_ptr<Command> makeTextEditCommand();
 std::unique_ptr<Command> makeDimLinearCommand(bool aligned);

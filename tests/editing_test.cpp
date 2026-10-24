@@ -217,3 +217,101 @@ TEST(Fillet, Errors)
     EXPECT_FALSE(filletLines(Line{{0, 0}, {10, 0}}, {2, 0}, Line{{10, 0}, {10, 10}}, {10, 8}, 50, &e));
     EXPECT_EQ(e, FilletError::RadiusTooLarge);
 }
+
+TEST(Fillet, LineAndArc)
+{
+    // A line along the X axis meets an arc rising from (20, 0): the fillet
+    // sits in the corner above the line and outside the arc.
+    const Line line{{0, 0}, {20, 0}};
+    const Arc arc{{30, 0}, 10, kPi / 2, kPi};
+    const Vec2 pickArc = arc.center + polar(10, degToRad(135));
+    const auto r = filletCurves(line, {5, 0}, arc, pickArc, 2);
+    ASSERT_TRUE(r);
+    ASSERT_TRUE(r->arc);
+    const double cx = 30 - std::sqrt(140.0);
+    expectNear(r->arc->center, {cx, 2}, 1e-9);
+    expectNear(std::get<Line>(r->first).b, {cx, 0}, 1e-9);
+    const Arc trimmed = std::get<Arc>(r->second);
+    EXPECT_NEAR(trimmed.startAngle, kPi / 2, 1e-9);
+    // The trimmed arc ends where the fillet touches it.
+    expectNear(trimmed.endPoint(), arc.center + normalized(r->arc->center - arc.center) * 10, 1e-9);
+    EXPECT_LT(r->arc->sweep(), kPi);
+}
+
+TEST(Fillet, CircleStaysWhole)
+{
+    const auto r = filletCurves(Line{{-20, -10}, {20, -10}}, {-15, -10}, Circle{{0, 0}, 5}, {-5, 0}, 3);
+    ASSERT_TRUE(r);
+    EXPECT_TRUE(std::holds_alternative<Circle>(r->second));
+    ASSERT_TRUE(r->arc);
+    // The line is 5 away from the circle: the fillet centre is 3 above the
+    // line and 8 from the circle's centre, on the side of the picks.
+    expectNear(r->arc->center, {-std::sqrt(15.0), -7}, 1e-9);
+}
+
+TEST(Fillet, ArcsTooFarApartForRadius)
+{
+    FilletError e;
+    const Arc a{{0, 0}, 1, 0, kPi};
+    const Arc b{{100, 0}, 1, 0, kPi};
+    EXPECT_FALSE(filletCurves(a, {1, 0}, b, {99, 0}, 2, &e));
+    EXPECT_EQ(e, FilletError::RadiusTooLarge);
+}
+
+// ---------------------------------------------------------------- chamfer
+
+TEST(Chamfer, TwoDistances)
+{
+    const auto r = chamferLines(Line{{0, 0}, {10, 0}}, {2, 0}, Line{{10, 0}, {10, 10}}, {10, 8}, 2, 3);
+    ASSERT_TRUE(r);
+    ASSERT_TRUE(r->bevel);
+    expectNear(r->first.b, {8, 0});
+    expectNear(r->second.b, {10, 3});
+    expectNear(r->bevel->a, {8, 0});
+    expectNear(r->bevel->b, {10, 3});
+}
+
+TEST(Chamfer, AngleGivesSecondDistance)
+{
+    const Line a{{0, 0}, {10, 0}};
+    const Line b{{10, 0}, {10, 10}};
+    const auto d2 = chamferDistanceFromAngle(a, {2, 0}, b, {10, 8}, 2, degToRad(45));
+    ASSERT_TRUE(d2);
+    EXPECT_NEAR(*d2, 2.0, 1e-9);
+    FilletError e;
+    EXPECT_FALSE(chamferLines(a, {2, 0}, b, {10, 8}, 20, 1, &e));
+    EXPECT_EQ(e, FilletError::RadiusTooLarge);
+}
+
+// ---------------------------------------------------------------- stretch
+
+TEST(Stretch, MovesOnlyWhatIsInside)
+{
+    const BBox window = BBox::fromCorners({8, -1}, {12, 6});
+    const Vec2 off{5, 0};
+    const auto pl = std::get<Polyline>(stretchShape(Polyline{{{0, 0}, {10, 0}, {10, 5}, {0, 5}}, true}, window, off));
+    expectNear(pl.points[0], {0, 0});
+    expectNear(pl.points[1], {15, 0});
+    expectNear(pl.points[2], {15, 5});
+    expectNear(pl.points[3], {0, 5});
+
+    const auto line = std::get<Line>(stretchShape(Line{{0, 0}, {10, 0}}, window, off));
+    expectNear(line.b, {15, 0});
+
+    // An arc with one end inside keeps its other end and its midpoint.
+    const Arc arc{{5, 0}, 5, 0, kPi};  // from (10, 0) to (0, 0) through (5, 5)
+    const auto stretched = std::get<Arc>(stretchShape(arc, window, off));
+    expectNear(stretched.startPoint(), {15, 0}, 1e-9);
+    expectNear(stretched.endPoint(), {0, 0}, 1e-9);
+    EXPECT_NEAR(distanceTo(stretched, {5, 5}), 0.0, 1e-9);
+
+    Dimension d;
+    d.p1 = {0, 0};
+    d.p2 = {10, 0};
+    d.location = {5, -3};
+    EXPECT_DOUBLE_EQ(std::get<Dimension>(stretchShape(d, window, off)).measurement(), 15.0);
+
+    // Circles move with their centre, otherwise they stay.
+    EXPECT_EQ(std::get<Circle>(stretchShape(Circle{{0, 0}, 3}, window, off)).center, (Vec2{0, 0}));
+    EXPECT_EQ(std::get<Circle>(stretchShape(Circle{{10, 2}, 3}, window, off)).center, (Vec2{15, 2}));
+}
