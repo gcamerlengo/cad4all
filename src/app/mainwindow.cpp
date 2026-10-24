@@ -133,6 +133,10 @@ void MainWindow::createActions()
         commandAction(tr("Ruota"), QStringLiteral("ROTATE"), icons::make(QStringLiteral("rotate"))),
         commandAction(tr("Scala"), QStringLiteral("SCALE"), icons::make(QStringLiteral("scale"))),
         commandAction(tr("Specchio"), QStringLiteral("MIRROR"), icons::make(QStringLiteral("mirror"))),
+        commandAction(tr("Offset"), QStringLiteral("OFFSET"), icons::make(QStringLiteral("offset"))),
+        commandAction(tr("Taglia"), QStringLiteral("TRIM"), icons::make(QStringLiteral("trim"))),
+        commandAction(tr("Estendi"), QStringLiteral("EXTEND"), icons::make(QStringLiteral("extend"))),
+        commandAction(tr("Raccordo"), QStringLiteral("FILLET"), icons::make(QStringLiteral("fillet"))),
     };
     modify->addActions(modifyActions);
     modifyBar->addActions(modifyActions);

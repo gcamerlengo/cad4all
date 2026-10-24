@@ -53,6 +53,12 @@ public:
     // --- Selection ---
     // True when a click in the view should select objects rather than pick a point.
     bool wantsSelection() const;
+    // True when the next click names a single object (TRIM, OFFSET...): the
+    // view shows the pick box and sends the raw point, without snapping.
+    bool wantsObjectPick() const;
+    // Pick box size in drawing units; the view keeps it equal to a few pixels.
+    double pickTolerance() const { return pickTolerance_; }
+    void setPickTolerance(double tolerance) { pickTolerance_ = tolerance; }
     const std::set<EntityId>& selection() const { return selection_; }
     void select(const std::vector<EntityId>& ids, bool remove = false);
     void clearSelection();
@@ -120,6 +126,7 @@ private:
     bool finishing_ = false;
 
     std::set<EntityId> selection_;
+    double pickTolerance_ = 1.0;
     std::optional<Vec2> lastPoint_;
     Vec2 cursor_;
 
@@ -142,6 +149,7 @@ public:
     // Enter or Space with nothing typed.
     virtual void enter() { engine->finish(); }
     virtual bool wantsSelection() const { return false; }
+    virtual bool wantsObjectPick() const { return false; }
     virtual void preview(Vec2, std::vector<Shape>&) const {}
     // Point the rubber band starts from (also used by ortho).
     virtual std::optional<Vec2> base() const { return std::nullopt; }

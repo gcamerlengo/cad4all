@@ -195,6 +195,11 @@ bool CommandEngine::wantsSelection() const
     return !current_ || current_->wantsSelection();
 }
 
+bool CommandEngine::wantsObjectPick() const
+{
+    return current_ && current_->wantsObjectPick();
+}
+
 void CommandEngine::select(const std::vector<EntityId>& ids, bool remove)
 {
     bool changedAny = false;
@@ -297,7 +302,7 @@ void CommandEngine::setOrthoEnabled(bool on)
 
 std::optional<SnapPoint> CommandEngine::findSnap(Vec2 p, double tolerance) const
 {
-    if (!osnap_ || !current_ || current_->wantsSelection())
+    if (!osnap_ || !current_ || current_->wantsSelection() || current_->wantsObjectPick())
         return std::nullopt;
 
     // Only entities near the cursor take part; this keeps snapping fast on
@@ -373,6 +378,10 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("ROTATE"), {QStringLiteral("RUOTA"), QStringLiteral("RO")}, [] { return makeRotateCommand(); });
     add(QStringLiteral("SCALE"), {QStringLiteral("SCALA"), QStringLiteral("SC")}, [] { return makeScaleCommand(); });
     add(QStringLiteral("MIRROR"), {QStringLiteral("SPECCHIO"), QStringLiteral("MI")}, [] { return makeMirrorCommand(); });
+    add(QStringLiteral("OFFSET"), {QStringLiteral("O")}, [] { return makeOffsetCommand(); });
+    add(QStringLiteral("TRIM"), {QStringLiteral("TAGLIA"), QStringLiteral("TR")}, [] { return makeTrimCommand(); });
+    add(QStringLiteral("EXTEND"), {QStringLiteral("ESTENDI"), QStringLiteral("EX")}, [] { return makeExtendCommand(); });
+    add(QStringLiteral("FILLET"), {QStringLiteral("RACCORDO"), QStringLiteral("RACCORDA"), QStringLiteral("F")}, [] { return makeFilletCommand(); });
     add(QStringLiteral("ZOOM"), {QStringLiteral("Z")}, [] { return makeZoomCommand(); });
     add(QStringLiteral("LAYER"), {QStringLiteral("LA")}, [] { return makeLayerCommand(); });
 }

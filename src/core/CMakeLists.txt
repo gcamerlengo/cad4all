@@ -5,5 +5,6 @@ add_library(cad4all_core STATIC
     shapes.h shapes.cpp
     document.h document.cpp
     coordinput.h coordinput.cpp
+    editing.h editing.cpp
 )
 target_include_directories(cad4all_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

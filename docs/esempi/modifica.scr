@@ -1,0 +1,11 @@
+; Esempio dei comandi di modifica: offset, taglia, estendi e raccordo.
+; Un muro esterno, il suo offset interno di 30 e un tramezzo tagliato.
+RETTANGOLO 0,0 @1000,600
+OFFSET 30 500,0 500,300 
+LINEA 500,-100 500,700 
+TAGLIA 500,-50 500,650 500,15 500,585 
+LINEA 650,200 820,200 
+ESTENDI 815,200 
+LINEA 100,150 300,150 
+LINEA 350,200 350,450 
+RACCORDO R 60 150,150 350,400

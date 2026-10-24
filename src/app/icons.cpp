@@ -147,6 +147,40 @@ QIcon make(const QString& name)
             p.setPen(dashed);
             p.drawLine(QPointF(12, 2), QPointF(12, 22));
         };
+    } else if (name == QLatin1String("offset")) {
+        painter = [](QPainter& p) {
+            p.drawPolyline(QPolygonF({{3, 21}, {3, 9}, {15, 9}}));
+            accentPen(p);
+            p.drawPolyline(QPolygonF({{9, 21}, {9, 15}, {21, 15}}));
+        };
+    } else if (name == QLatin1String("trim")) {
+        painter = [](QPainter& p) {
+            p.drawLine(QPointF(12, 3), QPointF(12, 21));
+            p.drawLine(QPointF(3, 12), QPointF(12, 12));
+            accentPen(p);
+            QPen dashed = p.pen();
+            dashed.setStyle(Qt::DotLine);
+            p.setPen(dashed);
+            p.drawLine(QPointF(12, 12), QPointF(21, 12));
+        };
+    } else if (name == QLatin1String("extend")) {
+        painter = [](QPainter& p) {
+            p.drawLine(QPointF(20, 3), QPointF(20, 21));
+            p.drawLine(QPointF(3, 12), QPointF(10, 12));
+            accentPen(p);
+            p.drawLine(QPointF(10, 12), QPointF(20, 12));
+            p.drawPolyline(QPolygonF({{15, 9}, {18, 12}, {15, 15}}));
+        };
+    } else if (name == QLatin1String("fillet")) {
+        painter = [](QPainter& p) {
+            p.drawLine(QPointF(3, 4), QPointF(3, 13));
+            p.drawLine(QPointF(12, 21), QPointF(21, 21));
+            accentPen(p);
+            QPainterPath path;
+            path.moveTo(3, 13);
+            path.arcTo(QRectF(3, 5, 18, 16), 180, 90);
+            p.drawPath(path);
+        };
     } else if (name == QLatin1String("zoomExtents")) {
         painter = [](QPainter& p) {
             p.drawEllipse(QPointF(10, 10), 6, 6);

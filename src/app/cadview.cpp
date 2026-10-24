@@ -101,8 +101,9 @@ void CadView::updateCursor(QPointF pos)
 {
     mouse_ = pos;
     const Vec2 raw = toWorld(pos);
+    engine_.setPickTolerance(pixels(kPickPixels));
     snap_ = engine_.findSnap(raw, pixels(kSnapPixels));
-    effective_ = snap_ ? snap_->point : engine_.constrain(raw);
+    effective_ = snap_ ? snap_->point : engine_.wantsObjectPick() ? raw : engine_.constrain(raw);
     engine_.setCursor(effective_);
     emit cursorMoved(effective_);
 }
@@ -365,7 +366,7 @@ void CadView::drawCrosshair(QPainter& p) const
     const QPointF m = mouse_;
     p.drawLine(QPointF(0, m.y()), QPointF(width(), m.y()));
     p.drawLine(QPointF(m.x(), 0), QPointF(m.x(), height()));
-    if (engine_.wantsSelection()) {
+    if (engine_.wantsSelection() || engine_.wantsObjectPick()) {
         // Pick box, shown when a click selects objects.
         const double s = kPickPixels;
         p.drawRect(QRectF(m.x() - s, m.y() - s, 2 * s, 2 * s));

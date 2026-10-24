@@ -179,3 +179,77 @@ TEST_F(Commands, WindowAndCrossingSelection)
     EXPECT_EQ(cross.size(), 2u);
     EXPECT_EQ(engine.pick({5, 0.01}, 0.1), crossing);
 }
+
+TEST_F(Commands, OffsetByDistanceRepeats)
+{
+    engine.setPickTolerance(0.5);
+    doc.add(Line{{0, 0}, {10, 0}});
+    type({"OFFSET", "2", "5,0", "5,1", "5,2", "5,3", ""});
+    // The second pick is on the first copy (y = 2), so it makes one at y = 4.
+    const auto lines = shapes<Line>();
+    ASSERT_EQ(lines.size(), 3u);
+    EXPECT_NEAR(lines[1].a.y, 2.0, 1e-9);
+    EXPECT_NEAR(lines[2].a.y, 4.0, 1e-9);
+    EXPECT_FALSE(engine.isActive());
+}
+
+TEST_F(Commands, OffsetThroughPoint)
+{
+    engine.setPickTolerance(0.5);
+    doc.add(Circle{{0, 0}, 5});
+    type({"O", "P", "5,0", "8,0", "E"});
+    const auto circles = shapes<Circle>();
+    ASSERT_EQ(circles.size(), 2u);
+    EXPECT_NEAR(circles[1].radius, 8.0, 1e-9);
+}
+
+TEST_F(Commands, TrimAndExtendUseAllEdges)
+{
+    engine.setPickTolerance(0.5);
+    doc.add(Line{{0, 0}, {10, 0}});
+    doc.add(Line{{5, -5}, {5, 5}});
+    doc.add(Line{{12, -5}, {12, 5}});
+    type({"TAGLIA", "8,0", ""});
+    auto horizontal = [&] {
+        for (const Line& l : shapes<Line>())
+            if (std::abs(l.a.y - l.b.y) < 1e-12)
+                return l;
+        return Line{};
+    };
+    EXPECT_NEAR(horizontal().b.x, 5.0, 1e-9);
+    EXPECT_EQ(shapes<Line>().size(), 3u);
+
+    // The cut end sits on the edge at x = 5, so extending goes on to x = 12.
+    type({"ESTENDI", "4.9,0", ""});
+    EXPECT_NEAR(horizontal().b.x, 12.0, 1e-9);
+
+    // Each command session is a single undo step.
+    type({"U"});
+    EXPECT_NEAR(horizontal().b.x, 5.0, 1e-9);
+}
+
+TEST_F(Commands, FilletWithRadius)
+{
+    engine.setPickTolerance(0.5);
+    doc.add(Line{{0, 0}, {10, 0}});
+    doc.add(Line{{10, 0}, {10, 10}});
+    type({"RACCORDO", "R", "2", "3,0", "10,7"});
+    EXPECT_FALSE(engine.isActive());
+    ASSERT_EQ(shapes<Arc>().size(), 1u);
+    EXPECT_NEAR(shapes<Arc>()[0].radius, 2.0, 1e-12);
+    EXPECT_NEAR(shapes<Line>()[0].b.x, 8.0, 1e-9);
+
+    // The radius is remembered for the next FILLET; reset it for other tests.
+    type({"F", "R", "0", ""});
+}
+
+TEST_F(Commands, ObjectPickDisablesSnapAndSelection)
+{
+    doc.add(Line{{0, 0}, {10, 0}});
+    type({"TR"});
+    EXPECT_TRUE(engine.wantsObjectPick());
+    EXPECT_FALSE(engine.wantsSelection());
+    EXPECT_FALSE(engine.findSnap({10, 0}, 1.0));
+    engine.cancel();
+    EXPECT_FALSE(engine.wantsObjectPick());
+}
