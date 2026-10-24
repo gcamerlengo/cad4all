@@ -396,3 +396,35 @@ TEST_F(Commands, StretchWithCrossingWindow)
     type({"U"});
     EXPECT_EQ(shapes<Polyline>()[0].points[1], (Vec2{10, 0}));
 }
+
+TEST_F(Commands, PolylineArcSegmentsAreTangent)
+{
+    type({"PL", "0,0", "10,0", "A", "10,10", "L", "0,10", ""});
+    const auto plines = shapes<Polyline>();
+    ASSERT_EQ(plines.size(), 1u);
+    ASSERT_EQ(plines[0].points.size(), 4u);
+    EXPECT_NEAR(plines[0].bulge(0), 0.0, 1e-9);
+    EXPECT_NEAR(plines[0].bulge(1), 1.0, 1e-9);  // half circle, counter-clockwise
+    EXPECT_NEAR(plines[0].bulge(2), 0.0, 1e-9);
+}
+
+TEST_F(Commands, FilletAndChamferWholePolyline)
+{
+    type({"REC", "0,0", "10,5"});
+    engine.setPickTolerance(0.5);
+    type({"F", "R", "1"});
+    type({"F", "P", "5,0"});
+    EXPECT_FALSE(engine.isActive());
+    auto pl = shapes<Polyline>();
+    ASSERT_EQ(pl.size(), 1u);
+    EXPECT_EQ(pl[0].points.size(), 8u);
+    EXPECT_TRUE(pl[0].hasArcs());
+    type({"U"});
+    type({"CHA", "D", "1", "1", ""});
+    type({"CHA", "P", "5,0"});
+    pl = shapes<Polyline>();
+    EXPECT_EQ(pl[0].points.size(), 8u);
+    EXPECT_FALSE(pl[0].hasArcs());
+    type({"F", "R", "0", ""});
+    type({"CHA", "D", "0", "0", ""});
+}

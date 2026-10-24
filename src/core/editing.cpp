@@ -23,6 +23,89 @@ std::optional<Vec2> intersectLines(Vec2 p1, Vec2 d1, Vec2 p2, Vec2 d2)
     return p1 + d1 * (cross(p2 - p1, d2) / den);
 }
 
+// A line or circle (the carrier of an arc) for the fillet construction.
+struct Carrier {
+    bool isLine = true;
+    Vec2 a, dir;           // line: point and unit direction
+    Vec2 center;           // circle
+    double radius = 0.0;
+
+    Vec2 foot(Vec2 p) const
+    {
+        if (isLine)
+            return a + dir * dot(p - a, dir);
+        Vec2 u = normalized(p - center);
+        if (length(u) < kEps)
+            u = {1.0, 0.0};
+        return center + u * radius;
+    }
+};
+
+std::optional<Carrier> carrierOf(const Shape& s)
+{
+    Carrier c;
+    if (const auto* l = std::get_if<Line>(&s)) {
+        c.a = l->a;
+        c.dir = normalized(l->b - l->a);
+        if (length(c.dir) < kEps)
+            return std::nullopt;
+        return c;
+    }
+    c.isLine = false;
+    if (const auto* a = std::get_if<Arc>(&s)) {
+        c.center = a->center;
+        c.radius = a->radius;
+        return c;
+    }
+    if (const auto* ci = std::get_if<Circle>(&s)) {
+        c.center = ci->center;
+        c.radius = ci->radius;
+        return c;
+    }
+    return std::nullopt;
+}
+
+// The curves at distance r from a carrier: two parallels or two circles.
+std::vector<Carrier> offsetsOf(const Carrier& c, double r)
+{
+    std::vector<Carrier> out;
+    if (c.isLine) {
+        for (double s : {1.0, -1.0}) {
+            Carrier o = c;
+            o.a = c.a + perpendicular(c.dir) * (s * r);
+            out.push_back(o);
+            if (r <= kEps)
+                break;
+        }
+        return out;
+    }
+    for (double rr : {c.radius + r, std::abs(c.radius - r)}) {
+        if (rr <= kEps || (!out.empty() && std::abs(out.back().radius - rr) <= kEps))
+            continue;
+        Carrier o = c;
+        o.radius = rr;
+        out.push_back(o);
+    }
+    return out;
+}
+
+std::vector<Vec2> intersectCarriers(const Carrier& p, const Carrier& q)
+{
+    if (p.isLine && q.isLine) {
+        if (const auto v = intersectLines(p.a, p.dir, q.a, q.dir))
+            return {*v};
+        return {};
+    }
+    if (!p.isLine && !q.isLine)
+        return intersectCircles(p.center, p.radius, q.center, q.radius);
+    const Carrier& l = p.isLine ? p : q;
+    const Carrier& c = p.isLine ? q : p;
+    // Infinite line: a segment far longer than the circle.
+    const double reach = distance(l.a, c.center) + c.radius + 1.0;
+    const Vec2 mid = l.foot(c.center);
+    return intersectSegmentCircle(mid - l.dir * reach, mid + l.dir * reach, c.center, c.radius);
+}
+
 double lineParam(const Line& l, Vec2 p)
 {
     const Vec2 d = l.b - l.a;
@@ -50,43 +133,63 @@ std::pair<double, double> bracket(const std::vector<double>& cuts, double pick, 
 
 // --- Polylines are parametrised as u = segment index + position on it.
 
-std::vector<Vec2> withoutDuplicates(const std::vector<Vec2>& pts)
+// Copy without repeated consecutive vertices (zero-length segments).
+Polyline cleaned(const Polyline& pl)
 {
-    std::vector<Vec2> out;
-    for (Vec2 p : pts)
-        if (out.empty() || !almostEqual(out.back(), p))
-            out.push_back(p);
+    Polyline out;
+    out.closed = pl.closed;
+    for (size_t i = 0; i < pl.points.size(); ++i) {
+        if (!out.points.empty() && almostEqual(out.points.back(), pl.points[i])) {
+            // The zero-length segment goes; the vertex keeps the next segment's bulge.
+            out.setBulge(out.points.size() - 1, pl.bulge(i));
+            continue;
+        }
+        out.points.push_back(pl.points[i]);
+        out.setBulge(out.points.size() - 1, pl.bulge(i));
+    }
+    if (out.closed && out.points.size() > 1 && almostEqual(out.points.back(), out.points.front())) {
+        out.points.pop_back();
+        out.bulges.resize(std::min(out.bulges.size(), out.points.size()));
+    }
     return out;
 }
 
-Vec2 pointAt(const std::vector<Vec2>& pts, double u)
+Vec2 pointAt(const Polyline& pl, double u)
 {
-    const size_t i = std::min(static_cast<size_t>(std::max(0.0, std::floor(u))), pts.size() - 2);
-    return lerp(pts[i], pts[i + 1], u - static_cast<double>(i));
+    const size_t i = std::min(static_cast<size_t>(std::max(0.0, std::floor(u))), pl.segmentCount() - 1);
+    return segmentPoint(pl, i, u - static_cast<double>(i));
 }
 
-std::vector<Vec2> subPolyline(const std::vector<Vec2>& pts, double u0, double u1)
+// The part of an open polyline between parameters u0 < u1.
+Polyline subPolyline(const Polyline& pl, double u0, double u1)
 {
-    std::vector<Vec2> out{pointAt(pts, u0)};
-    for (double k = std::floor(u0) + 1.0; k < u1 - kParamEps; k += 1.0)
-        out.push_back(pts[static_cast<size_t>(k)]);
-    out.push_back(pointAt(pts, u1));
-    return withoutDuplicates(out);
+    Polyline out;
+    const size_t last = pl.segmentCount() - 1;
+    const size_t i0 = std::min(static_cast<size_t>(std::floor(u0)), last);
+    const size_t i1 = std::min(static_cast<size_t>(std::max(std::ceil(u1) - 1.0, 0.0)), last);
+    for (size_t i = i0; i <= i1; ++i) {
+        const double t0 = i == i0 ? u0 - static_cast<double>(i) : 0.0;
+        const double t1 = i == i1 ? u1 - static_cast<double>(i) : 1.0;
+        if (t1 - t0 <= kParamEps && !(i == i0 && i == i1))
+            continue;
+        out.points.push_back(segmentPoint(pl, i, t0));
+        const double b = pl.bulge(i);
+        out.setBulge(out.points.size() - 1, b == 0.0 ? 0.0 : bulgeOfSweep(4.0 * std::atan(b) * (t1 - t0)));
+    }
+    out.points.push_back(pointAt(pl, u1));
+    out = cleaned(out);
+    out.bulges.resize(std::min(out.bulges.size(), out.points.size() - 1));
+    return out;
 }
 
-// Parameter of the point of the polyline nearest to p; `segments` counts the
-// segments to search (n-1 for an open polyline, n for a closed one).
-double polylineParam(const std::vector<Vec2>& pts, size_t segments, Vec2 p)
+// Parameter of the point of the polyline nearest to p.
+double polylineParam(const Polyline& pl, Vec2 p)
 {
     double best = 0.0;
     double bestDist = std::numeric_limits<double>::infinity();
-    for (size_t i = 0; i < segments; ++i) {
-        const Vec2 a = pts[i];
-        const Vec2 b = pts[(i + 1) % pts.size()];
-        const Vec2 d = b - a;
-        const double len2 = dot(d, d);
-        const double t = len2 > 0.0 ? std::clamp(dot(p - a, d) / len2, 0.0, 1.0) : 0.0;
-        const double dist = distance(p, a + d * t);
+    for (size_t i = 0; i < pl.segmentCount(); ++i) {
+        const double t = segmentParam(pl, i, p);
+        const double dist = distance(p, segmentPoint(pl, i, t));
         if (dist < bestDist) {
             bestDist = dist;
             best = static_cast<double>(i) + t;
@@ -95,9 +198,9 @@ double polylineParam(const std::vector<Vec2>& pts, size_t segments, Vec2 p)
     return best;
 }
 
-bool hasLength(const std::vector<Vec2>& pts)
+bool hasLength(const Polyline& pl)
 {
-    return pts.size() >= 2;
+    return pl.points.size() >= 2;
 }
 
 // Length of a ray long enough to cross everything in the drawing.
@@ -124,33 +227,67 @@ std::optional<double> firstHit(Vec2 from, Vec2 dir, double reach, const std::vec
     return best;
 }
 
-std::optional<Shape> offsetPolyline(const Polyline& pl, double dist, Vec2 side)
+std::optional<Shape> offsetPolyline(const Polyline& source, double dist, Vec2 side)
 {
-    const std::vector<Vec2> pts = withoutDuplicates(pl.points);
-    const bool closed = pl.closed && pts.size() >= 3;
-    if (pts.size() < 2)
+    const Polyline pl = cleaned(source);
+    const size_t n = pl.points.size();
+    if (n < 2)
         return std::nullopt;
-    const size_t n = pts.size();
+    const bool closed = pl.closed && n >= 3;
     const size_t segments = closed ? n : n - 1;
+    Polyline src = pl;
+    src.closed = closed;
 
     // The side is decided on the segment nearest to the picked point.
-    const size_t k = std::min(static_cast<size_t>(polylineParam(pts, segments, side)), segments - 1);
-    const Vec2 ka = pts[k];
-    const Vec2 kb = pts[(k + 1) % n];
-    const double sign = cross(kb - ka, side - ka) >= 0.0 ? 1.0 : -1.0;
+    const double u = polylineParam(src, side);
+    const size_t k = std::min(static_cast<size_t>(u), segments - 1);
+    const double tk = u - static_cast<double>(k);
+    const double sign = cross(segmentTangent(src, k, tk), side - segmentPoint(src, k, tk)) >= 0.0 ? 1.0 : -1.0;
+    const double left = dist * sign;  // offset towards the left of the travel direction
 
-    std::vector<Vec2> origin(segments), dir(segments);
+    // Each segment offset on its own: lines shift, arcs change radius.
+    struct Seg {
+        Carrier carrier;
+        Vec2 a, b;  // naive offset ends
+        double sweep = 0.0;
+    };
+    std::vector<Seg> segs(segments);
     for (size_t i = 0; i < segments; ++i) {
-        const Vec2 a = pts[i];
-        const Vec2 b = pts[(i + 1) % n];
-        dir[i] = b - a;
-        origin[i] = a + normalized(perpendicular(dir[i])) * (dist * sign);
+        const Vec2 a = src.points[i];
+        const Vec2 b = src.points[(i + 1) % n];
+        Seg& s = segs[i];
+        const double bulge = src.bulge(i);
+        if (std::abs(bulge) <= 1e-12) {
+            const Vec2 off = normalized(perpendicular(b - a)) * left;
+            s.carrier.a = a + off;
+            s.carrier.dir = normalized(b - a);
+            s.a = a + off;
+            s.b = b + off;
+            continue;
+        }
+        const Arc arc = arcFromBulge(a, b, bulge);
+        s.sweep = 4.0 * std::atan(bulge);
+        // The centre is on the left of a counter-clockwise arc.
+        const double r = arc.radius + (bulge > 0.0 ? -left : left);
+        if (r <= kEps)
+            return std::nullopt;
+        s.carrier.isLine = false;
+        s.carrier.center = arc.center;
+        s.carrier.radius = r;
+        s.a = arc.center + normalized(a - arc.center) * r;
+        s.b = arc.center + normalized(b - arc.center) * r;
     }
-    // Each vertex moves to where the two offset segments meeting there cross.
+
+    // Vertices go where consecutive offset segments meet, nearest to the naive point.
     auto corner = [&](size_t before, size_t after) {
-        if (const auto p = intersectLines(origin[before], dir[before], origin[after], dir[after]))
-            return *p;
-        return origin[after];
+        const Vec2 naive = segs[after].a;
+        if (almostEqual(segs[before].b, naive, 1e-9))
+            return naive;
+        std::optional<Vec2> best;
+        for (Vec2 v : intersectCarriers(segs[before].carrier, segs[after].carrier))
+            if (!best || distance(v, naive) < distance(*best, naive))
+                best = v;
+        return best.value_or(naive);
     };
 
     Polyline out;
@@ -159,39 +296,50 @@ std::optional<Shape> offsetPolyline(const Polyline& pl, double dist, Vec2 side)
         for (size_t i = 0; i < n; ++i)
             out.points.push_back(corner((i + segments - 1) % segments, i));
     } else {
-        out.points.push_back(origin[0]);
+        out.points.push_back(segs[0].a);
         for (size_t i = 1; i < segments; ++i)
             out.points.push_back(corner(i - 1, i));
-        out.points.push_back(origin[segments - 1] + dir[segments - 1]);
+        out.points.push_back(segs[segments - 1].b);
+    }
+    // Arc segments keep their centre: the bulge follows the new end angles.
+    for (size_t i = 0; i < segments; ++i) {
+        if (segs[i].sweep == 0.0)
+            continue;
+        const Vec2 c = segs[i].carrier.center;
+        const double d = angleOf(out.points[(i + 1) % out.points.size()] - c) - angleOf(out.points[i] - c);
+        double sweep = segs[i].sweep > 0.0 ? normalizeAngle(d) : -normalizeAngle(-d);
+        if (std::abs(sweep) < 1e-12)
+            sweep = segs[i].sweep;  // full turn
+        out.setBulge(i, bulgeOfSweep(sweep));
     }
     return out;
 }
 
-TrimResult trimPolyline(const Polyline& pl, const std::vector<Vec2>& cutPoints, Vec2 pick)
+TrimResult trimPolyline(const Polyline& source, const std::vector<Vec2>& cutPoints, Vec2 pick)
 {
-    const std::vector<Vec2> pts = withoutDuplicates(pl.points);
-    if (!hasLength(pts))
+    Polyline pl = cleaned(source);
+    if (!hasLength(pl))
         return {true, {}};
-    const bool closed = pl.closed && pts.size() >= 3;
-    const size_t n = pts.size();
+    pl.closed = pl.closed && pl.points.size() >= 3;
+    const size_t n = pl.points.size();
 
-    if (!closed) {
+    if (!pl.closed) {
         const double last = static_cast<double>(n - 1);
         std::vector<double> cuts;
         for (Vec2 v : cutPoints) {
-            const double u = polylineParam(pts, n - 1, v);
+            const double u = polylineParam(pl, v);
             if (u > kParamEps && u < last - kParamEps)
                 cuts.push_back(u);
         }
         sortUnique(cuts);
         if (cuts.empty())
             return {true, {}};
-        const auto [lo, hi] = bracket(cuts, polylineParam(pts, n - 1, pick), 0.0, last);
+        const auto [lo, hi] = bracket(cuts, polylineParam(pl, pick), 0.0, last);
         TrimResult r{true, {}};
         if (lo > 0.0)
-            r.pieces.push_back(Polyline{subPolyline(pts, 0.0, lo), false});
+            r.pieces.push_back(subPolyline(pl, 0.0, lo));
         if (hi < last)
-            r.pieces.push_back(Polyline{subPolyline(pts, hi, last), false});
+            r.pieces.push_back(subPolyline(pl, hi, last));
         std::erase_if(r.pieces, [](const Shape& s) { return std::get<Polyline>(s).points.size() < 2; });
         return r;
     }
@@ -199,7 +347,7 @@ TrimResult trimPolyline(const Polyline& pl, const std::vector<Vec2>& cutPoints, 
     const double total = static_cast<double>(n);
     std::vector<double> cuts;
     for (Vec2 v : cutPoints) {
-        double u = polylineParam(pts, n, v);
+        double u = polylineParam(pl, v);
         if (u >= total - kParamEps)
             u = 0.0;
         cuts.push_back(u);
@@ -209,7 +357,7 @@ TrimResult trimPolyline(const Polyline& pl, const std::vector<Vec2>& cutPoints, 
         return {true, {}};
     if (cuts.size() == 1)
         return {false, {}};  // one cut cannot open a closed shape into a piece
-    const double p = polylineParam(pts, n, pick);
+    const double p = polylineParam(pl, pick);
     // Cyclic neighbours of the pick: the kept part runs from `after` round to `before`.
     double before = cuts.back(), after = cuts.front();
     for (double c : cuts) {
@@ -221,11 +369,15 @@ TrimResult trimPolyline(const Polyline& pl, const std::vector<Vec2>& cutPoints, 
         }
     }
     // Two laps of the vertices let the kept part run past the first vertex.
-    std::vector<Vec2> laps = pts;
-    laps.insert(laps.end(), pts.begin(), pts.end());
-    laps.push_back(pts.front());
+    Polyline laps;
+    for (int lap = 0; lap < 2; ++lap)
+        for (size_t i = 0; i < n; ++i) {
+            laps.points.push_back(pl.points[i]);
+            laps.setBulge(laps.points.size() - 1, pl.bulge(i));
+        }
+    laps.points.push_back(pl.points.front());
     const double end = before > after ? before : before + total;
-    return {true, {Polyline{subPolyline(laps, after, end), false}}};
+    return {true, {subPolyline(laps, after, end)}};
 }
 
 } // namespace
@@ -380,19 +532,33 @@ std::optional<Shape> extendShape(const Shape& shape, const std::vector<Shape>& b
         return r;
     }
 
-    if (const auto* pl = std::get_if<Polyline>(&shape)) {
-        std::vector<Vec2> pts = withoutDuplicates(pl->points);
-        if (pl->closed || pts.size() < 2)
+    if (const auto* source = std::get_if<Polyline>(&shape)) {
+        Polyline pl = cleaned(*source);
+        if (pl.closed || pl.points.size() < 2)
             return std::nullopt;
-        const size_t n = pts.size();
-        const bool atEnd = distance(pick, pts[n - 1]) <= distance(pick, pts[0]);
-        const Vec2 from = atEnd ? pts[n - 1] : pts[0];
-        const Vec2 dir = normalized(atEnd ? pts[n - 1] - pts[n - 2] : pts[0] - pts[1]);
-        const auto hit = firstHit(from, dir, reach, boundaries);
-        if (!hit)
+        const size_t n = pl.points.size();
+        const bool atEnd = distance(pick, pl.points[n - 1]) <= distance(pick, pl.points[0]);
+        const size_t seg = atEnd ? n - 2 : 0;
+        Vec2& end = atEnd ? pl.points[n - 1] : pl.points[0];
+        const double bulge = pl.bulge(seg);
+        if (std::abs(bulge) <= 1e-12) {
+            const Vec2 dir = normalized(atEnd ? pl.points[n - 1] - pl.points[n - 2] : pl.points[0] - pl.points[1]);
+            const auto hit = firstHit(end, dir, reach, boundaries);
+            if (!hit)
+                return std::nullopt;
+            end = end + dir * *hit;
+            return pl;
+        }
+        // An arc segment extends along its circle, like an arc.
+        const Arc arc = arcFromBulge(pl.points[seg], pl.points[seg + 1], bulge);
+        const auto longer = extendShape(arc, boundaries, end);
+        if (!longer)
             return std::nullopt;
-        (atEnd ? pts[n - 1] : pts[0]) = from + dir * *hit;
-        return Polyline{pts, false};
+        const Arc& r = std::get<Arc>(*longer);
+        const bool startMoved = !almostEqual(r.startPoint(), arc.startPoint(), 1e-9);
+        end = startMoved ? r.startPoint() : r.endPoint();
+        pl.setBulge(seg, bulgeOfSweep(bulge > 0.0 ? r.sweep() : -r.sweep()));
+        return pl;
     }
 
     return std::nullopt;  // circles have no ends
@@ -468,89 +634,6 @@ std::optional<Corner> cornerOf(const Line& first, Vec2 pickFirst, const Line& se
     c.far1 = dot(first.a - *p, c.u1) >= dot(first.b - *p, c.u1) ? first.a : first.b;
     c.far2 = dot(second.a - *p, c.u2) >= dot(second.b - *p, c.u2) ? second.a : second.b;
     return c;
-}
-
-// A line or circle (the carrier of an arc) for the fillet construction.
-struct Carrier {
-    bool isLine = true;
-    Vec2 a, dir;           // line: point and unit direction
-    Vec2 center;           // circle
-    double radius = 0.0;
-
-    Vec2 foot(Vec2 p) const
-    {
-        if (isLine)
-            return a + dir * dot(p - a, dir);
-        Vec2 u = normalized(p - center);
-        if (length(u) < kEps)
-            u = {1.0, 0.0};
-        return center + u * radius;
-    }
-};
-
-std::optional<Carrier> carrierOf(const Shape& s)
-{
-    Carrier c;
-    if (const auto* l = std::get_if<Line>(&s)) {
-        c.a = l->a;
-        c.dir = normalized(l->b - l->a);
-        if (length(c.dir) < kEps)
-            return std::nullopt;
-        return c;
-    }
-    c.isLine = false;
-    if (const auto* a = std::get_if<Arc>(&s)) {
-        c.center = a->center;
-        c.radius = a->radius;
-        return c;
-    }
-    if (const auto* ci = std::get_if<Circle>(&s)) {
-        c.center = ci->center;
-        c.radius = ci->radius;
-        return c;
-    }
-    return std::nullopt;
-}
-
-// The curves at distance r from a carrier: two parallels or two circles.
-std::vector<Carrier> offsetsOf(const Carrier& c, double r)
-{
-    std::vector<Carrier> out;
-    if (c.isLine) {
-        for (double s : {1.0, -1.0}) {
-            Carrier o = c;
-            o.a = c.a + perpendicular(c.dir) * (s * r);
-            out.push_back(o);
-            if (r <= kEps)
-                break;
-        }
-        return out;
-    }
-    for (double rr : {c.radius + r, std::abs(c.radius - r)}) {
-        if (rr <= kEps || (!out.empty() && std::abs(out.back().radius - rr) <= kEps))
-            continue;
-        Carrier o = c;
-        o.radius = rr;
-        out.push_back(o);
-    }
-    return out;
-}
-
-std::vector<Vec2> intersectCarriers(const Carrier& p, const Carrier& q)
-{
-    if (p.isLine && q.isLine) {
-        if (const auto v = intersectLines(p.a, p.dir, q.a, q.dir))
-            return {*v};
-        return {};
-    }
-    if (!p.isLine && !q.isLine)
-        return intersectCircles(p.center, p.radius, q.center, q.radius);
-    const Carrier& l = p.isLine ? p : q;
-    const Carrier& c = p.isLine ? q : p;
-    // Infinite line: a segment far longer than the circle.
-    const double reach = distance(l.a, c.center) + c.radius + 1.0;
-    const Vec2 mid = l.foot(c.center);
-    return intersectSegmentCircle(mid - l.dir * reach, mid + l.dir * reach, c.center, c.radius);
 }
 
 // Arc trimmed or extended to end at angle `at`, keeping the side of `pick`.
@@ -679,6 +762,101 @@ std::optional<double> chamferDistanceFromAngle(const Line& first, Vec2 pickFirst
     if (angle <= 0.0 || atE2 <= 1e-9)
         return std::nullopt;
     return dist1 * std::sin(angle) / std::sin(atE2);
+}
+
+namespace {
+
+// Cuts each corner of `pl` between two straight segments. `cut` gets the
+// incoming and outgoing directions and returns the distances from the corner
+// along each, or nothing to leave the corner; `bulgeFor` gives the bulge of
+// the new segment from the turn (signed deflection angle).
+template <class Cut, class BulgeFor>
+PolylineCornersResult cutCorners(const Polyline& source, Cut cut, BulgeFor bulgeFor)
+{
+    const Polyline pl = cleaned(source);
+    PolylineCornersResult r;
+    const size_t n = pl.points.size();
+    const bool closed = pl.closed && n >= 3;
+    r.polyline.closed = pl.closed;
+    for (size_t i = 0; i < n; ++i) {
+        const bool corner = closed || (i > 0 && i + 1 < n);
+        const size_t prev = (i + n - 1) % n;
+        const size_t next = (i + 1) % n;
+        auto keep = [&] {
+            r.polyline.points.push_back(pl.points[i]);
+            r.polyline.setBulge(r.polyline.points.size() - 1, pl.bulge(i));
+        };
+        if (!corner || std::abs(pl.bulge(prev)) > 1e-12 || std::abs(pl.bulge(i)) > 1e-12) {
+            keep();
+            continue;
+        }
+        const Vec2 p = pl.points[i];
+        const double lenIn = distance(pl.points[prev], p);
+        const double lenOut = distance(p, pl.points[next]);
+        const Vec2 dIn = normalized(p - pl.points[prev]);
+        const Vec2 dOut = normalized(pl.points[next] - p);
+        const double turn = std::atan2(cross(dIn, dOut), dot(dIn, dOut));
+        if (std::abs(turn) < 1e-9) {
+            keep();  // straight through: nothing to cut
+            continue;
+        }
+        const auto d = cut(dIn, dOut, std::abs(turn));
+        if (!d) {
+            keep();
+            ++r.skipped;
+            continue;
+        }
+        // A segment shared by two corners gives each at most half its length.
+        const double roomIn = (closed || prev > 0) ? lenIn / 2.0 : lenIn;
+        const double roomOut = (closed || next + 1 < n) ? lenOut / 2.0 : lenOut;
+        if (d->first > roomIn + kEps || d->second > roomOut + kEps) {
+            keep();
+            ++r.skipped;
+            continue;
+        }
+        r.polyline.points.push_back(p - dIn * d->first);
+        r.polyline.setBulge(r.polyline.points.size() - 1, bulgeFor(turn));
+        r.polyline.points.push_back(p + dOut * d->second);
+        r.polyline.setBulge(r.polyline.points.size() - 1, pl.bulge(i));
+        ++r.changed;
+    }
+    r.polyline = cleaned(r.polyline);
+    return r;
+}
+
+} // namespace
+
+PolylineCornersResult filletPolyline(const Polyline& pl, double radius)
+{
+    if (radius <= kEps)
+        return {cleaned(pl), 0, 0};
+    return cutCorners(
+        pl,
+        [&](Vec2, Vec2, double deflection) -> std::optional<std::pair<double, double>> {
+            const double t = radius * std::tan(deflection / 2.0);
+            return std::pair{t, t};
+        },
+        // The fillet turns as much as the corner did.
+        [](double turn) { return bulgeOfSweep(turn); });
+}
+
+PolylineCornersResult chamferPolyline(const Polyline& pl, double dist1, double dist2, std::optional<double> angle)
+{
+    if (dist1 <= kEps && (angle || dist2 <= kEps))
+        return {cleaned(pl), 0, 0};
+    return cutCorners(
+        pl,
+        [&](Vec2, Vec2, double deflection) -> std::optional<std::pair<double, double>> {
+            if (!angle)
+                return std::pair{dist1, dist2};
+            // Sine rule in the triangle cut off: the corner's inner angle is
+            // pi - deflection, the chamfer leaves the first segment at `angle`.
+            const double opposite = deflection - *angle;
+            if (*angle <= 0.0 || opposite <= 1e-9)
+                return std::nullopt;
+            return std::pair{dist1, dist1 * std::sin(*angle) / std::sin(opposite)};
+        },
+        [](double) { return 0.0; });
 }
 
 Shape stretchShape(const Shape& shape, const BBox& window, Vec2 offset)

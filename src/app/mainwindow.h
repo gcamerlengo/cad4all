@@ -22,6 +22,8 @@ public:
     bool openFile(const QString& path);
     // Runs an AutoCAD-style script: every space or new line is an Enter.
     bool runScript(const QString& path);
+    // Writes the drawing to `path` (.c4a or .dxf) without changing the current file.
+    bool exportTo(const QString& path);
     CadView* view() const { return view_; }
 
 protected:
@@ -36,6 +38,7 @@ private:
     void openDrawing();
     bool save();
     bool saveAs();
+    void exportDxf();
     bool maybeSave();
     void runScriptDialog();
     void updateTitle();

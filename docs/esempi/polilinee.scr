@@ -1,0 +1,14 @@
+; Esempio di polilinee con archi, RACCORDO e CIMA su tutta la polilinea.
+; Un piano di lavoro con il lato destro curvo e il suo bordo interno.
+PLINEA 0,0 300,0 A 300,200 L 0,200 C
+OFFSET 20 150,0 150,100 
+; Un rettangolo con tutti gli angoli raccordati.
+RETTANGOLO 450,0 @250,200
+RACCORDO R 30 
+RACCORDO P 575,0
+; Un rettangolo con tutti gli angoli smussati.
+RETTANGOLO 800,0 @250,200
+CIMA D 30 30 
+CIMA P 925,0
+; Una polilinea che alterna tratti dritti e archi.
+PLINEA 0,300 200,300 A 300,400 L 500,400 A 600,300 L 800,300 

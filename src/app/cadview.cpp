@@ -321,14 +321,35 @@ void CadView::drawShape(QPainter& p, const Shape& shape) const
         path.arcTo(rect, radToDeg(a->startAngle), radToDeg(a->sweep()));
         p.drawPath(path);
     } else if (const auto* pl = std::get_if<Polyline>(&shape)) {
-        QPolygonF poly;
-        poly.reserve(static_cast<qsizetype>(pl->points.size()));
-        for (Vec2 v : pl->points)
-            poly << toScreen(v);
-        if (pl->closed)
-            p.drawPolygon(poly);
-        else
-            p.drawPolyline(poly);
+        if (!pl->hasArcs()) {
+            QPolygonF poly;
+            poly.reserve(static_cast<qsizetype>(pl->points.size()));
+            for (Vec2 v : pl->points)
+                poly << toScreen(v);
+            if (pl->closed)
+                p.drawPolygon(poly);
+            else
+                p.drawPolyline(poly);
+            return;
+        }
+        QPainterPath path;
+        path.moveTo(toScreen(pl->points.front()));
+        for (size_t i = 0; i < pl->segmentCount(); ++i) {
+            const Shape seg = polylineSegment(*pl, i);
+            if (const auto* l = std::get_if<Line>(&seg)) {
+                path.lineTo(toScreen(l->b));
+                continue;
+            }
+            const Arc& a = std::get<Arc>(seg);
+            const QPointF c = toScreen(a.center);
+            const double r = a.radius * scale_;
+            const QRectF rect(c.x() - r, c.y() - r, 2 * r, 2 * r);
+            // Travel from this vertex: clockwise segments sweep backwards.
+            const bool ccw = pl->bulge(i) > 0.0;
+            const double from = ccw ? a.startAngle : a.endAngle;
+            path.arcTo(rect, radToDeg(from), radToDeg(ccw ? a.sweep() : -a.sweep()));
+        }
+        p.drawPath(path);
     } else if (const auto* t = std::get_if<Text>(&shape)) {
         drawText(p, *t);
     } else if (const auto* d = std::get_if<Dimension>(&shape)) {

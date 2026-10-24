@@ -65,11 +65,21 @@ std::vector<Piece> pieces(const Shape& shape)
                        out.push_back(p);
                    },
                    [&](const Polyline& pl) {
-                       const size_t n = pl.points.size();
-                       for (size_t i = 0; i + 1 < n; ++i)
-                           out.push_back(Piece::segment(pl.points[i], pl.points[i + 1]));
-                       if (pl.closed && n > 2)
-                           out.push_back(Piece::segment(pl.points[n - 1], pl.points[0]));
+                       for (size_t i = 0; i < pl.segmentCount(); ++i) {
+                           const Shape seg = polylineSegment(pl, i);
+                           if (const auto* l = std::get_if<Line>(&seg)) {
+                               out.push_back(Piece::segment(l->a, l->b));
+                           } else {
+                               const Arc& a = std::get<Arc>(seg);
+                               Piece p;
+                               p.isSegment = false;
+                               p.center = a.center;
+                               p.radius = a.radius;
+                               p.start = a.startAngle;
+                               p.end = a.endAngle;
+                               out.push_back(p);
+                           }
+                       }
                    },
                    // Text is not a curve: it never cuts or snaps to other objects.
                    [&](const Text&) {},
@@ -266,6 +276,110 @@ void radialGeometry(const Dimension& d, DimensionGeometry& g)
 
 } // namespace
 
+void Polyline::setBulge(size_t i, double b)
+{
+    if (b == 0.0 && i >= bulges.size())
+        return;
+    if (bulges.size() <= i)
+        bulges.resize(i + 1, 0.0);
+    bulges[i] = b;
+}
+
+size_t Polyline::segmentCount() const
+{
+    const size_t n = points.size();
+    if (n < 2)
+        return 0;
+    return closed ? n : n - 1;
+}
+
+bool Polyline::hasArcs() const
+{
+    return std::any_of(bulges.begin(), bulges.end(), [](double b) { return std::abs(b) > 1e-12; });
+}
+
+Arc arcFromBulge(Vec2 from, Vec2 to, double bulge)
+{
+    const Vec2 chord = to - from;
+    // Centre on the chord's perpendicular bisector; positive bulges put it
+    // on the left, so the arc runs counter-clockwise.
+    const Vec2 center = midpoint(from, to) + perpendicular(chord) * ((1.0 - bulge * bulge) / (4.0 * bulge));
+    Arc a;
+    a.center = center;
+    a.radius = distance(center, from);
+    const double s = normalizeAngle(angleOf(from - center));
+    const double e = normalizeAngle(angleOf(to - center));
+    a.startAngle = bulge > 0.0 ? s : e;
+    a.endAngle = bulge > 0.0 ? e : s;
+    return a;
+}
+
+namespace {
+
+struct SegmentArc {
+    Vec2 center;
+    double radius;
+    double start;  // angle of the first vertex
+    double sweep;  // signed
+};
+
+std::optional<SegmentArc> segmentArc(const Polyline& pl, size_t i)
+{
+    const double b = pl.bulge(i);
+    const Vec2 a = pl.points[i];
+    const Vec2 e = pl.points[(i + 1) % pl.points.size()];
+    if (std::abs(b) <= 1e-12 || almostEqual(a, e))
+        return std::nullopt;
+    const Arc arc = arcFromBulge(a, e, b);
+    return SegmentArc{arc.center, arc.radius, angleOf(a - arc.center), 4.0 * std::atan(b)};
+}
+
+} // namespace
+
+Shape polylineSegment(const Polyline& pl, size_t i)
+{
+    const Vec2 a = pl.points[i];
+    const Vec2 e = pl.points[(i + 1) % pl.points.size()];
+    if (std::abs(pl.bulge(i)) <= 1e-12 || almostEqual(a, e))
+        return Line{a, e};
+    return arcFromBulge(a, e, pl.bulge(i));
+}
+
+Vec2 segmentPoint(const Polyline& pl, size_t i, double t)
+{
+    if (const auto arc = segmentArc(pl, i))
+        return arc->center + polar(arc->radius, arc->start + arc->sweep * t);
+    const Vec2 a = pl.points[i];
+    const Vec2 e = pl.points[(i + 1) % pl.points.size()];
+    return a + (e - a) * t;
+}
+
+double segmentParam(const Polyline& pl, size_t i, Vec2 p)
+{
+    if (const auto arc = segmentArc(pl, i)) {
+        const double d = angleOf(p - arc->center) - arc->start;
+        const double along = normalizeAngle(arc->sweep > 0.0 ? d : -d);
+        const double sweep = std::abs(arc->sweep);
+        if (along <= sweep)
+            return along / sweep;
+        // Outside the arc: the nearer end.
+        return (along - sweep) < (kTwoPi - along) ? 1.0 : 0.0;
+    }
+    const Vec2 a = pl.points[i];
+    const Vec2 d = pl.points[(i + 1) % pl.points.size()] - a;
+    const double len2 = dot(d, d);
+    return len2 > 0.0 ? std::clamp(dot(p - a, d) / len2, 0.0, 1.0) : 0.0;
+}
+
+Vec2 segmentTangent(const Polyline& pl, size_t i, double t)
+{
+    if (const auto arc = segmentArc(pl, i)) {
+        const Vec2 radial = polar(1.0, arc->start + arc->sweep * t);
+        return arc->sweep > 0.0 ? perpendicular(radial) : perpendicular(radial) * -1.0;
+    }
+    return normalized(pl.points[(i + 1) % pl.points.size()] - pl.points[i]);
+}
+
 double Dimension::measurement() const
 {
     switch (kind) {
@@ -343,6 +457,9 @@ BBox boundingBox(const Shape& shape)
                    [&](const Polyline& pl) {
                        for (Vec2 p : pl.points)
                            box.add(p);
+                       for (size_t i = 0; i < pl.segmentCount(); ++i)
+                           if (std::abs(pl.bulge(i)) > 1e-12)
+                               box.add(boundingBox(polylineSegment(pl, i)));
                    },
                    [&](const Text& t) {
                        for (Vec2 p : textCorners(t))
@@ -411,11 +528,13 @@ Shape transformed(const Shape& shape, const Transform& t)
                               return r;
                           },
                           [&](const Polyline& pl) -> Shape {
-                              Polyline r;
-                              r.closed = pl.closed;
-                              r.points.reserve(pl.points.size());
-                              for (Vec2 p : pl.points)
-                                  r.points.push_back(t.apply(p));
+                              Polyline r = pl;
+                              for (Vec2& p : r.points)
+                                  p = t.apply(p);
+                              // A mirror turns counter-clockwise arcs clockwise.
+                              if (t.isMirroring())
+                                  for (double& b : r.bulges)
+                                      b = -b;
                               return r;
                           },
                           [&](const Text& tx) -> Shape {
@@ -482,13 +601,13 @@ void collectSnapPoints(const Shape& shape, unsigned mask, std::vector<SnapPoint>
                        }
                    },
                    [&](const Polyline& pl) {
-                       const size_t n = pl.points.size();
                        for (Vec2 p : pl.points)
                            add(p, SnapEndpoint);
-                       for (size_t i = 0; i + 1 < n; ++i)
-                           add(midpoint(pl.points[i], pl.points[i + 1]), SnapMidpoint);
-                       if (pl.closed && n > 2)
-                           add(midpoint(pl.points[n - 1], pl.points[0]), SnapMidpoint);
+                       for (size_t i = 0; i < pl.segmentCount(); ++i) {
+                           add(segmentPoint(pl, i, 0.5), SnapMidpoint);
+                           if (std::abs(pl.bulge(i)) > 1e-12)
+                               add(std::get<Arc>(polylineSegment(pl, i)).center, SnapCenter);
+                       }
                    },
                    [&](const Text& t) { add(t.position, SnapInsertion); },
                    [&](const Dimension& d) {

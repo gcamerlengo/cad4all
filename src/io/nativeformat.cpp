@@ -106,6 +106,12 @@ QJsonObject shapeToJson(const Shape& shape)
             pts.append(toJson(v));
         o[QStringLiteral("points")] = pts;
         o[QStringLiteral("closed")] = p->closed;
+        if (p->hasArcs()) {
+            QJsonArray bulges;
+            for (size_t i = 0; i < p->points.size(); ++i)
+                bulges.append(p->bulge(i));
+            o[QStringLiteral("bulges")] = bulges;
+        }
     } else if (const auto* t = std::get_if<Text>(&shape)) {
         o[QStringLiteral("type")] = QStringLiteral("text");
         o[QStringLiteral("position")] = toJson(t->position);
@@ -156,6 +162,9 @@ std::optional<Shape> shapeFromJson(const QJsonObject& o)
                 return std::nullopt;
             p.points.push_back(pt);
         }
+        for (const QJsonValue& v : o[QStringLiteral("bulges")].toArray())
+            p.bulges.push_back(v.toDouble());
+        p.bulges.resize(std::min(p.bulges.size(), p.points.size()));
         if (p.points.size() >= 2)
             return p;
     } else if (type == QLatin1String("text")) {
