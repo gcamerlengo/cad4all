@@ -181,6 +181,49 @@ QIcon make(const QString& name)
             path.arcTo(QRectF(3, 5, 18, 16), 180, 90);
             p.drawPath(path);
         };
+    } else if (name == QLatin1String("text")) {
+        painter = [](QPainter& p) {
+            p.drawLine(QPointF(4, 4), QPointF(20, 4));
+            p.drawLine(QPointF(12, 4), QPointF(12, 20));
+            p.drawLine(QPointF(4, 4), QPointF(4, 7));
+            p.drawLine(QPointF(20, 4), QPointF(20, 7));
+            accentPen(p);
+            p.drawLine(QPointF(9, 20), QPointF(15, 20));
+        };
+    } else if (name == QLatin1String("dimLinear")) {
+        painter = [](QPainter& p) {
+            p.drawLine(QPointF(3, 21), QPointF(3, 8));
+            p.drawLine(QPointF(21, 21), QPointF(21, 8));
+            accentPen(p);
+            p.drawLine(QPointF(3, 11), QPointF(21, 11));
+            p.drawPolyline(QPolygonF({{7, 9}, {3, 11}, {7, 13}}));
+            p.drawPolyline(QPolygonF({{17, 9}, {21, 11}, {17, 13}}));
+            p.drawLine(QPointF(9, 6), QPointF(15, 6));
+        };
+    } else if (name == QLatin1String("dimAligned")) {
+        painter = [](QPainter& p) {
+            p.drawLine(QPointF(4, 21), QPointF(20, 5));
+            accentPen(p);
+            p.drawLine(QPointF(4, 21), QPointF(1, 18));
+            p.drawLine(QPointF(20, 5), QPointF(17, 2));
+            p.drawLine(QPointF(2, 19), QPointF(18, 3));
+        };
+    } else if (name == QLatin1String("dimRadius")) {
+        painter = [](QPainter& p) {
+            p.drawEllipse(QPointF(11, 13), 8, 8);
+            dot(p, {11, 13});
+            accentPen(p);
+            p.drawLine(QPointF(11, 13), QPointF(22, 2));
+            p.drawPolyline(QPolygonF({{14.5, 7.5}, {16.7, 7.3}, {16.5, 9.5}}));
+        };
+    } else if (name == QLatin1String("dimDiameter")) {
+        painter = [](QPainter& p) {
+            p.drawEllipse(QPointF(12, 12), 8.5, 8.5);
+            accentPen(p);
+            p.drawLine(QPointF(6, 18), QPointF(18, 6));
+            p.drawPolyline(QPolygonF({{15.5, 6}, {18, 6}, {18, 8.5}}));
+            p.drawPolyline(QPolygonF({{6, 15.5}, {6, 18}, {8.5, 18}}));
+        };
     } else if (name == QLatin1String("zoomExtents")) {
         painter = [](QPainter& p) {
             p.drawEllipse(QPointF(10, 10), 6, 6);

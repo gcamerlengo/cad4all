@@ -68,3 +68,37 @@ TEST(NativeFormat, SkipsUnknownEntities)
     EXPECT_EQ(doc.entities().size(), 1u);
     EXPECT_FALSE(error.isEmpty());
 }
+
+TEST(NativeFormat, TextAndDimensionRoundTrip)
+{
+    Document doc;
+    doc.add(Text{{1, 2}, 3.5, 0.25, "Soggiorno è grande", Text::Align::Center});
+    Dimension d;
+    d.kind = Dimension::Kind::Radius;
+    d.p1 = {0, 0};
+    d.p2 = {5, 0};
+    d.location = {9, 1};
+    d.textHeight = 25;
+    d.arrowSize = 20;
+    d.text = "<> max";
+    doc.add(d);
+
+    Document loaded;
+    QString error;
+    ASSERT_TRUE(io::fromNativeJson(io::toNativeJson(doc), loaded, &error)) << error.toStdString();
+    EXPECT_TRUE(error.isEmpty());
+    ASSERT_EQ(loaded.entities().size(), 2u);
+    auto it = loaded.entities().begin();
+    const Text t = std::get<Text>(it->second.shape);
+    EXPECT_EQ(t.content, "Soggiorno è grande");
+    EXPECT_EQ(t.align, Text::Align::Center);
+    EXPECT_DOUBLE_EQ(t.rotation, 0.25);
+    EXPECT_DOUBLE_EQ(t.height, 3.5);
+    ++it;
+    const Dimension r = std::get<Dimension>(it->second.shape);
+    EXPECT_EQ(r.kind, Dimension::Kind::Radius);
+    EXPECT_EQ(r.location, (Vec2{9, 1}));
+    EXPECT_DOUBLE_EQ(r.textHeight, 25.0);
+    EXPECT_DOUBLE_EQ(r.arrowSize, 20.0);
+    EXPECT_EQ(r.text, "<> max");
+}

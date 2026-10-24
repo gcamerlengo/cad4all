@@ -44,6 +44,44 @@ Color colorFromString(const QString& s)
     return {static_cast<std::uint8_t>(v >> 16), static_cast<std::uint8_t>(v >> 8), static_cast<std::uint8_t>(v)};
 }
 
+const char* alignName(Text::Align a)
+{
+    switch (a) {
+    case Text::Align::Left: return "left";
+    case Text::Align::Center: return "center";
+    case Text::Align::Right: return "right";
+    }
+    return "left";
+}
+
+Text::Align alignFromName(const QString& s)
+{
+    if (s == QLatin1String("center"))
+        return Text::Align::Center;
+    if (s == QLatin1String("right"))
+        return Text::Align::Right;
+    return Text::Align::Left;
+}
+
+const char* kindName(Dimension::Kind k)
+{
+    switch (k) {
+    case Dimension::Kind::Linear: return "linear";
+    case Dimension::Kind::Aligned: return "aligned";
+    case Dimension::Kind::Radius: return "radius";
+    case Dimension::Kind::Diameter: return "diameter";
+    }
+    return "linear";
+}
+
+std::optional<Dimension::Kind> kindFromName(const QString& s)
+{
+    for (auto k : {Dimension::Kind::Linear, Dimension::Kind::Aligned, Dimension::Kind::Radius, Dimension::Kind::Diameter})
+        if (s == QLatin1String(kindName(k)))
+            return k;
+    return std::nullopt;
+}
+
 QJsonObject shapeToJson(const Shape& shape)
 {
     QJsonObject o;
@@ -68,6 +106,24 @@ QJsonObject shapeToJson(const Shape& shape)
             pts.append(toJson(v));
         o[QStringLiteral("points")] = pts;
         o[QStringLiteral("closed")] = p->closed;
+    } else if (const auto* t = std::get_if<Text>(&shape)) {
+        o[QStringLiteral("type")] = QStringLiteral("text");
+        o[QStringLiteral("position")] = toJson(t->position);
+        o[QStringLiteral("height")] = t->height;
+        o[QStringLiteral("rotation")] = t->rotation;
+        o[QStringLiteral("align")] = QLatin1String(alignName(t->align));
+        o[QStringLiteral("content")] = QString::fromStdString(t->content);
+    } else if (const auto* d = std::get_if<Dimension>(&shape)) {
+        o[QStringLiteral("type")] = QStringLiteral("dimension");
+        o[QStringLiteral("kind")] = QLatin1String(kindName(d->kind));
+        o[QStringLiteral("p1")] = toJson(d->p1);
+        o[QStringLiteral("p2")] = toJson(d->p2);
+        o[QStringLiteral("location")] = toJson(d->location);
+        o[QStringLiteral("angle")] = d->angle;
+        o[QStringLiteral("textHeight")] = d->textHeight;
+        o[QStringLiteral("arrowSize")] = d->arrowSize;
+        if (!d->text.empty())
+            o[QStringLiteral("text")] = QString::fromStdString(d->text);
     }
     return o;
 }
@@ -102,6 +158,26 @@ std::optional<Shape> shapeFromJson(const QJsonObject& o)
         }
         if (p.points.size() >= 2)
             return p;
+    } else if (type == QLatin1String("text")) {
+        Text t;
+        t.height = o[QStringLiteral("height")].toDouble(-1.0);
+        t.rotation = o[QStringLiteral("rotation")].toDouble();
+        t.align = alignFromName(o[QStringLiteral("align")].toString());
+        t.content = o[QStringLiteral("content")].toString().toStdString();
+        if (fromJson(o[QStringLiteral("position")], t.position) && t.height > 0.0)
+            return t;
+    } else if (type == QLatin1String("dimension")) {
+        Dimension d;
+        const auto kind = kindFromName(o[QStringLiteral("kind")].toString());
+        d.angle = o[QStringLiteral("angle")].toDouble();
+        d.textHeight = o[QStringLiteral("textHeight")].toDouble(-1.0);
+        d.arrowSize = o[QStringLiteral("arrowSize")].toDouble(-1.0);
+        d.text = o[QStringLiteral("text")].toString().toStdString();
+        if (kind && fromJson(o[QStringLiteral("p1")], d.p1) && fromJson(o[QStringLiteral("p2")], d.p2)
+            && fromJson(o[QStringLiteral("location")], d.location) && d.textHeight > 0.0 && d.arrowSize >= 0.0) {
+            d.kind = *kind;
+            return d;
+        }
     }
     return std::nullopt;
 }

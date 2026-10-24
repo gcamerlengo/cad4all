@@ -16,6 +16,9 @@ class CommandInput : public QLineEdit {
 public:
     using QLineEdit::QLineEdit;
 
+    // When on, Space types a space and only Enter confirms (free text).
+    void setSpaceIsText(bool on) { spaceIsText_ = on; }
+
 signals:
     void submitted(const QString& text);
     void escapePressed();
@@ -28,6 +31,7 @@ protected:
 private:
     QStringList history_;
     int historyPos_ = 0;
+    bool spaceIsText_ = false;
 };
 
 class CommandLine : public QWidget {

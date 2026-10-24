@@ -1,0 +1,21 @@
+; Esempio di testi e quote sulla pianta di esempio (unità: centimetri).
+; Nei testi lo spazio fa parte del testo: il testo finisce a fine riga
+; e una riga vuota chiude il comando TESTO.
+RETTANGOLO 0,0 @1000,600
+RETTANGOLO 30,30 @940,540
+LINEA 500,30 @0,350 
+LINEA 500,470 @0,100 
+CERCHIO 250,300 80
+CERCHIO 760,300 60
+DIMSCALE 10
+QUOTALIN 0,600 1000,600 500,720
+QUOTALIN 1000,0 1000,600 1120,300
+QUOTALIN 30,30 500,30 250,-90
+QUOTALIN 500,30 970,30 750,-90
+QUOTARAGGIO 330,300 420,420
+QUOTADIAMETRO 820,300 760,300
+TESTO G C 250,150 30 0 Soggiorno
+21 mq
+
+TESTO G C 760,150 30 0 Camera
+

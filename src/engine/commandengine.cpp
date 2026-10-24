@@ -81,6 +81,11 @@ bool CommandEngine::run(const QString& rawName)
 
 void CommandEngine::submit(const QString& rawText)
 {
+    if (current_ && current_->wantsText() && !rawText.trimmed().isEmpty()) {
+        dispatch([&](Command& c) { c.text(rawText); });
+        return;
+    }
+
     const QString text = rawText.trimmed();
 
     if (!current_) {
@@ -198,6 +203,11 @@ bool CommandEngine::wantsSelection() const
 bool CommandEngine::wantsObjectPick() const
 {
     return current_ && current_->wantsObjectPick();
+}
+
+bool CommandEngine::wantsText() const
+{
+    return current_ && current_->wantsText();
 }
 
 void CommandEngine::select(const std::vector<EntityId>& ids, bool remove)
@@ -382,6 +392,13 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("TRIM"), {QStringLiteral("TAGLIA"), QStringLiteral("TR")}, [] { return makeTrimCommand(); });
     add(QStringLiteral("EXTEND"), {QStringLiteral("ESTENDI"), QStringLiteral("EX")}, [] { return makeExtendCommand(); });
     add(QStringLiteral("FILLET"), {QStringLiteral("RACCORDO"), QStringLiteral("RACCORDA"), QStringLiteral("F")}, [] { return makeFilletCommand(); });
+    add(QStringLiteral("TEXT"), {QStringLiteral("TESTO"), QStringLiteral("DTEXT"), QStringLiteral("DT")}, [] { return makeTextCommand(); });
+    add(QStringLiteral("TEXTEDIT"), {QStringLiteral("MODIFICATESTO"), QStringLiteral("DDEDIT"), QStringLiteral("ED")}, [] { return makeTextEditCommand(); });
+    add(QStringLiteral("DIMLINEAR"), {QStringLiteral("QUOTALIN"), QStringLiteral("QUOTALINEARE"), QStringLiteral("DLI")}, [] { return makeDimLinearCommand(false); });
+    add(QStringLiteral("DIMALIGNED"), {QStringLiteral("QUOTALLINEATA"), QStringLiteral("DAL")}, [] { return makeDimLinearCommand(true); });
+    add(QStringLiteral("DIMRADIUS"), {QStringLiteral("QUOTARAGGIO"), QStringLiteral("DRA")}, [] { return makeDimRadialCommand(false); });
+    add(QStringLiteral("DIMDIAMETER"), {QStringLiteral("QUOTADIAMETRO"), QStringLiteral("QUOTADIAM"), QStringLiteral("DDI")}, [] { return makeDimRadialCommand(true); });
+    add(QStringLiteral("DIMSCALE"), {QStringLiteral("SCALAQUOTE")}, [] { return makeDimScaleCommand(); });
     add(QStringLiteral("ZOOM"), {QStringLiteral("Z")}, [] { return makeZoomCommand(); });
     add(QStringLiteral("LAYER"), {QStringLiteral("LA")}, [] { return makeLayerCommand(); });
 }

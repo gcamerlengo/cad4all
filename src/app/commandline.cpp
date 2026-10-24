@@ -25,9 +25,12 @@ bool CommandInput::event(QEvent* event)
 void CommandInput::keyPressEvent(QKeyEvent* event)
 {
     switch (event->key()) {
+    case Qt::Key_Space:
+        if (spaceIsText_)
+            break;
+        [[fallthrough]];
     case Qt::Key_Return:
-    case Qt::Key_Enter:
-    case Qt::Key_Space: {
+    case Qt::Key_Enter: {
         const QString value = text();
         if (!value.trimmed().isEmpty()) {
             history_.removeAll(value);

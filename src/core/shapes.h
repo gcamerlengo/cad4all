@@ -5,7 +5,9 @@
 
 #include "geometry.h"
 
+#include <array>
 #include <optional>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -38,7 +40,42 @@ struct Polyline {
     bool closed = false;
 };
 
-using Shape = std::variant<Line, Circle, Arc, Polyline>;
+// Single-line text. `position` is on the baseline, at the left end, the
+// centre or the right end depending on `align`. `height` is the height of
+// capital letters in drawing units; `content` is UTF-8.
+struct Text {
+    enum class Align { Left, Center, Right };
+
+    Vec2 position;
+    double height = 2.5;
+    double rotation = 0.0;  // radians, counter-clockwise
+    std::string content;
+    Align align = Align::Left;
+};
+
+// Dimension. Its lines, arrows and label are derived from the definition
+// points by dimensionGeometry(), so moving or scaling it keeps it consistent.
+struct Dimension {
+    enum class Kind { Linear, Aligned, Radius, Diameter };
+
+    Kind kind = Kind::Linear;
+    // Linear and aligned: origins of the two extension lines.
+    // Radius and diameter: centre and a point on the circle.
+    Vec2 p1, p2;
+    // Linear and aligned: a point on the dimension line.
+    // Radius and diameter: where the label goes.
+    Vec2 location;
+    double angle = 0.0;  // linear only: direction of the dimension line
+    double textHeight = 2.5;
+    double arrowSize = 2.5;
+    // Empty: the measured value. Otherwise shown as is, with "<>" replaced
+    // by the measured value (as in AutoCAD).
+    std::string text;
+
+    double measurement() const;
+};
+
+using Shape = std::variant<Line, Circle, Arc, Polyline, Text, Dimension>;
 
 enum SnapType : unsigned {
     SnapEndpoint = 1u << 0,
@@ -47,6 +84,7 @@ enum SnapType : unsigned {
     SnapQuadrant = 1u << 3,
     SnapIntersection = 1u << 4,
     SnapNearest = 1u << 5,
+    SnapInsertion = 1u << 6,
 };
 
 struct SnapPoint {
@@ -66,6 +104,22 @@ std::vector<Vec2> intersections(const Shape& a, const Shape& b);
 
 // True when the shape touches or crosses the rectangle (crossing selection).
 bool crossesBox(const Shape& shape, const BBox& box);
+
+// Approximate extent of a text: there is no font in the core, so the width
+// is estimated from the number of characters. The view draws the real glyphs.
+double estimatedTextWidth(const Text& text);
+// Corners of the text box, counter-clockwise from the bottom left.
+std::array<Vec2, 4> textCorners(const Text& text);
+
+// What a dimension draws: lines, filled arrowheads (tip first) and its label.
+struct DimensionGeometry {
+    std::vector<Line> lines;
+    std::vector<std::array<Vec2, 3>> arrows;
+    Text label;
+};
+DimensionGeometry dimensionGeometry(const Dimension& dim);
+// Measured value as shown in a label: up to two decimals, decimal comma.
+std::string formatMeasurement(double value);
 
 // Circle arc through three points, oriented to pass through `mid`.
 std::optional<Arc> arcFromThreePoints(Vec2 start, Vec2 mid, Vec2 end);

@@ -258,7 +258,9 @@ std::optional<Shape> offsetShape(const Shape& shape, double dist, Vec2 sidePoint
             return std::nullopt;
         return r;
     }
-    return offsetPolyline(std::get<Polyline>(shape), dist, sidePoint);
+    if (const auto* pl = std::get_if<Polyline>(&shape))
+        return offsetPolyline(*pl, dist, sidePoint);
+    return std::nullopt;  // texts and dimensions
 }
 
 TrimResult trimShape(const Shape& shape, const std::vector<Shape>& boundaries, Vec2 pick)
@@ -335,7 +337,9 @@ TrimResult trimShape(const Shape& shape, const std::vector<Shape>& boundaries, V
         return r;
     }
 
-    return trimPolyline(std::get<Polyline>(shape), cutPoints, pick);
+    if (const auto* pl = std::get_if<Polyline>(&shape))
+        return trimPolyline(*pl, cutPoints, pick);
+    return {false, {}};  // texts and dimensions are not trimmed
 }
 
 std::optional<Shape> extendShape(const Shape& shape, const std::vector<Shape>& boundaries, Vec2 pick)
