@@ -1,0 +1,19 @@
+; Esempio di TRATTEGGIO: la pianta di pianta.scr con muri, pavimento e mobili tratteggiati.
+; Il contorno si trova da solo cliccando un punto interno; i cerchi dentro restano vuoti (isole).
+RETTANGOLO 0,0 @1000,600
+RETTANGOLO 30,30 @940,540
+LINEA 500,30 @0,350 
+LINEA 500,470 @0,100 
+LINEA 500,380 @90,0 
+ARCO 590,380 563.64,443.64 500,470
+CERCHIO 250,300 80
+CERCHIO 760,300 D 120
+PLINEA 650,120 @220,0 @0,60 @-220,0 C
+; Muri: ANSI31 tra il rettangolo esterno e quello interno.
+TRATTEGGIO M ANSI31 S 3 15,15 
+; Pavimento della stanza a sinistra a quadrotti, il tavolo resta vuoto.
+TRATTEGGIO M NET S 15 100,100 
+; Il mobile a destra pieno.
+TRATTEGGIO M SOLID 700,150 
+; Il tavolo rotondo a destra con un motivo a mattoni ruotato.
+TRATTEGGIO M BRICK S 2 AN 45 760,300 

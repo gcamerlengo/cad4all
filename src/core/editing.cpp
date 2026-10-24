@@ -891,6 +891,12 @@ Shape stretchShape(const Shape& shape, const BBox& window, Vec2 offset)
         r.position = move(t->position);
         return r;
     }
+    if (const auto* h = std::get_if<Hatch>(&shape)) {
+        Hatch r = *h;
+        for (Polyline& loop : r.loops)
+            loop = std::get<Polyline>(stretchShape(loop, window, offset));
+        return r;
+    }
     if (const auto* d = std::get_if<Dimension>(&shape)) {
         Dimension r = *d;
         const bool radial = d->kind == Dimension::Kind::Radius || d->kind == Dimension::Kind::Diameter;

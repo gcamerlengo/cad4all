@@ -6,6 +6,7 @@
 
 #include "commandengine.h"
 #include "editing.h"
+#include "hatch.h"
 
 #include <QCoreApplication>
 
@@ -1739,6 +1740,312 @@ public:
     }
 };
 
+// ---------------------------------------------------------------- hatch
+
+// Remembered between runs, like AutoCAD's HPNAME, HPSCALE and HPANG.
+std::string gHatchPattern = "ANSI31";
+double gHatchScale = 1.0;
+double gHatchAngle = 0.0;  // degrees
+
+QString patternList()
+{
+    QStringList names;
+    for (const std::string& n : hatchPatternNames())
+        names << QString::fromStdString(n);
+    return t("Motivi disponibili: %1").arg(names.join(QStringLiteral(", ")));
+}
+
+// Shared by HATCH and HATCHEDIT: the Motivo, Scala and Angolo options.
+class HatchSettings {
+public:
+    enum class Ask { None, Pattern, Scale, Angle };
+
+    // Starts asking for an option; false when `w` is not one of them.
+    bool option(CommandEngine* engine, const QString& w, const std::string& pattern, double scale, double angleDeg)
+    {
+        if (isAny(w, {"M", "MOTIVO", "P", "PATTERN"})) {
+            ask_ = Ask::Pattern;
+            engine->setPrompt(t("Specificare nome del motivo o [?] <%1>:").arg(QString::fromStdString(pattern)));
+        } else if (isAny(w, {"S", "SCALA", "SCALE"})) {
+            ask_ = Ask::Scale;
+            engine->setPrompt(t("Specificare scala del motivo <%1>:").arg(scale));
+        } else if (isAny(w, {"AN", "ANGOLO", "ANGLE"})) {
+            ask_ = Ask::Angle;
+            engine->setPrompt(t("Specificare angolo del motivo <%1>:").arg(angleDeg));
+        } else {
+            return false;
+        }
+        return true;
+    }
+
+    Ask asking() const { return ask_; }
+    void done() { ask_ = Ask::None; }
+
+    // A pattern name typed while asking for it. Returns the valid name.
+    std::optional<std::string> patternName(CommandEngine* engine, const QString& w)
+    {
+        if (w == QLatin1String("?")) {
+            engine->message(patternList());
+            return std::nullopt;
+        }
+        const std::string name = w.toStdString();
+        if (!hatchPattern(name)) {
+            engine->message(t("Motivo sconosciuto: %1. %2").arg(w, patternList()));
+            return std::nullopt;
+        }
+        return name;
+    }
+
+private:
+    Ask ask_ = Ask::None;
+};
+
+void reportDensity(CommandEngine* engine, const Hatch& h)
+{
+    const BBox box = boundingBox(h);
+    const double spacing = hatchSpacing(h);
+    if (spacing > 0.0 && spacing * 1000.0 < std::max(box.width(), box.height()))
+        engine->message(t("Il motivo è molto fitto per questo disegno e appare come una campitura: aumentare la Scala "
+                          "(per esempio %1).").arg(std::max(box.width(), box.height()) / 50.0 / hatchSpacing(makeHatch({}, h.pattern, 1, 0)), 0, 'g', 3));
+}
+
+class HatchCommand : public Command {
+public:
+    void start() override
+    {
+        engine->message(t("Motivo corrente: %1, scala %2, angolo %3")
+                            .arg(QString::fromStdString(gHatchPattern))
+                            .arg(gHatchScale)
+                            .arg(gHatchAngle));
+        toPoint();
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (settings_.asking() == HatchSettings::Ask::Pattern) {
+            if (const auto name = settings_.patternName(engine, w)) {
+                gHatchPattern = *name;
+                toPoint();
+            }
+            return true;
+        }
+        if (settings_.asking() != HatchSettings::Ask::None)
+            return false;
+        if (settings_.option(engine, w, gHatchPattern, gHatchScale, gHatchAngle))
+            return true;
+        if (!objects_ && isAny(w, {"O", "OGGETTI", "SELEZIONA", "SE", "SELECT"})) {
+            objects_ = true;
+            toPoint();
+            return true;
+        }
+        if (objects_ && isAny(w, {"P", "PUNTO", "K", "PICK"})) {
+            objects_ = false;
+            toPoint();
+            return true;
+        }
+        if (isAny(w, {"ANN", "ANNULLA", "U", "UNDO"}) && !regions_.empty()) {
+            regions_.pop_back();
+            toPoint();
+            return true;
+        }
+        return false;
+    }
+
+    bool number(double value) override
+    {
+        switch (settings_.asking()) {
+        case HatchSettings::Ask::Scale:
+            if (value <= 0.0) {
+                engine->message(t("La scala deve essere positiva."));
+                return true;
+            }
+            gHatchScale = value;
+            break;
+        case HatchSettings::Ask::Angle:
+            gHatchAngle = value;
+            break;
+        default:
+            return false;
+        }
+        toPoint();
+        return true;
+    }
+
+    void enter() override
+    {
+        if (settings_.asking() != HatchSettings::Ask::None) {
+            toPoint();
+            return;
+        }
+        if (!regions_.empty()) {
+            const Hatch h = current();
+            engine->document().add(h);
+            reportDensity(engine, h);
+        }
+        engine->finish();
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (settings_.asking() != HatchSettings::Ask::None)
+            return false;
+        if (objects_)
+            return pickObject(p);
+        std::vector<Shape> shapes;
+        const Document& doc = engine->document();
+        for (const auto& [id, e] : doc.entities())
+            if (doc.isVisible(e))
+                shapes.push_back(e.shape);
+        auto loops = findHatchBoundary(shapes, p);
+        if (loops.empty()) {
+            engine->message(t("Impossibile trovare un contorno chiuso attorno al punto."));
+            return false;
+        }
+        regions_.push_back(std::move(loops));
+        toPoint();
+        return true;
+    }
+
+    bool wantsObjectPick() const override { return settings_.asking() == HatchSettings::Ask::None; }
+
+    void preview(Vec2, std::vector<Shape>& out) const override
+    {
+        if (!regions_.empty())
+            out.push_back(current());
+    }
+
+private:
+    bool pickObject(Vec2 p)
+    {
+        const auto id = cad::pickObject(engine, p);
+        if (!id)
+            return false;
+        const Shape& s = engine->document().entity(*id)->shape;
+        Polyline loop;
+        if (const auto* pl = std::get_if<Polyline>(&s); pl && (pl->closed || almostEqual(pl->points.front(), pl->points.back()))) {
+            loop = *pl;
+            if (!pl->closed) {
+                loop.points.pop_back();
+                loop.bulges.resize(std::min(loop.bulges.size(), loop.points.size()));
+            }
+        } else if (const auto* c = std::get_if<Circle>(&s)) {
+            loop = Polyline{{c->center + Vec2{c->radius, 0}, c->center - Vec2{c->radius, 0}}, true, {1.0, 1.0}};
+        } else {
+            engine->message(t("Selezionare una polilinea chiusa o un cerchio."));
+            return false;
+        }
+        regions_.push_back({loop});
+        toPoint();
+        return true;
+    }
+
+    Hatch current() const
+    {
+        std::vector<Polyline> loops;
+        for (const auto& region : regions_)
+            loops.insert(loops.end(), region.begin(), region.end());
+        return makeHatch(std::move(loops), gHatchPattern, gHatchScale, degToRad(gHatchAngle));
+    }
+
+    void toPoint()
+    {
+        settings_.done();
+        const QString undo = regions_.empty() ? QString() : t("/ANNulla");
+        if (objects_)
+            engine->setPrompt(t("Selezionare oggetti o [Punto/Motivo/Scala/ANgolo%1]:").arg(undo));
+        else
+            engine->setPrompt(t("Specificare punto interno o [Oggetti/Motivo/Scala/ANgolo%1]:").arg(undo));
+    }
+
+    HatchSettings settings_;
+    bool objects_ = false;
+    std::vector<std::vector<Polyline>> regions_;
+};
+
+class HatchEditCommand : public Command {
+public:
+    void start() override { engine->setPrompt(t("Selezionare tratteggio:")); }
+
+    bool point(Vec2 p) override
+    {
+        if (id_)
+            return false;
+        const auto id = pickObject(engine, p);
+        if (!id)
+            return false;
+        if (!std::holds_alternative<Hatch>(engine->document().entity(*id)->shape)) {
+            engine->message(t("L'oggetto selezionato non è un tratteggio."));
+            return false;
+        }
+        id_ = *id;
+        toOption();
+        return true;
+    }
+
+    bool wantsObjectPick() const override { return !id_; }
+
+    bool keyword(const QString& w) override
+    {
+        if (!id_)
+            return false;
+        Hatch h = hatch();
+        if (settings_.asking() == HatchSettings::Ask::Pattern) {
+            if (const auto name = settings_.patternName(engine, w)) {
+                const Hatch changed = makeHatch(h.loops, *name, h.scale, h.angle);
+                h.pattern = changed.pattern;
+                h.lines = changed.lines;
+                update(h);
+            }
+            return true;
+        }
+        if (settings_.asking() != HatchSettings::Ask::None)
+            return false;
+        return settings_.option(engine, w, h.pattern, h.scale, radToDeg(h.angle));
+    }
+
+    bool number(double value) override
+    {
+        if (!id_)
+            return false;
+        Hatch h = hatch();
+        if (settings_.asking() == HatchSettings::Ask::Scale && value > 0.0)
+            h.scale = value;
+        else if (settings_.asking() == HatchSettings::Ask::Angle)
+            h.angle = degToRad(value);
+        else
+            return false;
+        update(h);
+        return true;
+    }
+
+    void enter() override
+    {
+        if (settings_.asking() != HatchSettings::Ask::None)
+            toOption();
+        else
+            engine->finish();
+    }
+
+private:
+    Hatch hatch() const { return std::get<Hatch>(engine->document().entity(*id_)->shape); }
+
+    void update(const Hatch& h)
+    {
+        engine->document().replace(*id_, h);
+        reportDensity(engine, h);
+        toOption();
+    }
+
+    void toOption()
+    {
+        settings_.done();
+        engine->setPrompt(t("Specificare opzione [Motivo/Scala/ANgolo]:"));
+    }
+
+    HatchSettings settings_;
+    std::optional<EntityId> id_;
+};
+
 // ---------------------------------------------------------------- view
 
 class ZoomCommand : public Command {
@@ -1796,6 +2103,8 @@ std::unique_ptr<Command> makeTextEditCommand() { return std::make_unique<TextEdi
 std::unique_ptr<Command> makeDimLinearCommand(bool aligned) { return std::make_unique<DimLinearCommand>(aligned); }
 std::unique_ptr<Command> makeDimRadialCommand(bool diameter) { return std::make_unique<DimRadialCommand>(diameter); }
 std::unique_ptr<Command> makeDimScaleCommand() { return std::make_unique<DimScaleCommand>(); }
+std::unique_ptr<Command> makeHatchCommand() { return std::make_unique<HatchCommand>(); }
+std::unique_ptr<Command> makeHatchEditCommand() { return std::make_unique<HatchEditCommand>(); }
 std::unique_ptr<Command> makeZoomCommand() { return std::make_unique<ZoomCommand>(); }
 std::unique_ptr<Command> makeLayerCommand() { return std::make_unique<LayerCommand>(); }
 

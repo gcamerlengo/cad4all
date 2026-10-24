@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "dxf.h"
+#include "hatch.h"
 
 #include <QList>
 
@@ -207,4 +208,60 @@ TEST(Dxf, SplinesAndDimensionSizeFromItsBlock)
     ASSERT_EQ(dims.size(), 1u);
     EXPECT_NEAR(dims[0].second.textHeight, 20.0, 1e-9);
     EXPECT_NEAR(dims[0].second.measurement(), 100.0, 1e-9);
+}
+
+TEST(Dxf, ReadsHatches)
+{
+    const QByteArray data = dxf("0 SECTION|2 ENTITIES|"
+                                // Polyline path with a hole, ANSI31 at scale 2: lines as stored in the file.
+                                "0 HATCH|8 0|10 0|20 0|30 0|2 ANSI31|70 0|71 0|91 2|"
+                                "92 3|72 0|73 1|93 4|10 0|20 0|10 100|20 0|10 100|20 50|10 0|20 50|97 0|"
+                                "92 3|72 0|73 1|93 4|10 20|20 10|10 40|20 10|10 40|20 30|10 20|20 30|97 0|"
+                                "75 1|76 1|52 0|41 2|77 0|78 1|53 45|43 0|44 0|45 -4.490128|46 4.490128|79 0|98 0|"
+                                // Edge path: line, counter-clockwise half circle, line, clockwise half circle.
+                                "0 HATCH|8 0|10 0|20 0|30 0|2 SOLID|70 1|71 0|91 1|92 1|93 5|"
+                                "72 1|10 150|20 0|11 250|21 0|"
+                                "72 2|10 250|20 25|40 25|50 -90|51 90|73 1|"
+                                "72 1|10 250|20 50|11 200|21 50|"
+                                "72 2|10 175|20 50|40 25|50 180|51 360|73 0|"
+                                "72 1|10 150|20 50|11 150|21 0|97 0|75 1|76 1|98 0|"
+                                "0 ENDSEC|0 EOF");
+    Document doc;
+    QString message;
+    ASSERT_TRUE(io::fromDxf(data, doc, &message)) << message.toStdString();
+    const auto hatches = shapes<Hatch>(doc);
+    ASSERT_EQ(hatches.size(), 2u);
+
+    const Hatch& lines = hatches[0].second;
+    EXPECT_EQ(lines.pattern, "ANSI31");
+    EXPECT_DOUBLE_EQ(lines.scale, 2.0);
+    ASSERT_EQ(lines.loops.size(), 2u);
+    ASSERT_EQ(lines.lines.size(), 1u);
+    EXPECT_NEAR(lines.lines[0].offset.y, 3.175, 1e-6);  // back to the definition
+    EXPECT_NEAR(hatchSpacing(lines), 6.35, 1e-6);
+    EXPECT_FALSE(insideHatch(lines, {30, 20}));
+    EXPECT_TRUE(insideHatch(lines, {10, 20}));
+
+    const Hatch& solid = hatches[1].second;
+    EXPECT_TRUE(solid.solid());
+    ASSERT_EQ(solid.loops.size(), 1u);
+    EXPECT_TRUE(insideHatch(solid, {260, 25}));   // inside the outward half circle
+    EXPECT_FALSE(insideHatch(solid, {175, 45}));  // in the bite of the clockwise one
+    EXPECT_TRUE(insideHatch(solid, {155, 10}));
+}
+
+TEST(Dxf, WritesHatchesAsBlocks)
+{
+    Document doc;
+    doc.add(makeHatch({Polyline{{{0, 0}, {100, 0}, {100, 100}, {0, 100}}, true}}, "ANSI31", 10, 0));
+    doc.add(makeHatch({Polyline{{{200, 0}, {300, 0}, {250, 80}}, true}}, "SOLID", 1, 0));
+    const QByteArray out = io::toDxf(doc);
+    EXPECT_TRUE(out.contains("*X1"));
+    EXPECT_TRUE(out.contains("*X2"));
+    EXPECT_TRUE(out.contains("SOLID"));
+    // Reading it back gives the drawn lines and fills.
+    Document back;
+    ASSERT_TRUE(io::fromDxf(out, back));
+    EXPECT_GT(shapes<Line>(back).size(), 3u);
+    EXPECT_FALSE(shapes<Polyline>(back).empty());
 }

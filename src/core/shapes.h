@@ -92,7 +92,34 @@ struct Dimension {
     double measurement() const;
 };
 
-using Shape = std::variant<Line, Circle, Arc, Polyline, Text, Dimension>;
+// One family of parallel lines of a hatch pattern, as in AutoCAD .pat files:
+// lines at `angle` (radians) through `origin`; each next line is shifted by
+// `offset`, measured along the line (x) and across it (y). `dashes` repeat
+// along the line: positive = drawn, negative = gap, zero = dot. No dashes
+// means a continuous line.
+struct HatchPatternLine {
+    double angle = 0.0;
+    Vec2 origin;
+    Vec2 offset;
+    std::vector<double> dashes;
+};
+
+// Hatch: the area inside `loops` (closed polylines, filled with the even-odd
+// rule, so a loop inside another is a hole) covered with a pattern. The
+// pattern lines are its definition at scale 1 and angle 0; `scale`, `angle`
+// and `origin` place it in the drawing. A solid fill has no pattern lines.
+struct Hatch {
+    std::vector<Polyline> loops;
+    std::string pattern = "ANSI31";
+    std::vector<HatchPatternLine> lines;
+    double scale = 1.0;
+    double angle = 0.0;  // radians
+    Vec2 origin;
+
+    bool solid() const { return lines.empty(); }
+};
+
+using Shape = std::variant<Line, Circle, Arc, Polyline, Text, Dimension, Hatch>;
 
 // Arc of a polyline segment from `from` to `to`: always counter-clockwise, so
 // a negative bulge gives an arc from `to` to `from`.

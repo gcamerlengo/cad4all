@@ -16,6 +16,7 @@ add_executable(cad4all_tests
     coordinput_test.cpp
     nativeformat_test.cpp
     dxf_test.cpp
+    hatch_test.cpp
     commands_test.cpp
     editing_test.cpp
 )

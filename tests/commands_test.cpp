@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Drives the command engine the way a user does from the command line.
 #include "commandengine.h"
+#include "hatch.h"
 
 #include <gtest/gtest.h>
 
@@ -427,4 +428,45 @@ TEST_F(Commands, FilletAndChamferWholePolyline)
     EXPECT_FALSE(pl[0].hasArcs());
     type({"F", "R", "0", ""});
     type({"CHA", "D", "0", "0", ""});
+}
+
+TEST_F(Commands, HatchInsideRoomWithOptions)
+{
+    type({"L", "0,0", "10,0", "10,5", "0,5", "C"});
+    type({"L", "6,0", "6,5", ""});
+    type({"TRATTEGGIO", "M", "?", "XYZ", "NET", "S", "2", "AN", "30", "3,3", "8,3", ""});
+    EXPECT_FALSE(engine.isActive());
+    auto hatches = shapes<Hatch>();
+    ASSERT_EQ(hatches.size(), 1u);
+    EXPECT_EQ(hatches[0].pattern, "NET");
+    EXPECT_DOUBLE_EQ(hatches[0].scale, 2.0);
+    EXPECT_NEAR(hatches[0].angle, degToRad(30), 1e-12);
+    EXPECT_EQ(hatches[0].loops.size(), 2u);  // both rooms, one hatch
+
+    // A point outside everything finds nothing and the command goes on.
+    type({"H", "20,20"});
+    EXPECT_TRUE(engine.isActive());
+    type({""});
+    EXPECT_EQ(shapes<Hatch>().size(), 1u);
+
+    type({"MODIFICATRATTEGGIO", "6,1", "1,1", "M", "SOLID", "S", "0.5", ""});
+    hatches = shapes<Hatch>();
+    EXPECT_TRUE(hatches[0].solid());
+    EXPECT_DOUBLE_EQ(hatches[0].scale, 0.5);
+    type({"U"});
+    EXPECT_EQ(shapes<Hatch>()[0].scale, 2.0);
+    type({"TRATTEGGIO", "M", "ANSI31", "S", "1", "AN", "0", ""});
+}
+
+TEST_F(Commands, HatchBySelectingObjects)
+{
+    type({"C", "0,0", "5"});
+    type({"REC", "-1,-1", "1,1"});
+    engine.setPickTolerance(0.1);
+    type({"H", "O", "5,0", "1,0", ""});
+    const auto hatches = shapes<Hatch>();
+    ASSERT_EQ(hatches.size(), 1u);
+    ASSERT_EQ(hatches[0].loops.size(), 2u);
+    EXPECT_TRUE(insideHatch(hatches[0], {3, 0}));
+    EXPECT_FALSE(insideHatch(hatches[0], {0, 0}));
 }

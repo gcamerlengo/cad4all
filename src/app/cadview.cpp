@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "cadview.h"
 
-#include <QFontMetricsF>
+#include "drawingpainter.h"
+
 #include <QMouseEvent>
 #include <QPainter>
-#include <QPainterPath>
 #include <QWheelEvent>
 
 #include <cmath>
@@ -57,8 +57,6 @@ CadView::CadView(CommandEngine& engine, QWidget* parent)
     setCursor(Qt::BlankCursor);
     setAttribute(Qt::WA_OpaquePaintEvent);
     setMinimumSize(320, 240);
-    textFont_.setStyleHint(QFont::SansSerif);
-    textFont_.setPixelSize(100);
     connect(&engine_, &CommandEngine::changed, this, [this] {
         // A command may have started or ended: refresh snap and preview.
         if (mouseInside_)
@@ -236,6 +234,8 @@ void CadView::paintEvent(QPaintEvent*)
     const Document& doc = engine_.document();
     const BBox visible = BBox::fromCorners(toWorld({0, 0}), toWorld(QPointF(width(), height())));
     const auto& selection = engine_.selection();
+    DrawingPainter dp(p, center_, scale_, QPointF(width() / 2.0, height() / 2.0));
+    dp.setVisibleArea(visible);
 
     for (const auto& [id, e] : doc.entities()) {
         if (!doc.isVisible(e) || !boundingBox(e.shape).intersects(visible))
@@ -247,7 +247,7 @@ void CadView::paintEvent(QPaintEvent*)
             pen.setCosmetic(true);
         }
         p.setPen(pen);
-        drawShape(p, e.shape);
+        dp.drawShape(e.shape);
     }
 
     if (mouseInside_) {
@@ -255,7 +255,7 @@ void CadView::paintEvent(QPaintEvent*)
         engine_.preview(effective_, preview);
         p.setPen(QPen(kPreview, 0));
         for (const Shape& s : preview)
-            drawShape(p, s);
+            dp.drawShape(s);
     }
 
     if (windowStart_ && mouseInside_) {
@@ -301,96 +301,6 @@ void CadView::drawGrid(QPainter& p) const
     p.setPen(kAxisY);
     p.drawLine(QPointF(origin.x(), 0), QPointF(origin.x(), height()));
     p.setRenderHint(QPainter::Antialiasing, true);
-}
-
-void CadView::drawShape(QPainter& p, const Shape& shape) const
-{
-    if (const auto* l = std::get_if<Line>(&shape)) {
-        p.drawLine(toScreen(l->a), toScreen(l->b));
-    } else if (const auto* c = std::get_if<Circle>(&shape)) {
-        const double r = c->radius * scale_;
-        p.drawEllipse(toScreen(c->center), r, r);
-    } else if (const auto* a = std::get_if<Arc>(&shape)) {
-        const QPointF c = toScreen(a->center);
-        const double r = a->radius * scale_;
-        const QRectF rect(c.x() - r, c.y() - r, 2 * r, 2 * r);
-        // QPainterPath takes angles in degrees as doubles, so large arcs keep
-        // exact endpoints (drawArc rounds to 1/16 of a degree).
-        QPainterPath path;
-        path.arcMoveTo(rect, radToDeg(a->startAngle));
-        path.arcTo(rect, radToDeg(a->startAngle), radToDeg(a->sweep()));
-        p.drawPath(path);
-    } else if (const auto* pl = std::get_if<Polyline>(&shape)) {
-        if (!pl->hasArcs()) {
-            QPolygonF poly;
-            poly.reserve(static_cast<qsizetype>(pl->points.size()));
-            for (Vec2 v : pl->points)
-                poly << toScreen(v);
-            if (pl->closed)
-                p.drawPolygon(poly);
-            else
-                p.drawPolyline(poly);
-            return;
-        }
-        QPainterPath path;
-        path.moveTo(toScreen(pl->points.front()));
-        for (size_t i = 0; i < pl->segmentCount(); ++i) {
-            const Shape seg = polylineSegment(*pl, i);
-            if (const auto* l = std::get_if<Line>(&seg)) {
-                path.lineTo(toScreen(l->b));
-                continue;
-            }
-            const Arc& a = std::get<Arc>(seg);
-            const QPointF c = toScreen(a.center);
-            const double r = a.radius * scale_;
-            const QRectF rect(c.x() - r, c.y() - r, 2 * r, 2 * r);
-            // Travel from this vertex: clockwise segments sweep backwards.
-            const bool ccw = pl->bulge(i) > 0.0;
-            const double from = ccw ? a.startAngle : a.endAngle;
-            path.arcTo(rect, radToDeg(from), radToDeg(ccw ? a.sweep() : -a.sweep()));
-        }
-        p.drawPath(path);
-    } else if (const auto* t = std::get_if<Text>(&shape)) {
-        drawText(p, *t);
-    } else if (const auto* d = std::get_if<Dimension>(&shape)) {
-        const DimensionGeometry g = dimensionGeometry(*d);
-        for (const Line& l : g.lines)
-            p.drawLine(toScreen(l.a), toScreen(l.b));
-        p.save();
-        p.setBrush(p.pen().color());
-        QPen solid = p.pen();
-        solid.setStyle(Qt::SolidLine);
-        p.setPen(solid);
-        for (const auto& arrow : g.arrows)
-            p.drawPolygon(QPolygonF({toScreen(arrow[0]), toScreen(arrow[1]), toScreen(arrow[2])}));
-        p.restore();
-        drawText(p, g.label);
-    }
-}
-
-void CadView::drawText(QPainter& p, const Text& t) const
-{
-    if (t.content.empty())
-        return;
-    const double px = t.height * scale_;
-    if (px < 1.5) {
-        // Too small to read: a line along the baseline shows where it is.
-        const auto c = textCorners(t);
-        p.drawLine(toScreen(c[0]), toScreen(c[1]));
-        return;
-    }
-    const QFontMetricsF fm(textFont_);
-    const QString s = QString::fromStdString(t.content);
-    const double w = fm.horizontalAdvance(s);
-    const double x = t.align == Text::Align::Left ? 0.0 : t.align == Text::Align::Center ? -w / 2.0 : -w;
-    const double k = px / fm.capHeight();
-    p.save();
-    p.translate(toScreen(t.position));
-    p.rotate(-radToDeg(t.rotation));
-    p.scale(k, k);
-    p.setFont(textFont_);
-    p.drawText(QPointF(x, 0.0), s);
-    p.restore();
 }
 
 void CadView::drawSnapMarker(QPainter& p, const SnapPoint& snap) const

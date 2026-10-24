@@ -2,6 +2,7 @@ qt_add_executable(cad4all
     main.cpp
     mainwindow.h mainwindow.cpp
     cadview.h cadview.cpp
+    drawingpainter.h drawingpainter.cpp
     commandline.h commandline.cpp
     layerpanel.h layerpanel.cpp
     icons.h icons.cpp

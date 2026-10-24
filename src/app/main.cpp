@@ -32,8 +32,13 @@ int main(int argc, char* argv[])
         window.openFile(parser.positionalArguments().constFirst());
     if (parser.isSet(scriptOption))
         window.runScript(parser.value(scriptOption));
-    if (parser.isSet(exportOption) && !window.exportTo(parser.value(exportOption)))
-        return 1;
+    if (parser.isSet(exportOption)) {
+        if (!window.exportTo(parser.value(exportOption)))
+            return 1;
+        // Converting a file needs no window.
+        if (!parser.isSet(screenshotOption))
+            return 0;
+    }
 
     if (parser.isSet(screenshotOption)) {
         const QString path = parser.value(screenshotOption);

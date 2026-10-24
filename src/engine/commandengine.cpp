@@ -401,6 +401,8 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("DIMRADIUS"), {QStringLiteral("QUOTARAGGIO"), QStringLiteral("DRA")}, [] { return makeDimRadialCommand(false); });
     add(QStringLiteral("DIMDIAMETER"), {QStringLiteral("QUOTADIAMETRO"), QStringLiteral("QUOTADIAM"), QStringLiteral("DDI")}, [] { return makeDimRadialCommand(true); });
     add(QStringLiteral("DIMSCALE"), {QStringLiteral("SCALAQUOTE")}, [] { return makeDimScaleCommand(); });
+    add(QStringLiteral("HATCH"), {QStringLiteral("TRATTEGGIO"), QStringLiteral("TRATTEGGIA"), QStringLiteral("BHATCH"), QStringLiteral("H"), QStringLiteral("BH")}, [] { return makeHatchCommand(); });
+    add(QStringLiteral("HATCHEDIT"), {QStringLiteral("MODIFICATRATTEGGIO"), QStringLiteral("HE")}, [] { return makeHatchEditCommand(); });
     add(QStringLiteral("ZOOM"), {QStringLiteral("Z")}, [] { return makeZoomCommand(); });
     add(QStringLiteral("LAYER"), {QStringLiteral("LA")}, [] { return makeLayerCommand(); });
 }
