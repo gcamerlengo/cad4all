@@ -45,6 +45,10 @@ if(CAD4ALL_WITH_DWG)
     else()
         set(CAD4ALL_LIBREDWG_TARGET redwg)
     endif()
+    # Its thousands of warnings would hide real errors in the build log.
+    if(NOT MSVC)
+        target_compile_options(${CAD4ALL_LIBREDWG_TARGET} PRIVATE -w)
+    endif()
 endif()
 
 # Our warning level, set after LibreDWG so it applies to our code only.
