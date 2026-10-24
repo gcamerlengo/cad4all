@@ -17,10 +17,10 @@ int main(int argc, char* argv[])
     parser.setApplicationDescription(QStringLiteral("CAD 2D e 3D parametrico"));
     parser.addHelpOption();
     parser.addVersionOption();
-    parser.addPositionalArgument(QStringLiteral("disegno"), QStringLiteral("Disegno .c4a o .dxf da aprire."));
+    parser.addPositionalArgument(QStringLiteral("disegno"), QStringLiteral("Disegno .c4a, .dxf o .dwg da aprire."));
     const QCommandLineOption scriptOption(QStringLiteral("script"), QStringLiteral("Esegue uno script di comandi (.scr)."), QStringLiteral("file"));
     const QCommandLineOption screenshotOption(QStringLiteral("screenshot"), QStringLiteral("Salva un'immagine della finestra ed esce."), QStringLiteral("png"));
-    const QCommandLineOption exportOption(QStringLiteral("export"), QStringLiteral("Salva il disegno (.c4a o .dxf) dopo lo script."), QStringLiteral("file"));
+    const QCommandLineOption exportOption(QStringLiteral("export"), QStringLiteral("Salva il disegno (.c4a, .dxf o .pdf) dopo lo script."), QStringLiteral("file"));
     parser.addOption(scriptOption);
     parser.addOption(exportOption);
     parser.addOption(screenshotOption);
@@ -32,8 +32,13 @@ int main(int argc, char* argv[])
         window.openFile(parser.positionalArguments().constFirst());
     if (parser.isSet(scriptOption))
         window.runScript(parser.value(scriptOption));
-    if (parser.isSet(exportOption) && !window.exportTo(parser.value(exportOption)))
-        return 1;
+    if (parser.isSet(exportOption)) {
+        if (!window.exportTo(parser.value(exportOption)))
+            return 1;
+        // Converting a file needs no window.
+        if (!parser.isSet(screenshotOption))
+            return 0;
+    }
 
     if (parser.isSet(screenshotOption)) {
         const QString path = parser.value(screenshotOption);

@@ -6,7 +6,6 @@
 
 #include "commandengine.h"
 
-#include <QFont>
 #include <QWidget>
 
 #include <optional>
@@ -22,6 +21,8 @@ public:
     void setGridVisible(bool on);
 
     cad::Vec2 toWorld(QPointF screen) const;
+    // The part of the drawing shown.
+    cad::BBox visibleArea() const;
     QPointF toScreen(cad::Vec2 world) const;
 
 signals:
@@ -43,14 +44,10 @@ private:
     double pixels(double px) const { return px / scale_; }
 
     void drawGrid(QPainter& p) const;
-    void drawShape(QPainter& p, const cad::Shape& shape) const;
-    void drawText(QPainter& p, const cad::Text& text) const;
     void drawSnapMarker(QPainter& p, const cad::SnapPoint& snap) const;
     void drawCrosshair(QPainter& p) const;
 
     cad::CommandEngine& engine_;
-    // Drawn at a fixed pixel size and scaled, so text of any height is exact.
-    QFont textFont_;
 
     // View: world point at the widget centre and pixels per drawing unit.
     cad::Vec2 center_{0.0, 0.0};

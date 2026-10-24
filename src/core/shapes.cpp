@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "shapes.h"
 
+#include "hatch.h"
+
 #include <algorithm>
 #include <iomanip>
 #include <limits>
@@ -87,6 +89,9 @@ std::vector<Piece> pieces(const Shape& shape)
                        for (const Line& l : dimensionGeometry(d).lines)
                            out.push_back(Piece::segment(l.a, l.b));
                    },
+                   // Nor is a hatch: its outline usually lies on walls that
+                   // must stay the cutting edges.
+                   [&](const Hatch&) {},
                },
                shape);
     return out;
@@ -477,6 +482,10 @@ BBox boundingBox(const Shape& shape)
                        for (Vec2 p : textCorners(g.label))
                            box.add(p);
                    },
+                   [&](const Hatch& h) {
+                       for (const Polyline& loop : h.loops)
+                           box.add(boundingBox(loop));
+                   },
                },
                shape);
     return box;
@@ -486,6 +495,18 @@ Vec2 nearestPoint(const Shape& shape, Vec2 p)
 {
     if (const auto* t = std::get_if<Text>(&shape))
         return t->position;
+    if (const auto* h = std::get_if<Hatch>(&shape)) {
+        Vec2 best = p;
+        double bestDist = std::numeric_limits<double>::infinity();
+        for (const Polyline& loop : h->loops) {
+            const Vec2 q = nearestPoint(loop, p);
+            if (distance(p, q) < bestDist) {
+                bestDist = distance(p, q);
+                best = q;
+            }
+        }
+        return best;
+    }
     Vec2 best = p;
     double bestDist = std::numeric_limits<double>::infinity();
     for (const Piece& piece : pieces(shape)) {
@@ -505,6 +526,18 @@ double distanceTo(const Shape& shape, Vec2 p)
     if (const auto* t = std::get_if<Text>(&shape))
         return distanceToText(*t, p);
     const double d = distance(p, nearestPoint(shape, p));
+    if (const auto* h = std::get_if<Hatch>(&shape)) {
+        // Picked on its outline, on a pattern line, or anywhere in a solid fill.
+        if (!insideHatch(*h, p))
+            return d;
+        if (h->solid())
+            return 0.0;
+        const double r = std::min(d, hatchSpacing(*h) * 1.5);
+        double best = d;
+        for (const Line& l : hatchLines(*h, BBox::fromCorners(p - Vec2{r, r}, p + Vec2{r, r}), 1000))
+            best = std::min(best, distanceToSegment(p, l.a, l.b));
+        return best;
+    }
     if (const auto* dim = std::get_if<Dimension>(&shape))
         return std::min(d, distanceToText(dimensionGeometry(*dim).label, p));
     return d;
@@ -568,6 +601,18 @@ Shape transformed(const Shape& shape, const Transform& t)
                               r.arrowSize = dim.arrowSize * t.scaleFactor();
                               return r;
                           },
+                          [&](const Hatch& h) -> Shape {
+                              Hatch r = h;
+                              for (Polyline& loop : r.loops)
+                                  loop = std::get<Polyline>(transformed(loop, t));
+                              r.origin = t.apply(h.origin);
+                              r.scale = h.scale * t.scaleFactor();
+                              // A mirrored hatch keeps the direction of its
+                              // pattern (AutoCAD MIRRHATCH = 0).
+                              if (!t.isMirroring())
+                                  r.angle = angleOf(t.applyVector(polar(1.0, h.angle)));
+                              return r;
+                          },
                       },
                       shape);
 }
@@ -616,6 +661,7 @@ void collectSnapPoints(const Shape& shape, unsigned mask, std::vector<SnapPoint>
                            add(l.b, SnapEndpoint);
                        }
                    },
+                   [&](const Hatch&) {},
                },
                shape);
 }
@@ -650,6 +696,10 @@ bool crossesBox(const Shape& shape, const BBox& box)
         const DimensionGeometry g = dimensionGeometry(*d);
         return std::any_of(g.lines.begin(), g.lines.end(), [&](const Line& l) { return crossesBox(l, box); })
             || crossesBox(g.label, box);
+    }
+    if (const auto* h = std::get_if<Hatch>(&shape)) {
+        return std::any_of(h->loops.begin(), h->loops.end(), [&](const Polyline& l) { return crossesBox(l, box); })
+            || insideHatch(*h, box.center());
     }
     const Polyline border{{box.min, {box.max.x, box.min.y}, box.max, {box.min.x, box.max.y}}, true};
     if (!intersections(shape, border).empty())

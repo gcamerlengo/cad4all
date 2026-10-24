@@ -96,6 +96,7 @@ public:
     void finish();
     void requestZoomExtents() { emit zoomExtentsRequested(); }
     void requestLayerManager() { emit layerManagerRequested(); }
+    void requestPlot() { emit plotRequested(); }
 
 signals:
     void promptChanged(const QString& prompt);
@@ -104,6 +105,7 @@ signals:
     void selectionChanged();
     void zoomExtentsRequested();
     void layerManagerRequested();
+    void plotRequested();
     void settingsChanged();
 
 private:

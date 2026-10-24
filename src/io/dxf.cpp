@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "dxf.h"
 
+#include "hatch.h"
+
 #include <QFile>
 #include <QRegularExpression>
 #include <QSaveFile>
@@ -600,11 +602,228 @@ private:
             ellipse(r, xf, layer);
         } else if (type == QLatin1String("SPLINE")) {
             spline(r, xf, layer);
+        } else if (type == QLatin1String("HATCH")) {
+            hatch(r, full, layer);
         } else if (type == QLatin1String("POINT") || type == QLatin1String("ATTDEF") || type == QLatin1String("SEQEND")
                    || type == QLatin1String("VIEWPORT")) {
             // Nothing to draw.
         } else {
             skip(type);
+        }
+    }
+
+    // HATCH: the groups repeat (one set per boundary edge and per pattern
+    // line), so they are read in order rather than looked up by code.
+    void hatch(const Record& r, const Transform& xf, const std::string& layer)
+    {
+        const auto& g = r.groups;
+        size_t i = 0;
+        auto at = [&](int code) { return i < g.size() && g[i].code == code; };
+        auto seek = [&](int code) {
+            while (i < g.size() && g[i].code != code)
+                ++i;
+            return i < g.size();
+        };
+        auto get = [&](int code, double fallback = 0.0) {
+            if (!at(code))
+                return fallback;
+            return toDouble(g[i++].value);
+        };
+        auto getPoint = [&](int code) {
+            const double x = get(code);
+            return Vec2{x, get(code + 10)};
+        };
+
+        Hatch h;
+        if (!seek(2)) {
+            skip(QStringLiteral("HATCH"));
+            return;
+        }
+        h.pattern = g[i++].value.trimmed().toUpper().toStdString();
+        const bool solidFill = get(70) != 0.0;
+        get(71);
+        const int paths = static_cast<int>(get(91));
+        for (int p = 0; p < paths; ++p) {
+            if (!seek(92))
+                break;
+            const int flags = static_cast<int>(get(92));
+            Polyline loop;
+            loop.closed = true;
+            if (flags & 2) {
+                const bool bulges = get(72) != 0.0;
+                get(73);
+                const int count = static_cast<int>(get(93));
+                for (int k = 0; k < count && at(10); ++k) {
+                    loop.points.push_back(getPoint(10));
+                    loop.bulges.push_back(bulges ? get(42) : 0.0);
+                }
+            } else {
+                const int edges = static_cast<int>(get(93));
+                for (int k = 0; k < edges && at(72); ++k)
+                    hatchEdge(static_cast<int>(get(72)), at, get, getPoint, loop);
+            }
+            // Source objects of an associative hatch.
+            const int sources = static_cast<int>(get(97));
+            for (int k = 0; k < sources && at(330); ++k)
+                ++i;
+            // Drop a last point that repeats the first one.
+            if (loop.points.size() > 2 && almostEqual(loop.points.front(), loop.points.back(), 1e-9)) {
+                loop.points.pop_back();
+                loop.bulges.resize(loop.points.size());
+            }
+            if (loop.points.size() >= 2)
+                h.loops.push_back(std::move(loop));
+        }
+        if (h.loops.empty()) {
+            skip(QStringLiteral("HATCH"));
+            return;
+        }
+        if (!solidFill) {
+            seek(52);
+            const double angle = degToRad(get(52));
+            double scale = get(41, 1.0);
+            if (scale <= 0.0)
+                scale = 1.0;
+            // Skip "double" before the pattern lines.
+            get(77);
+            const int count = static_cast<int>(get(78));
+            const Transform unrotate = Transform::rotation({0, 0}, -angle);
+            for (int k = 0; k < count && at(53); ++k) {
+                // In the file the lines are already scaled and rotated, and the
+                // offset is a vector in the drawing: back to the definition.
+                const double lineAngle = degToRad(get(53));
+                HatchPatternLine l;
+                l.angle = lineAngle - angle;
+                const double bx = get(43), by = get(44);
+                const double ox = get(45), oy = get(46);
+                l.origin = unrotate.applyVector({bx, by}) / scale;
+                l.offset = Transform::rotation({0, 0}, -lineAngle).applyVector({ox, oy}) / scale;
+                const int dashes = static_cast<int>(get(79));
+                for (int d = 0; d < dashes && at(49); ++d)
+                    l.dashes.push_back(get(49) / scale);
+                h.lines.push_back(std::move(l));
+            }
+            if (h.lines.empty()) {
+                if (const auto* known = hatchPattern(h.pattern))
+                    h.lines = *known;
+            }
+            h.scale = scale;
+            h.angle = angle;
+            if (h.lines.empty())
+                h.pattern = "SOLID";
+        } else {
+            h.pattern = "SOLID";
+        }
+        add(layer, h, xf);
+    }
+
+    // One edge of a hatch boundary, appended to `loop` (its end point is the
+    // start of the next edge).
+    template <class At, class Get, class GetPoint>
+    void hatchEdge(int type, At at, Get get, GetPoint getPoint, Polyline& loop)
+    {
+        auto addPoint = [&](Vec2 p, double bulge = 0.0) {
+            if (!loop.points.empty() && almostEqual(loop.points.back(), p, 1e-9) && loop.bulges.back() == 0.0) {
+                loop.bulges.back() = bulge;
+                return;
+            }
+            loop.points.push_back(p);
+            loop.bulges.push_back(bulge);
+        };
+        switch (type) {
+        case 1: {
+            const Vec2 a = getPoint(10);
+            getPoint(11);
+            addPoint(a);
+            break;
+        }
+        case 2: {
+            const Vec2 c = getPoint(10);
+            const double radius = get(40);
+            double start = degToRad(get(50));
+            double end = degToRad(get(51));
+            const bool ccw = get(73, 1.0) != 0.0;
+            // Clockwise edges store the complements of their end and start angles.
+            if (!ccw) {
+                const double s0 = start;
+                start = kTwoPi - end;
+                end = kTwoPi - s0;
+            }
+            double sweep = ccw ? end - start : start - end;
+            while (sweep <= 0.0)
+                sweep += kTwoPi;
+            while (sweep > kTwoPi + 1e-9)
+                sweep -= kTwoPi;
+            if (!ccw)
+                sweep = -sweep;
+            // A full circle is two half circles.
+            if (std::abs(std::abs(sweep) - kTwoPi) < 1e-9) {
+                addPoint(c + polar(radius, start), ccw ? 1.0 : -1.0);
+                addPoint(c + polar(radius, start + sweep / 2.0), ccw ? 1.0 : -1.0);
+            } else {
+                addPoint(c + polar(radius, start), bulgeOfSweep(sweep));
+            }
+            break;
+        }
+        case 3: {
+            const Vec2 c = getPoint(10);
+            const Vec2 major = getPoint(11);
+            const double ratio = get(40, 1.0);
+            double start = degToRad(get(50));
+            double end = degToRad(get(51));
+            const bool ccw = get(73, 1.0) != 0.0;
+            if (!ccw) {
+                const double s0 = start;
+                start = kTwoPi - end;
+                end = kTwoPi - s0;
+            }
+            double sweep = ccw ? end - start : start - end;
+            while (sweep <= 0.0)
+                sweep += kTwoPi;
+            if (!ccw)
+                sweep = -sweep;
+            const Vec2 minor = perpendicular(major) * ratio;
+            const int steps = std::max(8, static_cast<int>(64.0 * std::abs(sweep) / kTwoPi));
+            for (int k = 0; k < steps; ++k) {
+                const double t = start + sweep * k / steps;
+                addPoint(c + major * std::cos(t) + minor * std::sin(t));
+            }
+            break;
+        }
+        case 4: {
+            const int degree = static_cast<int>(get(94, 3));
+            get(73);
+            get(74);
+            const int knotCount = static_cast<int>(get(95));
+            const int controlCount = static_cast<int>(get(96));
+            std::vector<double> knots, weights;
+            std::vector<Vec2> control;
+            for (int k = 0; k < knotCount && at(40); ++k)
+                knots.push_back(get(40));
+            for (int k = 0; k < controlCount && at(10); ++k) {
+                control.push_back(getPoint(10));
+                if (at(42))
+                    weights.push_back(get(42));
+            }
+            std::vector<Vec2> fit;
+            const int fitCount = static_cast<int>(get(97));
+            for (int k = 0; k < fitCount && at(11); ++k)
+                fit.push_back(getPoint(11));
+            if (at(12))
+                getPoint(12);
+            if (at(13))
+                getPoint(13);
+            std::vector<Vec2> pts;
+            if (control.size() >= 2 && degree >= 1 && knots.size() == control.size() + static_cast<size_t>(degree) + 1)
+                pts = evaluateSpline(control, knots, weights, degree);
+            else
+                pts = curveThrough(fit);
+            for (size_t k = 0; k + 1 < pts.size(); ++k)
+                addPoint(pts[k]);
+            break;
+        }
+        default:
+            break;
         }
     }
 
@@ -831,6 +1050,9 @@ public:
     }
 
     void shape(const std::string& layer, const Shape& s, int& dimCount, QByteArray& blocks);
+    void hatch(const std::string& layer, const Hatch& h, QByteArray& blocks);
+
+    int hatchCount_ = 0;
 
     static QString layerName(const std::string& name) { return encode(name); }
 
@@ -870,6 +1092,8 @@ void DxfWriter::shape(const std::string& layer, const Shape& s, int& dimCount, Q
         group(8, layerName(layer));
     } else if (const auto* t = std::get_if<Text>(&s)) {
         text(layer, *t);
+    } else if (const auto* h = std::get_if<Hatch>(&s)) {
+        hatch(layer, *h, blocks);
     } else if (const auto* d = std::get_if<Dimension>(&s)) {
         // The drawn geometry goes into an anonymous block, as AutoCAD does.
         const QString name = QStringLiteral("*D%1").arg(++dimCount);
@@ -926,6 +1150,58 @@ void DxfWriter::shape(const std::string& layer, const Shape& s, int& dimCount, Q
         }
         }
     }
+}
+
+// R12 has no HATCH entity: AutoCAD R12 itself kept a hatch as an anonymous
+// block of lines, inserted on the hatch's layer. A solid fill becomes SOLIDs.
+void DxfWriter::hatch(const std::string& layer, const Hatch& h, QByteArray& blocks)
+{
+    const QString name = QStringLiteral("*X%1").arg(++hatchCount_);
+    DxfWriter block;
+    block.group(0, "BLOCK");
+    block.group(8, "0");
+    block.group(2, name);
+    block.group(70, 1);
+    block.point(10, {0.0, 0.0});
+    block.group(3, name);
+    bool dense = false;
+    const auto lines = h.solid() ? std::vector<Line>{}
+                                 : hatchLines(h, BBox::fromCorners({-1e300, -1e300}, {1e300, 1e300}), 500000, &dense);
+    if (h.solid()) {
+        for (const auto& q : hatchTrapezoids(h)) {
+            block.group(0, "SOLID");
+            block.group(8, "0");
+            // SOLID corners go in "bow tie" order: 1, 2, 4, 3.
+            block.point(10, q[0]);
+            block.point(11, q[1]);
+            block.point(12, q[3]);
+            block.point(13, q[2]);
+        }
+    } else if (dense) {
+        // Far too many lines for a file: keep the outline only.
+        int unused = 0;
+        QByteArray none;
+        for (const Polyline& loop : h.loops)
+            block.shape("0", loop, unused, none);
+    } else {
+        for (const Line& l : lines) {
+            if (l.a == l.b) {
+                block.group(0, "POINT");
+                block.group(8, "0");
+                block.point(10, l.a);
+            } else {
+                block.line("0", l.a, l.b);
+            }
+        }
+    }
+    block.group(0, "ENDBLK");
+    block.group(8, "0");
+    blocks += block.out_;
+
+    group(0, "INSERT");
+    group(8, layerName(layer));
+    group(2, name);
+    point(10, {0.0, 0.0});
 }
 
 } // namespace

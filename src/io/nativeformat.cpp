@@ -82,6 +82,41 @@ std::optional<Dimension::Kind> kindFromName(const QString& s)
     return std::nullopt;
 }
 
+QJsonObject polylineToJson(const Polyline& p)
+{
+    QJsonObject o;
+    QJsonArray pts;
+    for (Vec2 v : p.points)
+        pts.append(toJson(v));
+    o[QStringLiteral("points")] = pts;
+    o[QStringLiteral("closed")] = p.closed;
+    if (p.hasArcs()) {
+        QJsonArray bulges;
+        for (size_t i = 0; i < p.points.size(); ++i)
+            bulges.append(p.bulge(i));
+        o[QStringLiteral("bulges")] = bulges;
+    }
+    return o;
+}
+
+std::optional<Polyline> polylineFromJson(const QJsonObject& o)
+{
+    Polyline p;
+    p.closed = o[QStringLiteral("closed")].toBool();
+    for (const QJsonValue& v : o[QStringLiteral("points")].toArray()) {
+        Vec2 pt;
+        if (!fromJson(v, pt))
+            return std::nullopt;
+        p.points.push_back(pt);
+    }
+    for (const QJsonValue& v : o[QStringLiteral("bulges")].toArray())
+        p.bulges.push_back(v.toDouble());
+    p.bulges.resize(std::min(p.bulges.size(), p.points.size()));
+    if (p.points.size() < 2)
+        return std::nullopt;
+    return p;
+}
+
 QJsonObject shapeToJson(const Shape& shape)
 {
     QJsonObject o;
@@ -100,18 +135,8 @@ QJsonObject shapeToJson(const Shape& shape)
         o[QStringLiteral("startAngle")] = a->startAngle;
         o[QStringLiteral("endAngle")] = a->endAngle;
     } else if (const auto* p = std::get_if<Polyline>(&shape)) {
+        o = polylineToJson(*p);
         o[QStringLiteral("type")] = QStringLiteral("polyline");
-        QJsonArray pts;
-        for (Vec2 v : p->points)
-            pts.append(toJson(v));
-        o[QStringLiteral("points")] = pts;
-        o[QStringLiteral("closed")] = p->closed;
-        if (p->hasArcs()) {
-            QJsonArray bulges;
-            for (size_t i = 0; i < p->points.size(); ++i)
-                bulges.append(p->bulge(i));
-            o[QStringLiteral("bulges")] = bulges;
-        }
     } else if (const auto* t = std::get_if<Text>(&shape)) {
         o[QStringLiteral("type")] = QStringLiteral("text");
         o[QStringLiteral("position")] = toJson(t->position);
@@ -130,6 +155,31 @@ QJsonObject shapeToJson(const Shape& shape)
         o[QStringLiteral("arrowSize")] = d->arrowSize;
         if (!d->text.empty())
             o[QStringLiteral("text")] = QString::fromStdString(d->text);
+    } else if (const auto* h = std::get_if<Hatch>(&shape)) {
+        o[QStringLiteral("type")] = QStringLiteral("hatch");
+        o[QStringLiteral("pattern")] = QString::fromStdString(h->pattern);
+        o[QStringLiteral("scale")] = h->scale;
+        o[QStringLiteral("angle")] = h->angle;
+        o[QStringLiteral("origin")] = toJson(h->origin);
+        QJsonArray loops;
+        for (const Polyline& loop : h->loops)
+            loops.append(polylineToJson(loop));
+        o[QStringLiteral("loops")] = loops;
+        // The definition is kept, so patterns read from other files survive.
+        QJsonArray lines;
+        for (const HatchPatternLine& l : h->lines) {
+            QJsonObject lo;
+            lo[QStringLiteral("angle")] = l.angle;
+            lo[QStringLiteral("origin")] = toJson(l.origin);
+            lo[QStringLiteral("offset")] = toJson(l.offset);
+            QJsonArray dashes;
+            for (double d : l.dashes)
+                dashes.append(d);
+            if (!dashes.isEmpty())
+                lo[QStringLiteral("dashes")] = dashes;
+            lines.append(lo);
+        }
+        o[QStringLiteral("lines")] = lines;
     }
     return o;
 }
@@ -154,19 +204,7 @@ std::optional<Shape> shapeFromJson(const QJsonObject& o)
         if (fromJson(o[QStringLiteral("center")], a.center) && a.radius > 0.0)
             return a;
     } else if (type == QLatin1String("polyline")) {
-        Polyline p;
-        p.closed = o[QStringLiteral("closed")].toBool();
-        for (const QJsonValue& v : o[QStringLiteral("points")].toArray()) {
-            Vec2 pt;
-            if (!fromJson(v, pt))
-                return std::nullopt;
-            p.points.push_back(pt);
-        }
-        for (const QJsonValue& v : o[QStringLiteral("bulges")].toArray())
-            p.bulges.push_back(v.toDouble());
-        p.bulges.resize(std::min(p.bulges.size(), p.points.size()));
-        if (p.points.size() >= 2)
-            return p;
+        return polylineFromJson(o);
     } else if (type == QLatin1String("text")) {
         Text t;
         t.height = o[QStringLiteral("height")].toDouble(-1.0);
@@ -187,6 +225,30 @@ std::optional<Shape> shapeFromJson(const QJsonObject& o)
             d.kind = *kind;
             return d;
         }
+    } else if (type == QLatin1String("hatch")) {
+        Hatch h;
+        h.pattern = o[QStringLiteral("pattern")].toString().toStdString();
+        h.scale = o[QStringLiteral("scale")].toDouble(-1.0);
+        h.angle = o[QStringLiteral("angle")].toDouble();
+        fromJson(o[QStringLiteral("origin")], h.origin);
+        for (const QJsonValue& v : o[QStringLiteral("loops")].toArray()) {
+            if (auto loop = polylineFromJson(v.toObject())) {
+                loop->closed = true;
+                h.loops.push_back(std::move(*loop));
+            }
+        }
+        for (const QJsonValue& v : o[QStringLiteral("lines")].toArray()) {
+            const QJsonObject lo = v.toObject();
+            HatchPatternLine l;
+            l.angle = lo[QStringLiteral("angle")].toDouble();
+            if (!fromJson(lo[QStringLiteral("origin")], l.origin) || !fromJson(lo[QStringLiteral("offset")], l.offset))
+                return std::nullopt;
+            for (const QJsonValue& d : lo[QStringLiteral("dashes")].toArray())
+                l.dashes.push_back(d.toDouble());
+            h.lines.push_back(std::move(l));
+        }
+        if (!h.loops.empty() && h.scale > 0.0)
+            return h;
     }
     return std::nullopt;
 }

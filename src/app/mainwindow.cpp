@@ -5,8 +5,11 @@
 #include "commandline.h"
 #include "icons.h"
 #include "layerpanel.h"
+#include "dwgreader.h"
 #include "dxf.h"
 #include "nativeformat.h"
+#include "plot.h"
+#include "plotdialog.h"
 
 #include <QAction>
 #include <QApplication>
@@ -26,13 +29,23 @@ using namespace cad;
 
 namespace {
 
-const QString kOpenFilter = QObject::tr("Disegni (*.c4a *.dxf);;Disegni CAD4All (*.c4a);;DXF (*.dxf)");
+const QString kOpenFilter = QObject::tr("Disegni (*.c4a *.dxf *.dwg);;Disegni CAD4All (*.c4a);;DXF (*.dxf);;DWG di AutoCAD (*.dwg)");
 const QString kNativeFilter = QObject::tr("Disegni CAD4All (*.c4a)");
 const QString kDxfFilter = QObject::tr("DXF R12 per AutoCAD e altri CAD (*.dxf)");
 
 bool isDxf(const QString& path)
 {
     return path.endsWith(QLatin1String(".dxf"), Qt::CaseInsensitive);
+}
+
+bool isDwg(const QString& path)
+{
+    return path.endsWith(QLatin1String(".dwg"), Qt::CaseInsensitive);
+}
+
+bool isPdf(const QString& path)
+{
+    return path.endsWith(QLatin1String(".pdf"), Qt::CaseInsensitive);
 }
 
 } // namespace
@@ -66,6 +79,7 @@ MainWindow::MainWindow()
     // While TEXT waits for the text itself, Space types a space.
     connect(&engine_, &CommandEngine::changed, input, [this, input] { input->setSpaceIsText(engine_.wantsText()); });
     connect(&engine_, &CommandEngine::settingsChanged, this, &MainWindow::updateToggles);
+    connect(&engine_, &CommandEngine::plotRequested, this, &MainWindow::plot, Qt::QueuedConnection);
     connect(&engine_, &CommandEngine::layerManagerRequested, this, [this] {
         layerDock_->show();
         layerDock_->raise();
@@ -103,6 +117,8 @@ void MainWindow::createActions()
     file->addAction(tr("Salva &con nome..."), QKeySequence::SaveAs, this, &MainWindow::saveAs);
     file->addAction(tr("Esporta &DXF..."), this, &MainWindow::exportDxf);
     file->addSeparator();
+    file->addAction(tr("S&tampa..."), QKeySequence::Print, this, &MainWindow::plot);
+    file->addSeparator();
     file->addAction(tr("Esegui sc&ript..."), this, &MainWindow::runScriptDialog);
     file->addSeparator();
     file->addAction(tr("&Esci"), QKeySequence::Quit, this, &QWidget::close);
@@ -129,9 +145,11 @@ void MainWindow::createActions()
         commandAction(tr("Cerchio"), QStringLiteral("CIRCLE"), icons::make(QStringLiteral("circle"))),
         commandAction(tr("Arco"), QStringLiteral("ARC"), icons::make(QStringLiteral("arc"))),
         commandAction(tr("Rettangolo"), QStringLiteral("RECTANG"), icons::make(QStringLiteral("rectangle"))),
+        commandAction(tr("Tratteggio"), QStringLiteral("HATCH"), icons::make(QStringLiteral("hatch"))),
     };
     draw->addActions(drawActions);
     drawBar->addActions(drawActions);
+    draw->addAction(commandAction(tr("Modifica tratteggio"), QStringLiteral("HATCHEDIT"), QIcon()));
 
     // Modify
     QMenu* modify = menuBar()->addMenu(tr("&Edita"));
@@ -240,7 +258,9 @@ void MainWindow::updateToggles()
 
 void MainWindow::updateTitle()
 {
-    const QString name = filePath_.isEmpty() ? tr("Senza nome") : QFileInfo(filePath_).fileName();
+    QString name = filePath_.isEmpty() ? tr("Senza nome") : QFileInfo(filePath_).fileName();
+    if (filePath_.isEmpty() && !dwgSource_.isEmpty())
+        name = tr("%1 (DWG in sola lettura)").arg(QFileInfo(dwgSource_).fileName());
     setWindowTitle(QStringLiteral("%1[*] - CAD4All").arg(name));
     setWindowModified(doc_.isModified());
 }
@@ -253,6 +273,7 @@ void MainWindow::newDrawing()
     engine_.clearSelection();
     doc_.reset();
     filePath_.clear();
+    dwgSource_.clear();
     view_->zoomExtents();
     engine_.documentChanged();
 }
@@ -271,14 +292,18 @@ bool MainWindow::openFile(const QString& path)
     engine_.cancel();
     engine_.clearSelection();
     QString message;
-    const bool loaded = isDxf(path) ? io::loadDxf(doc_, path, &message) : io::loadNative(doc_, path, &message);
+    const bool loaded = isDwg(path)   ? io::loadDwg(doc_, path, &message)
+                        : isDxf(path) ? io::loadDxf(doc_, path, &message)
+                                      : io::loadNative(doc_, path, &message);
     if (!loaded) {
         QMessageBox::warning(this, tr("Apri disegno"), tr("Impossibile aprire %1:\n%2").arg(path, message));
         return false;
     }
     if (!message.isEmpty())
         commandLine_->appendMessage(message);
-    filePath_ = path;
+    // DWG is read only: Save asks where to keep it, as .c4a or .dxf.
+    filePath_ = isDwg(path) ? QString() : path;
+    dwgSource_ = isDwg(path) ? path : QString();
     view_->zoomExtents();
     engine_.documentChanged();
     commandLine_->appendMessage(tr("Aperto %1").arg(QFileInfo(path).fileName()));
@@ -304,7 +329,8 @@ bool MainWindow::save()
 bool MainWindow::saveAs()
 {
     QString filter = isDxf(filePath_) ? kDxfFilter : kNativeFilter;
-    QString path = QFileDialog::getSaveFileName(this, tr("Salva con nome"), filePath_,
+    const QString suggested = filePath_.isEmpty() && !dwgSource_.isEmpty() ? dwgSource_.left(dwgSource_.size() - 4) : filePath_;
+    QString path = QFileDialog::getSaveFileName(this, tr("Salva con nome"), suggested,
                                                 kNativeFilter + QStringLiteral(";;") + kDxfFilter, &filter);
     if (path.isEmpty())
         return false;
@@ -313,16 +339,36 @@ bool MainWindow::saveAs()
     if (!path.endsWith(suffix, Qt::CaseInsensitive))
         path += suffix;
     filePath_ = path;
+    dwgSource_.clear();
     return save();
 }
 
 bool MainWindow::exportTo(const QString& path)
 {
     QString error;
-    const bool saved = isDxf(path) ? io::saveDxf(doc_, path, &error) : io::saveNative(doc_, path, &error);
+    bool saved = false;
+    if (isPdf(path)) {
+        // The whole drawing fitted on an A3 sheet, in black and white.
+        PlotSettings settings;
+        settings.paper = QPageSize::A3;
+        saved = writePdf(path, doc_, settings, doc_.extents(), &error);
+    } else {
+        saved = isDxf(path) ? io::saveDxf(doc_, path, &error) : io::saveNative(doc_, path, &error);
+    }
     if (!saved)
         commandLine_->appendMessage(tr("Impossibile salvare %1: %2").arg(path, error));
     return saved;
+}
+
+void MainWindow::plot()
+{
+    engine_.cancel();
+    const QString name = filePath_.isEmpty() ? tr("Senza nome") : QFileInfo(filePath_).completeBaseName();
+    PlotDialog dialog(doc_, doc_.extents(), view_->visibleArea(), name, this);
+    const QString result = dialog.plot();
+    if (!result.isEmpty())
+        commandLine_->appendMessage(result);
+    commandLine_->input()->setFocus();
 }
 
 void MainWindow::exportDxf()
