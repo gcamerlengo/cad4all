@@ -28,6 +28,9 @@ if(CAD4ALL_WITH_DWG)
     # configure with -DFETCHCONTENT_SOURCE_DIR_LIBREDWG=/path/to/libredwg.
     enable_language(C)
     include(FetchContent)
+    # LibreDWG declares BUILD_SHARED_LIBS ON, which would also turn
+    # GoogleTest into DLLs that Windows cannot find next to the tests.
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries")
     set(LIBREDWG_LIBONLY ON)
     set(LIBREDWG_DISABLE_JSON ON)
     set(LIBREDWG_DISABLE_WRITE ON)
