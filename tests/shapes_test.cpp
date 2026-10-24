@@ -238,3 +238,19 @@ TEST(Shapes, RadialDimensions)
     // Picked by its label as well as by its lines.
     EXPECT_DOUBLE_EQ(distanceTo(r, inside.label.position + Vec2{0.1, 0.5}), 0.0);
 }
+
+TEST(Shapes, DimensionTextMovesOutWhenItDoesNotFit)
+{
+    Dimension d;
+    d.p1 = {0, 0};
+    d.p2 = {17.9, 0};
+    d.location = {9, -4};
+    d.textHeight = 25;
+    d.arrowSize = 25;
+    const DimensionGeometry g = dimensionGeometry(d);
+    // Beyond the right extension line, not across the measured span.
+    const auto corners = textCorners(g.label);
+    EXPECT_GT(corners[0].x, 17.9);
+    // The dimension line runs on under the text.
+    EXPECT_GE(g.lines.back().b.x, corners[1].x - 1e-9);
+}

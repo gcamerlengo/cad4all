@@ -196,11 +196,12 @@ void linearGeometry(const Dimension& d, DimensionGeometry& g)
     }
 
     const double span = distance(q1, q2);
+    const bool arrowsOutside = span < 2.5 * d.arrowSize;
     if (span < kEps) {
         g.lines.push_back(Line{q1, q2});
     } else {
         const Vec2 u = (q2 - q1) * (1.0 / span);
-        if (span >= 2.5 * d.arrowSize) {
+        if (!arrowsOutside) {
             g.lines.push_back(Line{q1, q2});
             g.arrows.push_back(arrowHead(q1, u * -1.0, d.arrowSize));
             g.arrows.push_back(arrowHead(q2, u, d.arrowSize));
@@ -216,7 +217,18 @@ void linearGeometry(const Dimension& d, DimensionGeometry& g)
     g.label.align = Text::Align::Center;
     g.label.height = d.textHeight;
     g.label.rotation = angleOf(rd);
-    g.label.position = midpoint(q1, q2) + perpendicular(rd) * (d.textHeight * 0.25);
+    const Vec2 lift = perpendicular(rd) * (d.textHeight * 0.25);
+    const double w = estimatedTextWidth(g.label);
+    if (span >= w + 2.0 * d.arrowSize) {
+        g.label.position = midpoint(q1, q2) + lift;
+        return;
+    }
+    // The text does not fit between the extension lines: it goes beside the
+    // one further along the reading direction, over an extended dimension line.
+    const Vec2 far = dot(q2 - q1, rd) >= 0.0 ? q2 : q1;
+    const double start = (arrowsOutside ? 2.0 * d.arrowSize : 0.0) + d.textHeight * 0.5;
+    g.lines.push_back(Line{far, far + rd * (start + w)});
+    g.label.position = far + rd * (start + w / 2.0) + lift;
 }
 
 void radialGeometry(const Dimension& d, DimensionGeometry& g)
@@ -299,11 +311,11 @@ std::array<Vec2, 4> textCorners(const Text& text)
 DimensionGeometry dimensionGeometry(const Dimension& dim)
 {
     DimensionGeometry g;
+    g.label.content = labelText(dim);
     if (dim.kind == Dimension::Kind::Linear || dim.kind == Dimension::Kind::Aligned)
         linearGeometry(dim, g);
     else
         radialGeometry(dim, g);
-    g.label.content = labelText(dim);
     return g;
 }
 
