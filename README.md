@@ -9,13 +9,13 @@ CAD 2D e 3D parametrico per tecnici, open source. Il disegno 2D funziona come Au
 Versione 0.1, nucleo 2D. Funziona già:
 
 - **Disegno:** linea, polilinea, cerchio (raggio o diametro), arco per tre punti, rettangolo.
-- **Modifica:** cancella, sposta, copia (multipla), ruota, scala, specchio.
+- **Modifica:** cancella, sposta, copia (multipla), ruota, scala, specchio, offset (a distanza o per punto), taglia, estendi, raccordo tra linee (con raggio o a spigolo vivo).
 - **Precisione:** coordinate assolute e relative (`10,20`, `@5,0`, `@10<45`), inserimento diretto della distanza, snap ad oggetto (fine, punto medio, centro, quadrante, intersezione), orto.
 - **Selezione:** clic, finestra (da sinistra a destra) e interseca (da destra a sinistra), Maiusc+clic per togliere.
 - **Organizzazione:** layer con colore, visibilità e blocco.
 - **File:** formato nativo `.c4a` (JSON leggibile), annulla e ripristina illimitati, script di comandi `.scr`.
 
-In arrivo: offset, taglia, estendi, raccorda, quote, testi, tratteggi, import ed export DXF, lettura DWG con LibreDWG, stampa PDF, poi muri, porte e finestre parametrici in 3D.
+In arrivo: raccordo tra archi e polilinee, cima, stira, quote, testi, tratteggi, import ed export DXF, lettura DWG con LibreDWG, stampa PDF, poi muri, porte e finestre parametrici in 3D.
 
 ## Comandi
 
@@ -34,6 +34,10 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | RUOTA / ROTATE | RO | angolo in gradi o punto |
 | SCALA / SCALE | SC | fattore o punto |
 | SPECCHIO / MIRROR | MI | Cancellare oggetti sorgente? Sì/No |
+| OFFSET | O | distanza o Punto, Esci |
+| TAGLIA / TRIM | TR | clic sulla parte da togliere, Esci |
+| ESTENDI / EXTEND | EX | clic vicino all'estremità da allungare, Esci |
+| RACCORDO / FILLET | F | Raggio (0 = spigolo vivo) |
 | ZOOM | Z | Estensioni |
 | LAYER | LA | apre il pannello layer |
 | ANNULLA / UNDO | U | (anche Ctrl+Z) |
@@ -54,7 +58,7 @@ ctest --test-dir build --output-on-failure
 
 Su Ubuntu 24.04 le dipendenze si installano con `sudo apt install cmake ninja-build qt6-base-dev libgtest-dev`. Su Windows e macOS basta l'installer ufficiale di Qt. Ad ogni modifica GitHub Actions compila e prova il programma sui tre sistemi e conserva i pacchetti di Windows e macOS.
 
-Per provare uno script: `CAD4All --script docs/esempi/pianta.scr`.
+Per provare uno script: `CAD4All --script docs/esempi/pianta.scr` oppure `docs/esempi/modifica.scr`.
 
 ## Struttura
 

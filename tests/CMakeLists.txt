@@ -16,6 +16,7 @@ add_executable(cad4all_tests
     coordinput_test.cpp
     nativeformat_test.cpp
     commands_test.cpp
+    editing_test.cpp
 )
 target_link_libraries(cad4all_tests PRIVATE cad4all_core cad4all_io cad4all_engine GTest::gtest_main)
 

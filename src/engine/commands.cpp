@@ -5,6 +5,7 @@
 #include "commands.h"
 
 #include "commandengine.h"
+#include "editing.h"
 
 #include <QCoreApplication>
 
@@ -592,6 +593,295 @@ private:
     std::optional<Vec2> second_;
 };
 
+// ------------------------------------------------- offset, trim, extend, fillet
+
+// Visible shapes other than `except`, used as cutting and boundary edges.
+std::vector<Shape> edgesExcept(const Document& doc, EntityId except)
+{
+    std::vector<Shape> out;
+    for (const auto& [id, e] : doc.entities())
+        if (id != except && doc.isVisible(e))
+            out.push_back(e.shape);
+    return out;
+}
+
+// Picks one editable object under the pick box, telling the user when there is none.
+std::optional<EntityId> pickObject(CommandEngine* engine, Vec2 p)
+{
+    const auto id = engine->pick(p, engine->pickTolerance());
+    if (!id)
+        engine->message(t("Nessun oggetto trovato."));
+    return id;
+}
+
+bool isExitWord(const QString& w) { return isAny(w, {"E", "ESCI", "EXIT", "X"}); }
+
+// Remembered between runs, like AutoCAD's OFFSETDIST and FILLETRAD.
+double gOffsetDistance = 1.0;
+double gFilletRadius = 0.0;
+
+class OffsetCommand : public Command {
+public:
+    void start() override
+    {
+        engine->setPrompt(t("Specificare distanza di offset o [Punto] <%1>:").arg(gOffsetDistance));
+    }
+
+    bool number(double value) override
+    {
+        if (step_ != Step::Distance)
+            return false;
+        if (value <= kEps) {
+            engine->message(t("La distanza deve essere positiva."));
+            return true;
+        }
+        gOffsetDistance = value;
+        toPick();
+        return true;
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (step_ == Step::Distance && isAny(w, {"P", "PUNTO", "T", "THROUGH"})) {
+            through_ = true;
+            toPick();
+            return true;
+        }
+        if (step_ != Step::Distance && isExitWord(w)) {
+            engine->finish();
+            return true;
+        }
+        return false;
+    }
+
+    void enter() override
+    {
+        if (step_ == Step::Distance)
+            toPick();
+        else
+            engine->finish();
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (step_ == Step::Pick) {
+            const auto id = pickObject(engine, p);
+            if (!id)
+                return false;
+            source_ = *id;
+            step_ = Step::Side;
+            engine->setPrompt(through_ ? t("Specificare punto di passaggio o [Esci]:")
+                                       : t("Specificare punto sul lato di cui eseguire l'offset o [Esci]:"));
+            return true;
+        }
+        if (step_ != Step::Side)
+            return false;
+        const Entity* e = engine->document().entity(source_);
+        if (!e)
+            return false;
+        if (const auto result = offsetAt(*e, p)) {
+            Entity copy = *e;
+            copy.id = 0;
+            copy.shape = *result;
+            engine->document().add(std::move(copy));
+        } else {
+            engine->message(t("Impossibile eseguire l'offset dell'oggetto a questa distanza."));
+        }
+        toPick();
+        return true;
+    }
+
+    bool wantsObjectPick() const override { return step_ == Step::Pick; }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (step_ != Step::Side)
+            return;
+        if (const Entity* e = engine->document().entity(source_))
+            if (const auto result = offsetAt(*e, cursor))
+                out.push_back(*result);
+    }
+
+private:
+    enum class Step { Distance, Pick, Side };
+
+    std::optional<Shape> offsetAt(const Entity& e, Vec2 p) const
+    {
+        const double d = through_ ? distanceTo(e.shape, p) : gOffsetDistance;
+        return offsetShape(e.shape, d, p);
+    }
+
+    void toPick()
+    {
+        step_ = Step::Pick;
+        engine->setPrompt(t("Selezionare oggetto di cui eseguire l'offset o [Esci] <Esci>:"));
+    }
+
+    Step step_ = Step::Distance;
+    bool through_ = false;
+    EntityId source_ = 0;
+};
+
+// TRIM and EXTEND share their flow: every visible object is an edge (the
+// AutoCAD "quick" mode) and each click edits the object under the pick box.
+class TrimExtendCommand : public Command {
+public:
+    explicit TrimExtendCommand(bool extend) : extend_(extend) {}
+
+    void start() override
+    {
+        engine->setPrompt(extend_ ? t("Selezionare oggetto da estendere o [Esci]:")
+                                  : t("Selezionare oggetto da tagliare o [Esci]:"));
+    }
+
+    bool point(Vec2 p) override
+    {
+        const auto id = pickObject(engine, p);
+        if (!id)
+            return false;
+        Document& doc = engine->document();
+        const Entity entity = *doc.entity(*id);
+        const auto edges = edgesExcept(doc, *id);
+
+        if (extend_) {
+            const auto result = extendShape(entity.shape, edges, p);
+            if (!result) {
+                engine->message(t("L'oggetto non incontra nessun contorno."));
+                return false;
+            }
+            doc.replace(*id, *result);
+            return true;
+        }
+
+        const TrimResult result = trimShape(entity.shape, edges, p);
+        if (!result.changed) {
+            engine->message(t("Impossibile tagliare l'oggetto in questo punto."));
+            return false;
+        }
+        doc.remove(*id);
+        for (const Shape& piece : result.pieces) {
+            Entity e = entity;
+            e.id = 0;
+            e.shape = piece;
+            doc.add(std::move(e));
+        }
+        return true;
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (!isExitWord(w))
+            return false;
+        engine->finish();
+        return true;
+    }
+
+    bool wantsObjectPick() const override { return true; }
+
+private:
+    bool extend_;
+};
+
+class FilletCommand : public Command {
+public:
+    void start() override
+    {
+        engine->message(t("Impostazioni correnti: Raggio = %1").arg(gFilletRadius));
+        toFirst();
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (step_ == Step::First && isAny(w, {"R", "RAGGIO", "RADIUS"})) {
+            step_ = Step::Radius;
+            engine->setPrompt(t("Specificare raggio di raccordo <%1>:").arg(gFilletRadius));
+            return true;
+        }
+        return false;
+    }
+
+    bool number(double value) override
+    {
+        if (step_ != Step::Radius)
+            return false;
+        if (value < 0.0) {
+            engine->message(t("Il raggio non può essere negativo."));
+            return true;
+        }
+        gFilletRadius = value;
+        toFirst();
+        return true;
+    }
+
+    void enter() override
+    {
+        if (step_ == Step::Radius)
+            toFirst();
+        else
+            engine->finish();
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (step_ == Step::Radius)
+            return false;
+        const auto id = pickObject(engine, p);
+        if (!id)
+            return false;
+        Document& doc = engine->document();
+        if (!std::holds_alternative<Line>(doc.entity(*id)->shape)) {
+            engine->message(t("Per ora il raccordo funziona solo tra due linee."));
+            return false;
+        }
+        if (step_ == Step::First) {
+            first_ = *id;
+            firstPick_ = p;
+            step_ = Step::Second;
+            engine->setPrompt(t("Selezionare secondo oggetto:"));
+            return true;
+        }
+        if (*id == first_) {
+            engine->message(t("Selezionare una linea diversa."));
+            return false;
+        }
+
+        const Entity a = *doc.entity(first_);
+        const Line second = std::get<Line>(doc.entity(*id)->shape);
+        FilletError error = FilletError::None;
+        const auto result = filletLines(std::get<Line>(a.shape), firstPick_, second, p, gFilletRadius, &error);
+        if (!result) {
+            engine->message(error == FilletError::Parallel ? t("Le linee sono parallele.")
+                                                           : t("Il raggio è troppo grande per queste linee."));
+            return false;
+        }
+        doc.replace(first_, result->first);
+        doc.replace(*id, result->second);
+        if (result->arc) {
+            Entity arc = a;
+            arc.id = 0;
+            arc.shape = *result->arc;
+            doc.add(std::move(arc));
+        }
+        engine->finish();
+        return true;
+    }
+
+    bool wantsObjectPick() const override { return step_ != Step::Radius; }
+
+private:
+    enum class Step { First, Radius, Second };
+
+    void toFirst()
+    {
+        step_ = Step::First;
+        engine->setPrompt(t("Selezionare primo oggetto o [Raggio]:"));
+    }
+
+    Step step_ = Step::First;
+    EntityId first_ = 0;
+    Vec2 firstPick_;
+};
+
 // ---------------------------------------------------------------- view
 
 class ZoomCommand : public Command {
@@ -638,6 +928,10 @@ std::unique_ptr<Command> makeMoveCommand(bool copy) { return std::make_unique<Mo
 std::unique_ptr<Command> makeRotateCommand() { return std::make_unique<RotateCommand>(); }
 std::unique_ptr<Command> makeScaleCommand() { return std::make_unique<ScaleCommand>(); }
 std::unique_ptr<Command> makeMirrorCommand() { return std::make_unique<MirrorCommand>(); }
+std::unique_ptr<Command> makeOffsetCommand() { return std::make_unique<OffsetCommand>(); }
+std::unique_ptr<Command> makeTrimCommand() { return std::make_unique<TrimExtendCommand>(false); }
+std::unique_ptr<Command> makeExtendCommand() { return std::make_unique<TrimExtendCommand>(true); }
+std::unique_ptr<Command> makeFilletCommand() { return std::make_unique<FilletCommand>(); }
 std::unique_ptr<Command> makeZoomCommand() { return std::make_unique<ZoomCommand>(); }
 std::unique_ptr<Command> makeLayerCommand() { return std::make_unique<LayerCommand>(); }
 

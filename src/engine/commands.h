@@ -18,6 +18,10 @@ std::unique_ptr<Command> makeMoveCommand(bool copy);
 std::unique_ptr<Command> makeRotateCommand();
 std::unique_ptr<Command> makeScaleCommand();
 std::unique_ptr<Command> makeMirrorCommand();
+std::unique_ptr<Command> makeOffsetCommand();
+std::unique_ptr<Command> makeTrimCommand();
+std::unique_ptr<Command> makeExtendCommand();
+std::unique_ptr<Command> makeFilletCommand();
 std::unique_ptr<Command> makeZoomCommand();
 std::unique_ptr<Command> makeLayerCommand();
 
