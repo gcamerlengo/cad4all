@@ -831,8 +831,9 @@ public:
         if (!id)
             return false;
         Document& doc = engine->document();
-        if (!std::holds_alternative<Line>(doc.entity(*id)->shape)) {
-            engine->message(t("Per ora il raccordo funziona solo tra due linee."));
+        const Shape& picked = doc.entity(*id)->shape;
+        if (!std::holds_alternative<Line>(picked) && !std::holds_alternative<Arc>(picked) && !std::holds_alternative<Circle>(picked)) {
+            engine->message(t("Il raccordo funziona tra linee, archi e cerchi."));
             return false;
         }
         if (step_ == Step::First) {
@@ -843,21 +844,21 @@ public:
             return true;
         }
         if (*id == first_) {
-            engine->message(t("Selezionare una linea diversa."));
+            engine->message(t("Selezionare un oggetto diverso."));
             return false;
         }
 
         const Entity a = *doc.entity(first_);
-        const Line second = std::get<Line>(doc.entity(*id)->shape);
         FilletError error = FilletError::None;
-        const auto result = filletLines(std::get<Line>(a.shape), firstPick_, second, p, gFilletRadius, &error);
+        const auto result = filletCurves(a.shape, firstPick_, picked, p, gFilletRadius, &error);
         if (!result) {
-            engine->message(error == FilletError::Parallel ? t("Le linee sono parallele.")
-                                                           : t("Il raggio è troppo grande per queste linee."));
+            engine->message(error == FilletError::Parallel ? t("Gli oggetti non si incontrano.")
+                                                           : t("Il raggio è troppo grande per questi oggetti."));
             return false;
         }
+        const EntityId secondId = *id;
         doc.replace(first_, result->first);
-        doc.replace(*id, result->second);
+        doc.replace(secondId, result->second);
         if (result->arc) {
             Entity arc = a;
             arc.id = 0;
@@ -882,6 +883,236 @@ private:
     Step step_ = Step::First;
     EntityId first_ = 0;
     Vec2 firstPick_;
+};
+
+// Remembered between runs, like AutoCAD's CHAMFERA, CHAMFERB, CHAMFERC,
+// CHAMFERD and CHAMMODE.
+double gChamferDist1 = 0.0;
+double gChamferDist2 = 0.0;
+double gChamferLength = 0.0;
+double gChamferAngle = 0.0;  // degrees
+bool gChamferByAngle = false;
+
+class ChamferCommand : public Command {
+public:
+    void start() override
+    {
+        if (gChamferByAngle)
+            engine->message(t("Impostazioni correnti: Lunghezza = %1, Angolo = %2").arg(gChamferLength).arg(gChamferAngle));
+        else
+            engine->message(t("Impostazioni correnti: Distanza1 = %1, Distanza2 = %2").arg(gChamferDist1).arg(gChamferDist2));
+        toFirst();
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (step_ != Step::First)
+            return false;
+        if (isAny(w, {"D", "DISTANZA", "DISTANCE"})) {
+            step_ = Step::Dist1;
+            engine->setPrompt(t("Specificare prima distanza di cima <%1>:").arg(gChamferDist1));
+            return true;
+        }
+        if (isAny(w, {"A", "ANGOLO", "ANGLE"})) {
+            step_ = Step::Length;
+            engine->setPrompt(t("Specificare lunghezza di cima sulla prima linea <%1>:").arg(gChamferLength));
+            return true;
+        }
+        return false;
+    }
+
+    bool number(double value) override
+    {
+        if (step_ == Step::First || step_ == Step::Second)
+            return false;
+        if (value < 0.0) {
+            engine->message(t("Il valore non può essere negativo."));
+            return true;
+        }
+        setValue(value);
+        return true;
+    }
+
+    void enter() override
+    {
+        switch (step_) {
+        case Step::Dist1: setValue(gChamferDist1); break;
+        case Step::Dist2: setValue(gChamferDist2); break;
+        case Step::Length: setValue(gChamferLength); break;
+        case Step::Angle: setValue(gChamferAngle); break;
+        default: engine->finish(); break;
+        }
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (step_ != Step::First && step_ != Step::Second)
+            return false;
+        const auto id = pickObject(engine, p);
+        if (!id)
+            return false;
+        Document& doc = engine->document();
+        if (!std::holds_alternative<Line>(doc.entity(*id)->shape)) {
+            engine->message(t("Per ora la cima funziona solo tra due linee."));
+            return false;
+        }
+        if (step_ == Step::First) {
+            first_ = *id;
+            firstPick_ = p;
+            step_ = Step::Second;
+            engine->setPrompt(t("Selezionare seconda linea:"));
+            return true;
+        }
+        if (*id == first_) {
+            engine->message(t("Selezionare una linea diversa."));
+            return false;
+        }
+
+        const Entity a = *doc.entity(first_);
+        const Line l1 = std::get<Line>(a.shape);
+        const Line l2 = std::get<Line>(doc.entity(*id)->shape);
+        double d1 = gChamferDist1;
+        double d2 = gChamferDist2;
+        if (gChamferByAngle) {
+            d1 = gChamferLength;
+            const auto other = chamferDistanceFromAngle(l1, firstPick_, l2, p, d1, degToRad(gChamferAngle));
+            if (!other && d1 > kEps) {
+                engine->message(t("Angolo di cima non valido per queste linee."));
+                return false;
+            }
+            d2 = other.value_or(0.0);
+        }
+        FilletError error = FilletError::None;
+        const auto result = chamferLines(l1, firstPick_, l2, p, d1, d2, &error);
+        if (!result) {
+            engine->message(error == FilletError::Parallel ? t("Le linee sono parallele.")
+                                                           : t("La distanza di cima è troppo grande per queste linee."));
+            return false;
+        }
+        doc.replace(first_, result->first);
+        doc.replace(*id, result->second);
+        if (result->bevel) {
+            Entity bevel = a;
+            bevel.id = 0;
+            bevel.shape = *result->bevel;
+            doc.add(std::move(bevel));
+        }
+        engine->finish();
+        return true;
+    }
+
+    bool wantsObjectPick() const override { return step_ == Step::First || step_ == Step::Second; }
+
+private:
+    enum class Step { First, Second, Dist1, Dist2, Length, Angle };
+
+    void setValue(double v)
+    {
+        switch (step_) {
+        case Step::Dist1:
+            gChamferDist1 = v;
+            gChamferByAngle = false;
+            step_ = Step::Dist2;
+            engine->setPrompt(t("Specificare seconda distanza di cima <%1>:").arg(gChamferDist1));
+            gChamferDist2 = gChamferDist1;  // AutoCAD proposes the first distance
+            return;
+        case Step::Dist2:
+            gChamferDist2 = v;
+            break;
+        case Step::Length:
+            gChamferLength = v;
+            gChamferByAngle = true;
+            step_ = Step::Angle;
+            engine->setPrompt(t("Specificare angolo di cima dalla prima linea <%1>:").arg(gChamferAngle));
+            return;
+        case Step::Angle:
+            gChamferAngle = v;
+            break;
+        default:
+            return;
+        }
+        toFirst();
+    }
+
+    void toFirst()
+    {
+        step_ = Step::First;
+        engine->setPrompt(t("Selezionare la prima linea o [Distanza/Angolo]:"));
+    }
+
+    Step step_ = Step::First;
+    EntityId first_ = 0;
+    Vec2 firstPick_;
+};
+
+// STRETCH: a crossing window picks the objects and the points to move;
+// whatever lies inside moves, the rest stays attached.
+class StretchCommand : public Command {
+public:
+    void start() override
+    {
+        engine->message(t("Selezionare oggetti da stirare con una finestra interseca."));
+        engine->setPrompt(t("Specificare primo angolo:"));
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (!corner_) {
+            corner_ = p;
+            engine->setPrompt(t("Specificare angolo opposto:"));
+            return true;
+        }
+        if (!window_) {
+            if (almostEqual(p, *corner_))
+                return false;
+            const BBox box = BBox::fromCorners(*corner_, p);
+            ids_ = engine->pickBox(box, true);
+            if (ids_.empty()) {
+                engine->message(t("Nessun oggetto selezionato."));
+                corner_.reset();
+                start();
+                return true;
+            }
+            window_ = box;
+            engine->message(QCoreApplication::translate("Command", "%n oggetti selezionati", nullptr, static_cast<int>(ids_.size())));
+            engine->setPrompt(t("Specificare punto base:"));
+            return true;
+        }
+        if (!base_) {
+            base_ = p;
+            engine->setPrompt(t("Specificare secondo punto:"));
+            return true;
+        }
+        Document& doc = engine->document();
+        for (EntityId id : ids_)
+            if (const Entity* e = doc.entity(id))
+                doc.replace(id, stretchShape(e->shape, *window_, p - *base_));
+        engine->finish();
+        return true;
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (corner_ && !window_) {
+            const BBox b = BBox::fromCorners(*corner_, cursor);
+            out.push_back(Polyline{{b.min, {b.max.x, b.min.y}, b.max, {b.min.x, b.max.y}}, true});
+            return;
+        }
+        if (!base_)
+            return;
+        for (EntityId id : ids_)
+            if (const Entity* e = engine->document().entity(id))
+                out.push_back(stretchShape(e->shape, *window_, cursor - *base_));
+        out.push_back(Line{*base_, cursor});
+    }
+
+    std::optional<Vec2> base() const override { return base_; }
+
+private:
+    std::optional<Vec2> corner_;
+    std::optional<BBox> window_;
+    std::optional<Vec2> base_;
+    std::vector<EntityId> ids_;
 };
 
 // ---------------------------------------------------------------- text and dimensions
@@ -1465,6 +1696,8 @@ std::unique_ptr<Command> makeOffsetCommand() { return std::make_unique<OffsetCom
 std::unique_ptr<Command> makeTrimCommand() { return std::make_unique<TrimExtendCommand>(false); }
 std::unique_ptr<Command> makeExtendCommand() { return std::make_unique<TrimExtendCommand>(true); }
 std::unique_ptr<Command> makeFilletCommand() { return std::make_unique<FilletCommand>(); }
+std::unique_ptr<Command> makeChamferCommand() { return std::make_unique<ChamferCommand>(); }
+std::unique_ptr<Command> makeStretchCommand() { return std::make_unique<StretchCommand>(); }
 std::unique_ptr<Command> makeTextCommand() { return std::make_unique<TextCommand>(); }
 std::unique_ptr<Command> makeTextEditCommand() { return std::make_unique<TextEditCommand>(); }
 std::unique_ptr<Command> makeDimLinearCommand(bool aligned) { return std::make_unique<DimLinearCommand>(aligned); }

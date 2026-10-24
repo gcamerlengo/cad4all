@@ -357,3 +357,42 @@ TEST_F(Commands, TrimIgnoresTextAsEdge)
     EXPECT_TRUE(shapes<Line>().empty());
     EXPECT_EQ(shapes<Text>().size(), 1u);
 }
+
+TEST_F(Commands, ChamferWithDistances)
+{
+    type({"L", "0,0", "10,0", ""});
+    type({"L", "10,0", "10,10", ""});
+    engine.setPickTolerance(0.5);
+    type({"CIMA", "D", "2", "3", "2,0", "10,8"});
+    EXPECT_FALSE(engine.isActive());
+    const auto lines = shapes<Line>();
+    ASSERT_EQ(lines.size(), 3u);
+    EXPECT_EQ(lines[2].a, (Vec2{8, 0}));
+    EXPECT_EQ(lines[2].b, (Vec2{10, 3}));
+    type({"CHA", "D", "0", "0", ""});  // back to the default for the other tests
+}
+
+TEST_F(Commands, FilletLineAndCircle)
+{
+    type({"L", "-20,-10", "20,-10", ""});
+    type({"C", "0,0", "5"});
+    engine.setPickTolerance(0.5);
+    type({"RACCORDO", "R", "3", "-15,-10", "-5,0"});
+    EXPECT_FALSE(engine.isActive());
+    EXPECT_EQ(shapes<Circle>().size(), 1u);
+    EXPECT_EQ(shapes<Arc>().size(), 1u);
+    type({"F", "R", "0", ""});
+}
+
+TEST_F(Commands, StretchWithCrossingWindow)
+{
+    type({"REC", "0,0", "10,5"});
+    type({"STIRA", "8,-1", "12,6", "0,0", "@5,0"});
+    EXPECT_FALSE(engine.isActive());
+    const auto rect = shapes<Polyline>();
+    ASSERT_EQ(rect.size(), 1u);
+    EXPECT_EQ(rect[0].points[1], (Vec2{15, 0}));
+    EXPECT_EQ(rect[0].points[0], (Vec2{0, 0}));
+    type({"U"});
+    EXPECT_EQ(shapes<Polyline>()[0].points[1], (Vec2{10, 0}));
+}

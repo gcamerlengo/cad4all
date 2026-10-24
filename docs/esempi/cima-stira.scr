@@ -1,0 +1,18 @@
+; Esempio di CIMA, RACCORDO tra linea e arco o cerchio, e STIRA.
+; Un tavolo con due angoli smussati.
+LINEA 0,0 400,0 400,300 0,300 C
+CIMA D 40 40 380,0 400,20
+CIMA 400,280 380,300
+; Un cerchio raccordato a una linea con raggio 30.
+LINEA 500,0 900,0 
+CERCHIO 700,120 80
+RACCORDO R 30 550,0 620,120
+; Un arco raccordato a una linea con raggio 20.
+LINEA 500,300 900,300 
+ARCO 750,300 800,350 850,300
+RACCORDO R 20 550,300 765,335
+; Un rettangolo e una quota stirati insieme di 150 verso destra.
+RETTANGOLO 0,400 @200,100
+DIMSCALE 10
+QUOTALIN 0,500 200,500 100,560
+STIRA 150,380 250,620 200,400 @150,0

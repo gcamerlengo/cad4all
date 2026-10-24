@@ -139,6 +139,8 @@ void MainWindow::createActions()
         commandAction(tr("Taglia"), QStringLiteral("TRIM"), icons::make(QStringLiteral("trim"))),
         commandAction(tr("Estendi"), QStringLiteral("EXTEND"), icons::make(QStringLiteral("extend"))),
         commandAction(tr("Raccordo"), QStringLiteral("FILLET"), icons::make(QStringLiteral("fillet"))),
+        commandAction(tr("Cima"), QStringLiteral("CHAMFER"), icons::make(QStringLiteral("chamfer"))),
+        commandAction(tr("Stira"), QStringLiteral("STRETCH"), icons::make(QStringLiteral("stretch"))),
     };
     modify->addActions(modifyActions);
     modifyBar->addActions(modifyActions);

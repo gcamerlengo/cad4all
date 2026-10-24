@@ -392,6 +392,8 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("TRIM"), {QStringLiteral("TAGLIA"), QStringLiteral("TR")}, [] { return makeTrimCommand(); });
     add(QStringLiteral("EXTEND"), {QStringLiteral("ESTENDI"), QStringLiteral("EX")}, [] { return makeExtendCommand(); });
     add(QStringLiteral("FILLET"), {QStringLiteral("RACCORDO"), QStringLiteral("RACCORDA"), QStringLiteral("F")}, [] { return makeFilletCommand(); });
+    add(QStringLiteral("CHAMFER"), {QStringLiteral("CIMA"), QStringLiteral("CHA")}, [] { return makeChamferCommand(); });
+    add(QStringLiteral("STRETCH"), {QStringLiteral("STIRA"), QStringLiteral("S")}, [] { return makeStretchCommand(); });
     add(QStringLiteral("TEXT"), {QStringLiteral("TESTO"), QStringLiteral("DTEXT"), QStringLiteral("DT")}, [] { return makeTextCommand(); });
     add(QStringLiteral("TEXTEDIT"), {QStringLiteral("MODIFICATESTO"), QStringLiteral("DDEDIT"), QStringLiteral("ED")}, [] { return makeTextEditCommand(); });
     add(QStringLiteral("DIMLINEAR"), {QStringLiteral("QUOTALIN"), QStringLiteral("QUOTALINEARE"), QStringLiteral("DLI")}, [] { return makeDimLinearCommand(false); });

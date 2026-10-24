@@ -181,6 +181,25 @@ QIcon make(const QString& name)
             path.arcTo(QRectF(3, 5, 18, 16), 180, 90);
             p.drawPath(path);
         };
+    } else if (name == QLatin1String("chamfer")) {
+        painter = [](QPainter& p) {
+            p.drawLine(QPointF(3, 4), QPointF(3, 14));
+            p.drawLine(QPointF(10, 21), QPointF(21, 21));
+            accentPen(p);
+            p.drawLine(QPointF(3, 14), QPointF(10, 21));
+        };
+    } else if (name == QLatin1String("stretch")) {
+        painter = [](QPainter& p) {
+            p.drawPolyline(QPolygonF({{3, 20}, {3, 8}, {9, 8}}));
+            p.drawLine(QPointF(3, 20), QPointF(9, 20));
+            accentPen(p);
+            p.drawPolyline(QPolygonF({{9, 8}, {20, 8}, {20, 20}, {9, 20}}));
+            QPen dashed = p.pen();
+            dashed.setStyle(Qt::DashLine);
+            dashed.setWidthF(1.0);
+            p.setPen(dashed);
+            p.drawRect(QRectF(13, 4, 10, 19));
+        };
     } else if (name == QLatin1String("text")) {
         painter = [](QPainter& p) {
             p.drawLine(QPointF(4, 4), QPointF(20, 4));
