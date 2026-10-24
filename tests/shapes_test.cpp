@@ -254,3 +254,25 @@ TEST(Shapes, DimensionTextMovesOutWhenItDoesNotFit)
     // The dimension line runs on under the text.
     EXPECT_GE(g.lines.back().b.x, corners[1].x - 1e-9);
 }
+
+TEST(Shapes, PolylineBulgeArcs)
+{
+    // Bulge 1 is a half circle; positive turns counter-clockwise, so from
+    // (0,0) to (2,0) it passes below the chord.
+    const Arc below = arcFromBulge({0, 0}, {2, 0}, 1.0);
+    EXPECT_NEAR(below.center.x, 1.0, 1e-9);
+    EXPECT_NEAR(below.center.y, 0.0, 1e-9);
+    EXPECT_NEAR(below.radius, 1.0, 1e-9);
+    EXPECT_NEAR(std::abs(below.sweep()), kPi, 1e-9);
+    const Polyline pl{{{0, 0}, {2, 0}}, false, {1.0}};
+    EXPECT_TRUE(pl.hasArcs());
+    EXPECT_NEAR(boundingBox(pl).min.y, -1.0, 1e-9);
+    EXPECT_NEAR(boundingBox(pl).max.y, 0.0, 1e-9);
+    EXPECT_NEAR(segmentPoint(pl, 0, 0.5).y, -1.0, 1e-9);
+    EXPECT_NEAR(distanceTo(pl, {1, -1}), 0.0, 1e-9);
+
+    // Mirroring flips the arc to the other side of the chord.
+    const auto mirrored = std::get<Polyline>(transformed(pl, Transform::mirror({0, 0}, {1, 0})));
+    EXPECT_NEAR(mirrored.bulge(0), -1.0, 1e-9);
+    EXPECT_NEAR(boundingBox(mirrored).max.y, 1.0, 1e-9);
+}

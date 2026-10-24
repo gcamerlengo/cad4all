@@ -5,6 +5,7 @@
 #include "commandline.h"
 #include "icons.h"
 #include "layerpanel.h"
+#include "dxf.h"
 #include "nativeformat.h"
 
 #include <QAction>
@@ -25,7 +26,14 @@ using namespace cad;
 
 namespace {
 
-const QString kFileFilter = QObject::tr("Disegni CAD4All (*.c4a)");
+const QString kOpenFilter = QObject::tr("Disegni (*.c4a *.dxf);;Disegni CAD4All (*.c4a);;DXF (*.dxf)");
+const QString kNativeFilter = QObject::tr("Disegni CAD4All (*.c4a)");
+const QString kDxfFilter = QObject::tr("DXF R12 per AutoCAD e altri CAD (*.dxf)");
+
+bool isDxf(const QString& path)
+{
+    return path.endsWith(QLatin1String(".dxf"), Qt::CaseInsensitive);
+}
 
 } // namespace
 
@@ -93,6 +101,7 @@ void MainWindow::createActions()
     file->addAction(tr("&Apri..."), QKeySequence::Open, this, &MainWindow::openDrawing);
     file->addAction(tr("&Salva"), QKeySequence::Save, this, &MainWindow::save);
     file->addAction(tr("Salva &con nome..."), QKeySequence::SaveAs, this, &MainWindow::saveAs);
+    file->addAction(tr("Esporta &DXF..."), this, &MainWindow::exportDxf);
     file->addSeparator();
     file->addAction(tr("Esegui sc&ript..."), this, &MainWindow::runScriptDialog);
     file->addSeparator();
@@ -252,7 +261,7 @@ void MainWindow::openDrawing()
 {
     if (!maybeSave())
         return;
-    const QString path = QFileDialog::getOpenFileName(this, tr("Apri disegno"), QString(), kFileFilter);
+    const QString path = QFileDialog::getOpenFileName(this, tr("Apri disegno"), QString(), kOpenFilter);
     if (!path.isEmpty())
         openFile(path);
 }
@@ -262,7 +271,8 @@ bool MainWindow::openFile(const QString& path)
     engine_.cancel();
     engine_.clearSelection();
     QString message;
-    if (!io::loadNative(doc_, path, &message)) {
+    const bool loaded = isDxf(path) ? io::loadDxf(doc_, path, &message) : io::loadNative(doc_, path, &message);
+    if (!loaded) {
         QMessageBox::warning(this, tr("Apri disegno"), tr("Impossibile aprire %1:\n%2").arg(path, message));
         return false;
     }
@@ -280,7 +290,8 @@ bool MainWindow::save()
     if (filePath_.isEmpty())
         return saveAs();
     QString error;
-    if (!io::saveNative(doc_, filePath_, &error)) {
+    const bool saved = isDxf(filePath_) ? io::saveDxf(doc_, filePath_, &error) : io::saveNative(doc_, filePath_, &error);
+    if (!saved) {
         QMessageBox::warning(this, tr("Salva"), tr("Impossibile salvare %1:\n%2").arg(filePath_, error));
         return false;
     }
@@ -292,13 +303,41 @@ bool MainWindow::save()
 
 bool MainWindow::saveAs()
 {
-    QString path = QFileDialog::getSaveFileName(this, tr("Salva con nome"), filePath_, kFileFilter);
+    QString filter = isDxf(filePath_) ? kDxfFilter : kNativeFilter;
+    QString path = QFileDialog::getSaveFileName(this, tr("Salva con nome"), filePath_,
+                                                kNativeFilter + QStringLiteral(";;") + kDxfFilter, &filter);
     if (path.isEmpty())
         return false;
-    if (!path.endsWith(QLatin1String(".c4a"), Qt::CaseInsensitive))
-        path += QLatin1String(".c4a");
+    const bool dxf = filter == kDxfFilter || isDxf(path);
+    const QString suffix = dxf ? QStringLiteral(".dxf") : QStringLiteral(".c4a");
+    if (!path.endsWith(suffix, Qt::CaseInsensitive))
+        path += suffix;
     filePath_ = path;
     return save();
+}
+
+bool MainWindow::exportTo(const QString& path)
+{
+    QString error;
+    const bool saved = isDxf(path) ? io::saveDxf(doc_, path, &error) : io::saveNative(doc_, path, &error);
+    if (!saved)
+        commandLine_->appendMessage(tr("Impossibile salvare %1: %2").arg(path, error));
+    return saved;
+}
+
+void MainWindow::exportDxf()
+{
+    QString path = QFileDialog::getSaveFileName(this, tr("Esporta DXF"), QString(), kDxfFilter);
+    if (path.isEmpty())
+        return;
+    if (!isDxf(path))
+        path += QLatin1String(".dxf");
+    QString error;
+    if (!io::saveDxf(doc_, path, &error)) {
+        QMessageBox::warning(this, tr("Esporta DXF"), tr("Impossibile salvare %1:\n%2").arg(path, error));
+        return;
+    }
+    commandLine_->appendMessage(tr("Esportato %1").arg(QFileInfo(path).fileName()));
 }
 
 bool MainWindow::maybeSave()

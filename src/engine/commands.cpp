@@ -93,6 +93,8 @@ private:
     std::vector<EntityId> segments_;
 };
 
+// PLINE as in AutoCAD: straight segments, or arcs tangent to the previous
+// segment in Arco mode. "A" is Arco here, so Annulla is "AN".
 class PolylineCommand : public Command {
 public:
     void start() override { engine->setPrompt(t("Specificare punto iniziale:")); }
@@ -101,6 +103,8 @@ public:
     {
         if (!points_.empty() && almostEqual(p, points_.back()))
             return false;
+        if (!points_.empty())
+            bulges_.push_back(arcMode_ ? tangentBulge(p) : 0.0);
         points_.push_back(p);
         updatePrompt();
         return true;
@@ -108,17 +112,32 @@ public:
 
     bool keyword(const QString& w) override
     {
-        if (isUndoWord(w) && !points_.empty()) {
+        if (points_.empty())
+            return false;
+        if (isAny(w, {"AN", "ANNULLA", "U", "UNDO"})) {
             points_.pop_back();
+            if (!bulges_.empty())
+                bulges_.pop_back();
             if (points_.empty())
                 start();
             else
                 updatePrompt();
             return true;
         }
-        if (isCloseWord(w) && points_.size() >= 3) {
-            engine->document().add(Polyline{points_, true});
+        if (isCloseWord(w) && points_.size() >= (arcMode_ ? 2u : 3u)) {
+            bulges_.push_back(arcMode_ ? tangentBulge(points_.front()) : 0.0);
+            engine->document().add(Polyline{points_, true, bulges_});
             engine->finish();
+            return true;
+        }
+        if (!arcMode_ && isAny(w, {"A", "ARCO", "ARC"})) {
+            arcMode_ = true;
+            updatePrompt();
+            return true;
+        }
+        if (arcMode_ && isAny(w, {"L", "LINEA", "LINE"})) {
+            arcMode_ = false;
+            updatePrompt();
             return true;
         }
         return false;
@@ -127,7 +146,7 @@ public:
     void enter() override
     {
         if (points_.size() >= 2)
-            engine->document().add(Polyline{points_, false});
+            engine->document().add(Polyline{points_, false, bulges_});
         engine->finish();
     }
 
@@ -135,24 +154,54 @@ public:
     {
         if (points_.empty())
             return;
-        std::vector<Vec2> pts = points_;
-        pts.push_back(cursor);
-        out.push_back(Polyline{pts, false});
+        Polyline pl{points_, false, bulges_};
+        pl.bulges.push_back(arcMode_ ? tangentBulge(cursor) : 0.0);
+        pl.points.push_back(cursor);
+        out.push_back(pl);
     }
 
     std::optional<Vec2> base() const override
     {
-        return points_.empty() ? std::nullopt : std::optional<Vec2>(points_.back());
+        // No ortho on arcs: the end point sets their curvature.
+        if (points_.empty() || arcMode_)
+            return std::nullopt;
+        return points_.back();
     }
 
 private:
+    // Bulge of the arc from the last point to `end`, tangent to the previous segment.
+    double tangentBulge(Vec2 end) const
+    {
+        const Vec2 from = points_.back();
+        Vec2 dir{1.0, 0.0};
+        if (points_.size() >= 2) {
+            const Polyline pl{points_, false, bulges_};
+            dir = segmentTangent(pl, points_.size() - 2, 1.0);
+        }
+        const Vec2 chord = end - from;
+        if (length(chord) < kEps)
+            return 0.0;
+        // The arc turns twice the angle between the tangent and the chord.
+        const double half = std::atan2(cross(dir, chord), dot(dir, chord));
+        if (std::abs(std::abs(half) - kPi) < 1e-9)
+            return 0.0;
+        return bulgeOfSweep(2.0 * half);
+    }
+
     void updatePrompt()
     {
-        engine->setPrompt(points_.size() >= 3 ? t("Specificare punto successivo o [Chiudi/Annulla]:")
-                                              : t("Specificare punto successivo o [Annulla]:"));
+        const bool canClose = points_.size() >= (arcMode_ ? 2u : 3u);
+        if (arcMode_)
+            engine->setPrompt(canClose ? t("Specificare punto finale dell'arco o [Linea/Chiudi/ANnulla]:")
+                                       : t("Specificare punto finale dell'arco o [Linea/ANnulla]:"));
+        else
+            engine->setPrompt(canClose ? t("Specificare punto successivo o [Arco/Chiudi/ANnulla]:")
+                                       : t("Specificare punto successivo o [Arco/ANnulla]:"));
     }
 
     std::vector<Vec2> points_;
+    std::vector<double> bulges_;
+    bool arcMode_ = false;
 };
 
 class CircleCommand : public Command {
@@ -784,6 +833,29 @@ private:
     bool extend_;
 };
 
+// FILLET and CHAMFER Polilinea: applies `apply` to the picked polyline.
+template <class Apply>
+bool cornersOfPolyline(CommandEngine* engine, Vec2 p, Apply apply)
+{
+    const auto id = pickObject(engine, p);
+    if (!id)
+        return false;
+    Document& doc = engine->document();
+    const auto* pl = std::get_if<Polyline>(&doc.entity(*id)->shape);
+    if (!pl) {
+        engine->message(t("L'oggetto selezionato non è una polilinea."));
+        return false;
+    }
+    const PolylineCornersResult r = apply(*pl);
+    if (r.changed > 0)
+        doc.replace(*id, r.polyline);
+    engine->message(QCoreApplication::translate("Command", "%n vertici modificati", nullptr, r.changed));
+    if (r.skipped > 0)
+        engine->message(QCoreApplication::translate("Command", "%n vertici saltati perché i segmenti sono troppo corti", nullptr, r.skipped));
+    engine->finish();
+    return true;
+}
+
 class FilletCommand : public Command {
 public:
     void start() override
@@ -797,6 +869,11 @@ public:
         if (step_ == Step::First && isAny(w, {"R", "RAGGIO", "RADIUS"})) {
             step_ = Step::Radius;
             engine->setPrompt(t("Specificare raggio di raccordo <%1>:").arg(gFilletRadius));
+            return true;
+        }
+        if (step_ == Step::First && isAny(w, {"P", "POLILINEA", "POLYLINE"})) {
+            step_ = Step::Polyline;
+            engine->setPrompt(t("Selezionare polilinea 2D:"));
             return true;
         }
         return false;
@@ -827,6 +904,8 @@ public:
     {
         if (step_ == Step::Radius)
             return false;
+        if (step_ == Step::Polyline)
+            return cornersOfPolyline(engine, p, [](const Polyline& pl) { return filletPolyline(pl, gFilletRadius); });
         const auto id = pickObject(engine, p);
         if (!id)
             return false;
@@ -872,12 +951,12 @@ public:
     bool wantsObjectPick() const override { return step_ != Step::Radius; }
 
 private:
-    enum class Step { First, Radius, Second };
+    enum class Step { First, Radius, Second, Polyline };
 
     void toFirst()
     {
         step_ = Step::First;
-        engine->setPrompt(t("Selezionare primo oggetto o [Raggio]:"));
+        engine->setPrompt(t("Selezionare primo oggetto o [Polilinea/Raggio]:"));
     }
 
     Step step_ = Step::First;
@@ -913,6 +992,11 @@ public:
             engine->setPrompt(t("Specificare prima distanza di cima <%1>:").arg(gChamferDist1));
             return true;
         }
+        if (isAny(w, {"P", "POLILINEA", "POLYLINE"})) {
+            step_ = Step::Polyline;
+            engine->setPrompt(t("Selezionare polilinea 2D:"));
+            return true;
+        }
         if (isAny(w, {"A", "ANGOLO", "ANGLE"})) {
             step_ = Step::Length;
             engine->setPrompt(t("Specificare lunghezza di cima sulla prima linea <%1>:").arg(gChamferLength));
@@ -946,6 +1030,12 @@ public:
 
     bool point(Vec2 p) override
     {
+        if (step_ == Step::Polyline)
+            return cornersOfPolyline(engine, p, [](const Polyline& pl) {
+                if (gChamferByAngle)
+                    return chamferPolyline(pl, gChamferLength, 0.0, degToRad(gChamferAngle));
+                return chamferPolyline(pl, gChamferDist1, gChamferDist2);
+            });
         if (step_ != Step::First && step_ != Step::Second)
             return false;
         const auto id = pickObject(engine, p);
@@ -1001,10 +1091,13 @@ public:
         return true;
     }
 
-    bool wantsObjectPick() const override { return step_ == Step::First || step_ == Step::Second; }
+    bool wantsObjectPick() const override
+    {
+        return step_ == Step::First || step_ == Step::Second || step_ == Step::Polyline;
+    }
 
 private:
-    enum class Step { First, Second, Dist1, Dist2, Length, Angle };
+    enum class Step { First, Second, Dist1, Dist2, Length, Angle, Polyline };
 
     void setValue(double v)
     {
@@ -1037,7 +1130,7 @@ private:
     void toFirst()
     {
         step_ = Step::First;
-        engine->setPrompt(t("Selezionare la prima linea o [Distanza/Angolo]:"));
+        engine->setPrompt(t("Selezionare la prima linea o [Polilinea/Distanza/Angolo]:"));
     }
 
     Step step_ = Step::First;

@@ -6,6 +6,7 @@
 #include "geometry.h"
 
 #include <array>
+#include <cmath>
 #include <optional>
 #include <string>
 #include <variant>
@@ -34,10 +35,26 @@ struct Arc {
     double sweep() const { return sweepAngle(startAngle, endAngle); }
 };
 
-// Straight-segment polyline. Arc segments (bulges) come with the DXF work.
+// Polyline of straight and arc segments. Segment i runs from points[i] to
+// points[i + 1], the last one back to points[0] when the polyline is closed.
+// bulges[i] is tan(sweep / 4) of segment i: 0 for a straight segment,
+// positive when the arc turns counter-clockwise (the DXF convention).
+// Missing bulges count as 0.
 struct Polyline {
     std::vector<Vec2> points;
     bool closed = false;
+    std::vector<double> bulges;
+
+    Polyline() = default;
+    Polyline(std::vector<Vec2> pts, bool isClosed = false, std::vector<double> segmentBulges = {})
+        : points(std::move(pts)), closed(isClosed), bulges(std::move(segmentBulges))
+    {
+    }
+
+    double bulge(size_t i) const { return i < bulges.size() ? bulges[i] : 0.0; }
+    void setBulge(size_t i, double b);
+    size_t segmentCount() const;
+    bool hasArcs() const;
 };
 
 // Single-line text. `position` is on the baseline, at the left end, the
@@ -76,6 +93,20 @@ struct Dimension {
 };
 
 using Shape = std::variant<Line, Circle, Arc, Polyline, Text, Dimension>;
+
+// Arc of a polyline segment from `from` to `to`: always counter-clockwise, so
+// a negative bulge gives an arc from `to` to `from`.
+Arc arcFromBulge(Vec2 from, Vec2 to, double bulge);
+// Bulge of an arc segment that sweeps `sweep` radians (negative = clockwise).
+inline double bulgeOfSweep(double sweep) { return std::tan(sweep / 4.0); }
+// Segment i as a Line or an Arc.
+Shape polylineSegment(const Polyline& pl, size_t i);
+// Point at t in [0, 1] along segment i, from its first vertex.
+Vec2 segmentPoint(const Polyline& pl, size_t i, double t);
+// Parameter in [0, 1] of the point of segment i nearest to p.
+double segmentParam(const Polyline& pl, size_t i, Vec2 p);
+// Direction of travel at t along segment i (unit vector).
+Vec2 segmentTangent(const Polyline& pl, size_t i, double t);
 
 enum SnapType : unsigned {
     SnapEndpoint = 1u << 0,

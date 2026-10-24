@@ -75,6 +75,20 @@ std::optional<ChamferResult> chamferLines(const Line& first, Vec2 pickFirst, con
 std::optional<double> chamferDistanceFromAngle(const Line& first, Vec2 pickFirst, const Line& second, Vec2 pickSecond,
                                                double dist1, double angle);
 
+struct PolylineCornersResult {
+    Polyline polyline;
+    int changed = 0;  // corners rounded or bevelled
+    int skipped = 0;  // corners whose segments were too short
+};
+
+// FILLET Polyline: rounds every corner between two straight segments.
+PolylineCornersResult filletPolyline(const Polyline& pl, double radius);
+// CHAMFER Polyline: bevels every corner between two straight segments,
+// `dist1` along the incoming segment and `dist2` along the outgoing one. With
+// `angle` (radians from the incoming segment) dist2 follows from dist1.
+PolylineCornersResult chamferPolyline(const Polyline& pl, double dist1, double dist2,
+                                      std::optional<double> angle = std::nullopt);
+
 // STRETCH: moves by `offset` the defining points of `shape` that lie inside
 // `window` (line ends, polyline vertices, text insertion, dimension points).
 // Arcs with one end inside keep their other end and midpoint; circles move

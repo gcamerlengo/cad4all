@@ -315,3 +315,67 @@ TEST(Stretch, MovesOnlyWhatIsInside)
     EXPECT_EQ(std::get<Circle>(stretchShape(Circle{{0, 0}, 3}, window, off)).center, (Vec2{0, 0}));
     EXPECT_EQ(std::get<Circle>(stretchShape(Circle{{10, 2}, 3}, window, off)).center, (Vec2{15, 2}));
 }
+
+// ---------------------------------------------------------------- polylines with arcs
+
+TEST(PolylineArcs, OffsetChangesArcRadius)
+{
+    // Half circle of radius 5 around (5,0), below the chord.
+    const Polyline pl{{{0, 0}, {10, 0}}, false, {1.0}};
+    const auto inner = std::get<Polyline>(*offsetShape(pl, 1, {5, -1}));
+    ASSERT_EQ(inner.points.size(), 2u);
+    expectNear(inner.points[0], {1, 0});
+    expectNear(inner.points[1], {9, 0});
+    EXPECT_NEAR(inner.bulge(0), 1.0, 1e-9);
+    const auto outer = std::get<Polyline>(*offsetShape(pl, 1, {5, -7}));
+    expectNear(outer.points[0], {-1, 0});
+    expectNear(outer.points[1], {11, 0});
+}
+
+TEST(PolylineArcs, TrimKeepsTheArc)
+{
+    // Straight segment then a half circle; trimming the straight part at a
+    // vertical boundary leaves the arc untouched.
+    const Polyline pl{{{0, 0}, {10, 0}, {10, 10}}, false, {0.0, 1.0}};
+    const auto r = trimShape(pl, {Line{{5, -5}, {5, 5}}}, {2, 0});
+    ASSERT_TRUE(r.changed);
+    ASSERT_EQ(r.pieces.size(), 1u);
+    const auto rest = std::get<Polyline>(r.pieces[0]);
+    ASSERT_EQ(rest.points.size(), 3u);
+    expectNear(rest.points[0], {5, 0});
+    EXPECT_NEAR(rest.bulge(1), 1.0, 1e-9);
+}
+
+TEST(PolylineArcs, FilletRoundsEveryCorner)
+{
+    const Polyline rect{{{0, 0}, {10, 0}, {10, 5}, {0, 5}}, true};
+    const auto r = filletPolyline(rect, 1);
+    EXPECT_EQ(r.changed, 4);
+    EXPECT_EQ(r.skipped, 0);
+    ASSERT_EQ(r.polyline.points.size(), 8u);
+    int arcs = 0;
+    for (size_t i = 0; i < r.polyline.segmentCount(); ++i)
+        if (std::abs(r.polyline.bulge(i) - std::tan(kPi / 8)) < 1e-9)
+            ++arcs;
+    EXPECT_EQ(arcs, 4);
+    const BBox box = boundingBox(r.polyline);
+    expectNear(box.min, {0, 0});
+    expectNear(box.max, {10, 5});
+    // Running it again finds no straight corners left.
+    EXPECT_EQ(filletPolyline(r.polyline, 1).changed, 0);
+}
+
+TEST(PolylineArcs, ChamferSkipsShortSegments)
+{
+    const Polyline step{{{0, 0}, {10, 0}, {10, 1}, {20, 1}}};
+    const auto r = chamferPolyline(step, 2, 2);
+    EXPECT_EQ(r.changed, 0);
+    EXPECT_EQ(r.skipped, 2);
+    const auto ok = chamferPolyline(step, 0.4, 0.4);
+    EXPECT_EQ(ok.changed, 2);
+    ASSERT_EQ(ok.polyline.points.size(), 6u);
+    expectNear(ok.polyline.points[1], {9.6, 0});
+    expectNear(ok.polyline.points[2], {10, 0.4});
+    // Cuts that meet in the middle of the short segment share one vertex.
+    EXPECT_EQ(chamferPolyline(step, 0.5, 0.5).polyline.points.size(), 5u);
+}
