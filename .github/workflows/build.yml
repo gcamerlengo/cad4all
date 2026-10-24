@@ -69,7 +69,12 @@ jobs:
           mkdir -p dmg dist
           cp -R build/src/app/CAD4All.app dmg/
           ln -s /Applications dmg/Applications
-          hdiutil create -volname CAD4All -srcfolder dmg -ov -format UDZO dist/CAD4All.dmg
+          # hdiutil sometimes fails with "Resource busy" on hosted runners: retry.
+          for attempt in 1 2 3 4 5; do
+            hdiutil create -volname CAD4All -srcfolder dmg -ov -format UDZO dist/CAD4All.dmg && break
+            if [ "$attempt" = 5 ]; then exit 1; fi
+            sleep $((attempt * 5))
+          done
 
       - name: Package (Linux)
         if: runner.os == 'Linux'
