@@ -12,6 +12,7 @@ class LayerPanel;
 class QDockWidget;
 class QLabel;
 class QToolButton;
+class View3D;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -25,6 +26,7 @@ public:
     // Writes the drawing to `path` (.c4a, .dxf or .pdf) without changing the current file.
     bool exportTo(const QString& path);
     CadView* view() const { return view_; }
+    View3D* view3d() const { return view3d_; }
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -40,6 +42,7 @@ private:
     bool saveAs();
     void exportDxf();
     void plot();
+    void showView3d();
     bool maybeSave();
     void runScriptDialog();
     void updateTitle();
@@ -52,6 +55,10 @@ private:
     CommandLine* commandLine_;
     LayerPanel* layerPanel_;
     QDockWidget* layerDock_;
+    View3D* view3d_;
+    QDockWidget* view3dDock_;
+    // The 3D view opens by itself with the first wall, once.
+    bool view3dShown_ = false;
     QLabel* coordinates_;
     QToolButton* osnapButton_;
     QToolButton* orthoButton_;

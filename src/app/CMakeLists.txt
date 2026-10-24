@@ -5,6 +5,8 @@ qt_add_executable(cad4all
     drawingpainter.h drawingpainter.cpp
     plot.h plot.cpp
     plotdialog.h plotdialog.cpp
+    render3d.h render3d.cpp
+    view3d.h view3d.cpp
     commandline.h commandline.cpp
     layerpanel.h layerpanel.cpp
     icons.h icons.cpp

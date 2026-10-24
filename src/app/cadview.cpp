@@ -242,8 +242,9 @@ void CadView::paintEvent(QPaintEvent*)
     DrawingPainter dp(p, center_, scale_, QPointF(width() / 2.0, height() / 2.0));
     dp.setVisibleArea(visible);
 
+    const std::map<EntityId, WallFaces> walls = joinedWalls(doc);
     for (const auto& [id, e] : doc.entities()) {
-        if (!doc.isVisible(e) || !boundingBox(e.shape).intersects(visible))
+        if (!doc.isVisible(e) || !drawnBox(e.shape).intersects(visible))
             continue;
         const Layer* layer = doc.layer(e.layer);
         QPen pen(layer ? toQColor(layer->color) : Qt::white, 0);
@@ -252,7 +253,10 @@ void CadView::paintEvent(QPaintEvent*)
             pen.setCosmetic(true);
         }
         p.setPen(pen);
-        dp.drawShape(e.shape);
+        if (const auto* w = std::get_if<Wall>(&e.shape))
+            dp.drawWall(*w, walls.at(id));
+        else
+            dp.drawShape(e.shape);
     }
 
     if (mouseInside_) {

@@ -5,11 +5,13 @@
 #include "commands.h"
 
 #include "commandengine.h"
+#include "building.h"
 #include "editing.h"
 #include "hatch.h"
 
 #include <QCoreApplication>
 
+#include <algorithm>
 #include <limits>
 
 namespace cad {
@@ -2046,6 +2048,494 @@ private:
     std::optional<EntityId> id_;
 };
 
+// ---------------------------------------------------------------- walls, doors, windows
+
+// Remembered between runs. Sizes in drawing units (millimetres by default).
+double gWallThickness = 300.0;
+double gWallHeight = 2700.0;
+Wall::Justification gWallJustification = Wall::Justification::Center;
+
+QString justificationName(Wall::Justification j)
+{
+    switch (j) {
+    case Wall::Justification::Left:
+        return t("Sinistra");
+    case Wall::Justification::Right:
+        return t("Destra");
+    case Wall::Justification::Center:
+        break;
+    }
+    return t("Centro");
+}
+
+std::optional<Wall::Justification> justificationWord(const QString& w)
+{
+    if (isAny(w, {"C", "CENTRO", "CENTER"}))
+        return Wall::Justification::Center;
+    if (isAny(w, {"S", "SINISTRA", "L", "LEFT"}))
+        return Wall::Justification::Left;
+    if (isAny(w, {"D", "DESTRA", "R", "RIGHT"}))
+        return Wall::Justification::Right;
+    return std::nullopt;
+}
+
+// Shared by WALL and WALLEDIT: the Spessore, Altezza and Giustificazione options.
+class WallSettings {
+public:
+    enum class Ask { None, Thickness, Height, Justification };
+
+    bool option(CommandEngine* engine, const QString& w, double thickness, double height, Wall::Justification j)
+    {
+        if (isAny(w, {"S", "SPESSORE", "W", "WIDTH", "THICKNESS"})) {
+            ask_ = Ask::Thickness;
+            engine->setPrompt(t("Specificare spessore del muro <%1>:").arg(thickness));
+        } else if (isAny(w, {"A", "ALTEZZA", "H", "HEIGHT"})) {
+            ask_ = Ask::Height;
+            engine->setPrompt(t("Specificare altezza del muro <%1>:").arg(height));
+        } else if (isAny(w, {"G", "GIUSTIFICAZIONE", "J", "JUSTIFY"})) {
+            ask_ = Ask::Justification;
+            engine->setPrompt(t("Specificare giustificazione [Centro/Sinistra/Destra] <%1>:").arg(justificationName(j)));
+        } else {
+            return false;
+        }
+        return true;
+    }
+
+    Ask asking() const { return ask_; }
+    void done() { ask_ = Ask::None; }
+
+private:
+    Ask ask_ = Ask::None;
+};
+
+// WALL: a chain of walls, like LINE. Each segment is a wall of its own, and
+// consecutive walls are joined at their corners.
+class WallCommand : public Command {
+public:
+    void start() override
+    {
+        engine->message(t("Muro corrente: spessore %1, altezza %2, giustificazione %3")
+                            .arg(gWallThickness)
+                            .arg(gWallHeight)
+                            .arg(justificationName(gWallJustification)));
+        updatePrompt();
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (settings_.asking() != WallSettings::Ask::None)
+            return false;
+        if (!points_.empty()) {
+            if (almostEqual(p, points_.back()))
+                return false;
+            walls_.push_back(engine->document().add(makeWall(points_.back(), p)));
+        }
+        points_.push_back(p);
+        updatePrompt();
+        return true;
+    }
+
+    bool number(double value) override
+    {
+        if (settings_.asking() == WallSettings::Ask::Thickness && value > 0.0)
+            gWallThickness = value;
+        else if (settings_.asking() == WallSettings::Ask::Height && value > 0.0)
+            gWallHeight = value;
+        else
+            return false;
+        settings_.done();
+        updatePrompt();
+        return true;
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (settings_.asking() == WallSettings::Ask::Justification) {
+            const auto j = justificationWord(w);
+            if (!j)
+                return false;
+            gWallJustification = *j;
+            settings_.done();
+            updatePrompt();
+            return true;
+        }
+        if (settings_.asking() != WallSettings::Ask::None)
+            return false;
+        if (settings_.option(engine, w, gWallThickness, gWallHeight, gWallJustification))
+            return true;
+        if (isAny(w, {"AN", "ANNULLA", "U", "UNDO"}) && !points_.empty()) {
+            if (!walls_.empty()) {
+                engine->document().remove(walls_.back());
+                walls_.pop_back();
+            }
+            points_.pop_back();
+            updatePrompt();
+            return true;
+        }
+        if (isCloseWord(w) && walls_.size() >= 2) {
+            engine->document().add(makeWall(points_.back(), points_.front()));
+            engine->finish();
+            return true;
+        }
+        return false;
+    }
+
+    void enter() override
+    {
+        if (settings_.asking() != WallSettings::Ask::None) {
+            settings_.done();
+            updatePrompt();
+            return;
+        }
+        engine->finish();
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (!points_.empty() && settings_.asking() == WallSettings::Ask::None && !almostEqual(cursor, points_.back()))
+            out.push_back(makeWall(points_.back(), cursor));
+    }
+
+    std::optional<Vec2> base() const override
+    {
+        if (points_.empty() || settings_.asking() != WallSettings::Ask::None)
+            return std::nullopt;
+        return points_.back();
+    }
+
+private:
+    static Wall makeWall(Vec2 a, Vec2 b)
+    {
+        Wall w;
+        w.start = a;
+        w.end = b;
+        w.thickness = gWallThickness;
+        w.height = gWallHeight;
+        w.justification = gWallJustification;
+        return w;
+    }
+
+    void updatePrompt()
+    {
+        if (points_.empty())
+            engine->setPrompt(t("Specificare punto iniziale o [Spessore/Altezza/Giustificazione]:"));
+        else if (walls_.size() >= 2)
+            engine->setPrompt(t("Specificare punto successivo o [Spessore/Altezza/Giustificazione/Chiudi/ANnulla]:"));
+        else
+            engine->setPrompt(t("Specificare punto successivo o [Spessore/Altezza/Giustificazione/ANnulla]:"));
+    }
+
+    WallSettings settings_;
+    std::vector<Vec2> points_;
+    std::vector<EntityId> walls_;
+};
+
+// The wall under `p`, if any.
+std::optional<EntityId> pickWall(CommandEngine* engine, Vec2 p)
+{
+    std::optional<EntityId> best;
+    double bestDist = engine->pickTolerance();
+    const Document& doc = engine->document();
+    for (const auto& [id, e] : doc.entities()) {
+        if (!std::holds_alternative<Wall>(e.shape) || !doc.isVisible(e))
+            continue;
+        const double d = distanceTo(e.shape, p);
+        if (d <= bestDist) {
+            bestDist = d;
+            best = id;
+        }
+    }
+    return best;
+}
+
+// Remembered between runs, separately for doors and windows.
+Opening gDoor{Opening::Kind::Door, 0.0, 900.0, 2100.0, 0.0};
+Opening gWindow{Opening::Kind::Window, 0.0, 1200.0, 1400.0, 900.0};
+
+// DOOR and WINDOW: places openings in walls, centred on the picked point.
+// A door then asks the side it opens towards.
+class OpeningCommand : public Command {
+public:
+    explicit OpeningCommand(Opening::Kind kind) : kind_(kind) {}
+
+    void start() override
+    {
+        const Opening& o = defaults();
+        if (door())
+            engine->message(t("Porta corrente: larghezza %1, altezza %2").arg(o.width).arg(o.height));
+        else
+            engine->message(t("Finestra corrente: larghezza %1, altezza %2, davanzale %3").arg(o.width).arg(o.height).arg(o.sill));
+        toPoint();
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (ask_ != Ask::None)
+            return false;
+        if (placed_) {
+            // The side the door opens to: the leaf lies on the jamb nearer to it.
+            Opening o = *placed_;
+            orient(o, p);
+            add(o);
+            return true;
+        }
+        const auto id = pickWall(engine, p);
+        if (!id) {
+            engine->message(t("Nessun muro trovato in questo punto."));
+            return false;
+        }
+        const Wall& w = std::get<Wall>(engine->document().entity(*id)->shape);
+        Opening o = defaults();
+        o.position = wallParam(w, p);
+        const auto fitted = fitOpening(w, o);
+        if (!fitted) {
+            engine->message(door() ? t("La porta non entra nel muro in questo punto.")
+                                   : t("La finestra non entra nel muro in questo punto."));
+            return false;
+        }
+        wall_ = *id;
+        if (!door()) {
+            add(*fitted);
+            return true;
+        }
+        placed_ = fitted;
+        engine->setPrompt(t("Specificare lato di apertura:"));
+        return true;
+    }
+
+    bool number(double value) override
+    {
+        Opening& o = defaults();
+        if (value <= 0.0 && ask_ != Ask::Sill)
+            return false;
+        switch (ask_) {
+        case Ask::Width:
+            o.width = value;
+            break;
+        case Ask::Height:
+            o.height = value;
+            break;
+        case Ask::Sill:
+            if (value < 0.0)
+                return false;
+            o.sill = value;
+            break;
+        case Ask::None:
+            return false;
+        }
+        toPoint();
+        return true;
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (ask_ != Ask::None || placed_)
+            return false;
+        const Opening& o = defaults();
+        if (isAny(w, {"L", "LARGHEZZA", "W", "WIDTH"})) {
+            ask_ = Ask::Width;
+            engine->setPrompt(t("Specificare larghezza <%1>:").arg(o.width));
+        } else if (isAny(w, {"A", "ALTEZZA", "H", "HEIGHT"})) {
+            ask_ = Ask::Height;
+            engine->setPrompt(t("Specificare altezza <%1>:").arg(o.height));
+        } else if (!door() && isAny(w, {"D", "DAVANZALE", "S", "SILL"})) {
+            ask_ = Ask::Sill;
+            engine->setPrompt(t("Specificare altezza del davanzale <%1>:").arg(o.sill));
+        } else {
+            return false;
+        }
+        return true;
+    }
+
+    void enter() override
+    {
+        if (placed_) {
+            add(*placed_);
+            return;
+        }
+        if (ask_ != Ask::None) {
+            toPoint();
+            return;
+        }
+        engine->finish();
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (placed_) {
+            Opening o = *placed_;
+            orient(o, cursor);
+            if (const auto w = wallWith(*wall_, o))
+                out.push_back(*w);
+            return;
+        }
+        if (ask_ != Ask::None)
+            return;
+        if (const auto id = pickWall(engine, cursor)) {
+            const Wall& w = std::get<Wall>(engine->document().entity(*id)->shape);
+            Opening o = defaults();
+            o.position = wallParam(w, cursor);
+            if (const auto fitted = fitOpening(w, o))
+                if (const auto shown = wallWith(*id, *fitted))
+                    out.push_back(*shown);
+        }
+    }
+
+private:
+    enum class Ask { None, Width, Height, Sill };
+
+    bool door() const { return kind_ == Opening::Kind::Door; }
+    Opening& defaults() const { return door() ? gDoor : gWindow; }
+
+    void orient(Opening& o, Vec2 p) const
+    {
+        const Wall& w = std::get<Wall>(engine->document().entity(*wall_)->shape);
+        const Vec2 c = wallPoint(w, o.position);
+        o.swingRight = dot(p - c, wallNormal(w)) < 0.0;
+        o.hingeAtEnd = wallParam(w, p) > o.position;
+    }
+
+    std::optional<Wall> wallWith(EntityId id, const Opening& o) const
+    {
+        const Entity* e = engine->document().entity(id);
+        if (!e || !std::holds_alternative<Wall>(e->shape))
+            return std::nullopt;
+        Wall w = std::get<Wall>(e->shape);
+        w.openings.push_back(o);
+        return w;
+    }
+
+    void add(const Opening& o)
+    {
+        if (const auto w = wallWith(*wall_, o))
+            engine->document().replace(*wall_, *w);
+        placed_.reset();
+        wall_.reset();
+        toPoint();
+    }
+
+    void toPoint()
+    {
+        ask_ = Ask::None;
+        engine->setPrompt(door() ? t("Specificare punto sul muro o [Larghezza/Altezza]:")
+                                 : t("Specificare punto sul muro o [Larghezza/Altezza/Davanzale]:"));
+    }
+
+    Opening::Kind kind_;
+    Ask ask_ = Ask::None;
+    std::optional<EntityId> wall_;
+    std::optional<Opening> placed_;
+};
+
+// WALLEDIT: changes thickness, height and justification of a wall, or
+// removes one of its doors and windows.
+class WallEditCommand : public Command {
+public:
+    void start() override { engine->setPrompt(t("Selezionare muro:")); }
+
+    bool point(Vec2 p) override
+    {
+        if (!id_) {
+            id_ = pickWall(engine, p);
+            if (!id_) {
+                engine->message(t("Nessun muro trovato in questo punto."));
+                return false;
+            }
+            toOption();
+            return true;
+        }
+        if (!removing_)
+            return false;
+        Wall w = wall();
+        const double along = wallParam(w, p);
+        const auto it = std::find_if(w.openings.begin(), w.openings.end(),
+                                     [&](const Opening& o) { return along >= openingStart(o) && along <= openingEnd(o); });
+        if (it == w.openings.end()) {
+            engine->message(t("Nessuna porta o finestra in questo punto."));
+            return false;
+        }
+        w.openings.erase(it);
+        engine->document().replace(*id_, w);
+        toOption();
+        return true;
+    }
+
+    bool number(double value) override
+    {
+        if (!id_ || value <= 0.0)
+            return false;
+        Wall w = wall();
+        if (settings_.asking() == WallSettings::Ask::Thickness)
+            w.thickness = value;
+        else if (settings_.asking() == WallSettings::Ask::Height)
+            w.height = value;
+        else
+            return false;
+        engine->document().replace(*id_, w);
+        toOption();
+        return true;
+    }
+
+    bool keyword(const QString& word) override
+    {
+        if (!id_)
+            return false;
+        Wall w = wall();
+        if (settings_.asking() == WallSettings::Ask::Justification) {
+            const auto j = justificationWord(word);
+            if (!j)
+                return false;
+            w.justification = *j;
+            engine->document().replace(*id_, w);
+            toOption();
+            return true;
+        }
+        if (settings_.asking() != WallSettings::Ask::None || removing_)
+            return false;
+        if (isAny(word, {"E", "ELIMINA", "R", "REMOVE"})) {
+            if (w.openings.empty()) {
+                engine->message(t("Il muro non ha porte né finestre."));
+                return true;
+            }
+            removing_ = true;
+            engine->setPrompt(t("Selezionare la porta o la finestra da eliminare:"));
+            return true;
+        }
+        return settings_.option(engine, word, w.thickness, w.height, w.justification);
+    }
+
+    void enter() override
+    {
+        if (id_ && (settings_.asking() != WallSettings::Ask::None || removing_))
+            toOption();
+        else
+            engine->finish();
+    }
+
+private:
+    Wall wall() const { return std::get<Wall>(engine->document().entity(*id_)->shape); }
+
+    void toOption()
+    {
+        settings_.done();
+        removing_ = false;
+        engine->setPrompt(t("Specificare opzione [Spessore/Altezza/Giustificazione/Elimina apertura]:"));
+    }
+
+    WallSettings settings_;
+    std::optional<EntityId> id_;
+    bool removing_ = false;
+};
+
+class View3dCommand : public Command {
+public:
+    void start() override
+    {
+        engine->requestView3d();
+        engine->finish();
+    }
+};
+
 // ---------------------------------------------------------------- view
 
 class ZoomCommand : public Command {
@@ -2115,6 +2605,11 @@ std::unique_ptr<Command> makeDimScaleCommand() { return std::make_unique<DimScal
 std::unique_ptr<Command> makePlotCommand() { return std::make_unique<PlotCommand>(); }
 std::unique_ptr<Command> makeHatchCommand() { return std::make_unique<HatchCommand>(); }
 std::unique_ptr<Command> makeHatchEditCommand() { return std::make_unique<HatchEditCommand>(); }
+std::unique_ptr<Command> makeWallCommand() { return std::make_unique<WallCommand>(); }
+std::unique_ptr<Command> makeDoorCommand() { return std::make_unique<OpeningCommand>(Opening::Kind::Door); }
+std::unique_ptr<Command> makeWindowCommand() { return std::make_unique<OpeningCommand>(Opening::Kind::Window); }
+std::unique_ptr<Command> makeWallEditCommand() { return std::make_unique<WallEditCommand>(); }
+std::unique_ptr<Command> makeView3dCommand() { return std::make_unique<View3dCommand>(); }
 std::unique_ptr<Command> makeZoomCommand() { return std::make_unique<ZoomCommand>(); }
 std::unique_ptr<Command> makeLayerCommand() { return std::make_unique<LayerCommand>(); }
 

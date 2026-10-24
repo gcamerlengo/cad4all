@@ -102,3 +102,30 @@ TEST(NativeFormat, TextAndDimensionRoundTrip)
     EXPECT_DOUBLE_EQ(r.arrowSize, 20.0);
     EXPECT_EQ(r.text, "<> max");
 }
+
+TEST(NativeFormat, WallRoundTrip)
+{
+    Document doc;
+    Wall w;
+    w.start = {0, 0};
+    w.end = {4000, 1000};
+    w.thickness = 250;
+    w.height = 3000;
+    w.justification = Wall::Justification::Right;
+    w.openings.push_back(Opening{Opening::Kind::Door, 800, 900, 2100, 0, true, false});
+    w.openings.push_back(Opening{Opening::Kind::Window, 2500, 1200, 1400, 900, false, false});
+    doc.add(w);
+
+    Document loaded;
+    QString error;
+    ASSERT_TRUE(io::fromNativeJson(io::toNativeJson(doc), loaded, &error)) << error.toStdString();
+    const Wall& r = std::get<Wall>(loaded.entities().begin()->second.shape);
+    EXPECT_EQ(r.end, (Vec2{4000, 1000}));
+    EXPECT_DOUBLE_EQ(r.thickness, 250);
+    EXPECT_DOUBLE_EQ(r.height, 3000);
+    EXPECT_EQ(r.justification, Wall::Justification::Right);
+    ASSERT_EQ(r.openings.size(), 2u);
+    EXPECT_TRUE(r.openings[0].swingRight);
+    EXPECT_EQ(r.openings[1].kind, Opening::Kind::Window);
+    EXPECT_DOUBLE_EQ(r.openings[1].sill, 900);
+}

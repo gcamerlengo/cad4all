@@ -72,15 +72,19 @@ void paintPlot(QPainter& p, const Document& doc, const PlotSettings& settings, c
     dp.setVisibleArea(sheet);
 
     const double width = std::max(settings.lineWidthMm * devicePerMm, 0.5);
+    const std::map<EntityId, WallFaces> walls = joinedWalls(doc);
     for (const auto& [id, e] : doc.entities()) {
-        if (!doc.isVisible(e) || !boundingBox(e.shape).intersects(sheet))
+        if (!doc.isVisible(e) || !drawnBox(e.shape).intersects(sheet))
             continue;
         const Layer* layer = doc.layer(e.layer);
         QPen pen(plotColor(settings, layer ? layer->color : Color{255, 255, 255}), width, Qt::SolidLine, Qt::RoundCap,
                  Qt::RoundJoin);
         p.setPen(pen);
         p.setBrush(Qt::NoBrush);
-        dp.drawShape(e.shape);
+        if (const auto* w = std::get_if<Wall>(&e.shape))
+            dp.drawWall(*w, walls.at(id));
+        else
+            dp.drawShape(e.shape);
     }
     p.restore();
 }

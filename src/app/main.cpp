@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "cadview.h"
 #include "mainwindow.h"
+#include "view3d.h"
 
 #include <QApplication>
 #include <QCommandLineParser>
@@ -24,6 +25,8 @@ int main(int argc, char* argv[])
     parser.addOption(scriptOption);
     parser.addOption(exportOption);
     parser.addOption(screenshotOption);
+    const QCommandLineOption screenshot3dOption(QStringLiteral("screenshot3d"), QStringLiteral("Salva un'immagine della vista 3D (dopo lo script)."), QStringLiteral("png"));
+    parser.addOption(screenshot3dOption);
     parser.process(app);
 
     MainWindow window;
@@ -32,6 +35,12 @@ int main(int argc, char* argv[])
         window.openFile(parser.positionalArguments().constFirst());
     if (parser.isSet(scriptOption))
         window.runScript(parser.value(scriptOption));
+    if (parser.isSet(screenshot3dOption)) {
+        if (!window.view3d()->image(QSize(1200, 800)).save(parser.value(screenshot3dOption)))
+            return 1;
+        if (!parser.isSet(screenshotOption) && !parser.isSet(exportOption))
+            return 0;
+    }
     if (parser.isSet(exportOption)) {
         if (!window.exportTo(parser.value(exportOption)))
             return 1;
