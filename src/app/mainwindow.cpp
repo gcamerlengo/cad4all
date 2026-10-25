@@ -15,6 +15,7 @@
 #include "nativeformat.h"
 #include "plot.h"
 #include "plotdialog.h"
+#include "recovery.h"
 #include "view3d.h"
 
 #include <QAction>
@@ -24,6 +25,7 @@
 #include <QCloseEvent>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDesktopServices>
 #include <QDockWidget>
 #include <QFile>
 #include <QFileDialog>
@@ -32,10 +34,15 @@
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QLocale>
 #include <QPlainTextEdit>
+#include <QPushButton>
 #include <QSettings>
 #include <QSplitter>
 #include <QStatusBar>
+#include <QSysInfo>
+#include <QTimer>
+#include <QUrl>
 #include <QTabWidget>
 #include <QToolBar>
 #include <QToolButton>
@@ -156,6 +163,13 @@ MainWindow::MainWindow()
     const QString profile = settings.value(QStringLiteral("interfaccia/profilo"), QStringLiteral("autocad")).toString();
     setProfile(profile == QLatin1String("archicad") ? Profile::ArchiCad : Profile::AutoCad);
     setViewLayout(settings.value(QStringLiteral("interfaccia/viste")).toString());
+
+    // Like AutoCAD's SAVETIME, in minutes; 0 turns it off.
+    autosaveTimer_ = new QTimer(this);
+    connect(autosaveTimer_, &QTimer::timeout, this, &MainWindow::autosave);
+    const int minutes = settings.value(QStringLiteral("salvataggio/minuti"), 5).toInt();
+    if (minutes > 0)
+        autosaveTimer_->start(minutes * 60 * 1000);
 
     commandLine_->setPrompt(engine_.prompt());
     commandLine_->appendMessage(tr("Benvenuto in CAD4All %1. Digitare ? per l'elenco dei comandi.").arg(QApplication::applicationVersion()));
@@ -541,6 +555,8 @@ void MainWindow::createActions()
     gridButton_->setText(tr("GRIGLIA"));
 
     QMenu* help = menuBar()->addMenu(tr("&Aiuto"));
+    help->addAction(tr("&Segnala un problema..."), this, &MainWindow::reportProblem);
+    help->addSeparator();
     help->addAction(tr("&Licenza"), this, &MainWindow::showLicence);
     help->addAction(tr("Informazioni su &Qt"), qApp, &QApplication::aboutQt);
     help->addSeparator();
@@ -709,6 +725,7 @@ void MainWindow::newDrawing()
     doc_.reset();
     filePath_.clear();
     dwgSource_.clear();
+    clearAutosave();
     view_->zoomExtents();
     engine_.documentChanged();
 }
@@ -739,6 +756,7 @@ bool MainWindow::openFile(const QString& path)
     // DWG is read only: Save asks where to keep it, as .c4a or .dxf.
     filePath_ = isDwg(path) ? QString() : path;
     dwgSource_ = isDwg(path) ? path : QString();
+    clearAutosave();
     view_->zoomExtents();
     engine_.documentChanged();
     commandLine_->appendMessage(tr("Aperto %1").arg(QFileInfo(path).fileName()));
@@ -756,6 +774,7 @@ bool MainWindow::save()
         return false;
     }
     doc_.setModified(false);
+    clearAutosave();
     commandLine_->appendMessage(tr("Salvato %1").arg(QFileInfo(filePath_).fileName()));
     updateTitle();
     return true;
@@ -863,10 +882,95 @@ bool MainWindow::maybeSave()
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
-    if (maybeSave())
+    if (maybeSave()) {
+        clearAutosave();
         event->accept();
-    else
+    } else {
         event->ignore();
+    }
+}
+
+void MainWindow::autosave()
+{
+    if (!doc_.isModified() || doc_.revision() == autosavedRevision_)
+        return;
+    QString error;
+    if (!recovery_.save(doc_, filePath_, dwgSource_, &error)) {
+        commandLine_->appendMessage(tr("Salvataggio automatico non riuscito: %1").arg(error));
+        return;
+    }
+    autosavedRevision_ = doc_.revision();
+    commandLine_->appendMessage(tr("Salvataggio automatico eseguito."));
+}
+
+void MainWindow::clearAutosave()
+{
+    recovery_.clear();
+    autosavedRevision_ = doc_.revision();
+}
+
+void MainWindow::offerRecovery()
+{
+    const std::vector<io::RecoveryFile> files = io::findRecoveryFiles();
+    for (const io::RecoveryFile& rf : files) {
+        const QString source = !rf.source.isEmpty() ? QFileInfo(rf.source).fileName()
+                               : !rf.dwgSource.isEmpty() ? QFileInfo(rf.dwgSource).fileName()
+                                                         : tr("Senza nome");
+        QMessageBox box(QMessageBox::Warning, tr("Recupero disegno"),
+                        tr("CAD4All non è stato chiuso correttamente.\n\n"
+                           "È disponibile una copia di \"%1\" salvata automaticamente il %2.\n"
+                           "Recuperare il disegno?")
+                            .arg(source, QLocale().toString(rf.saved, QLocale::ShortFormat)),
+                        QMessageBox::NoButton, this);
+        QPushButton* recover = box.addButton(tr("Recupera"), QMessageBox::AcceptRole);
+        QPushButton* discard = box.addButton(tr("Elimina la copia"), QMessageBox::DestructiveRole);
+        box.addButton(tr("Più tardi"), QMessageBox::RejectRole);
+        box.setDefaultButton(recover);
+        box.exec();
+        if (box.clickedButton() == discard) {
+            io::removeRecoveryFile(rf);
+            continue;
+        }
+        if (box.clickedButton() != recover)
+            continue;
+        QString message;
+        if (!io::loadNative(doc_, rf.path, &message)) {
+            QMessageBox::warning(this, tr("Recupero disegno"), tr("Impossibile leggere la copia %1:\n%2").arg(rf.path, message));
+            continue;
+        }
+        engine_.cancel();
+        engine_.clearSelection();
+        // Save writes it back where it came from; a DWG still asks for a new name.
+        filePath_ = rf.source;
+        dwgSource_ = rf.dwgSource;
+        io::removeRecoveryFile(rf);
+        doc_.setModified(true);
+        autosavedRevision_ = 0;
+        view_->zoomExtents();
+        engine_.documentChanged();
+        updateTitle();
+        commandLine_->appendMessage(tr("Recuperato il disegno salvato automaticamente: salvarlo per non perderlo."));
+        // One drawing per window: the other copies are offered at the next start.
+        return;
+    }
+}
+
+// Opens an email to the author with the version and the system filled in.
+void MainWindow::reportProblem()
+{
+    const QString subject = tr("CAD4All %1: segnalazione").arg(QApplication::applicationVersion());
+    const QString body = tr("Versione: CAD4All %1 su %2 (%3)\n\n"
+                            "Cosa è successo (e cosa si aspettava):\n\n\n"
+                            "Come ripeterlo (i comandi usati, in ordine):\n\n\n"
+                            "Quanto blocca il lavoro (si chiude / non riesco / scomodo / dettaglio):\n\n\n"
+                            "Alleghi il disegno (.c4a, .dxf, .dwg) e uno screenshot, se possibile.\n")
+                             .arg(QApplication::applicationVersion(), QSysInfo::prettyProductName(), QSysInfo::currentCpuArchitecture());
+    const QByteArray mail = "mailto:" CAD4ALL_EMAIL "?subject=" + QUrl::toPercentEncoding(subject)
+                            + "&body=" + QUrl::toPercentEncoding(body);
+    if (!QDesktopServices::openUrl(QUrl::fromEncoded(mail)))
+        QMessageBox::information(this, tr("Segnala un problema"),
+                                 tr("Scriva a %1 indicando la versione (%2), che cosa è successo e come ripeterlo.")
+                                     .arg(QStringLiteral(CAD4ALL_EMAIL), QApplication::applicationVersion()));
 }
 
 void MainWindow::runScriptDialog()

@@ -82,7 +82,7 @@ Gli installatori si scaricano dalla pagina Releases del progetto, oppure dagli a
 - **macOS:** `CAD4All-<versione>-macOS.dmg`: si trascina CAD4All in Applicazioni. Il Finder apre con CAD4All i `.c4a` e propone CAD4All per i `.dxf` e i `.dwg`.
 - **Linux:** `CAD4All-<versione>-Linux-x86_64.AppImage`: si rende eseguibile (`chmod +x`) e si avvia, su qualsiasi distribuzione recente.
 
-Gli installatori non sono ancora firmati: alla prima apertura Windows mostra "PC protetto da Windows" (Ulteriori informazioni > Esegui comunque) e macOS chiede di aprire l'app con il tasto destro > Apri. Con i certificati di Apple e Microsoft questi avvisi spariscono.
+Gli installatori non sono ancora firmati: alla prima apertura Windows mostra "PC protetto da Windows" (Ulteriori informazioni > Esegui comunque) e macOS chiede di confermare l'apertura in Impostazioni di Sistema > Privacy e sicurezza > Apri comunque. Chi prova il programma trova i passi e il modo di segnalare i problemi nella [guida per i tester](docs/tester.md). Con i certificati di Apple e Microsoft questi avvisi spariscono.
 
 Per pubblicare una versione: su GitHub, Releases > Draft a new release, tag nuovo `v0.1.0` (o la versione scritta in `CMakeLists.txt`), Publish release. In una ventina di minuti GitHub Actions aggiunge i tre installatori alla release. Funziona anche con `git push origin v0.1.0`.
 
