@@ -894,6 +894,11 @@ Shape stretchShape(const Shape& shape, const BBox& window, Vec2 offset)
         r.position = move(t->position);
         return r;
     }
+    if (const auto* m = std::get_if<MText>(&shape)) {
+        MText r = *m;
+        r.position = move(m->position);
+        return r;
+    }
     if (const auto* h = std::get_if<Hatch>(&shape)) {
         Hatch r = *h;
         for (Polyline& loop : r.loops)
@@ -992,6 +997,8 @@ std::vector<Vec2> gripPoints(const Shape& shape)
     }
     if (const auto* t = std::get_if<Text>(&shape))
         return {t->position};
+    if (const auto* m = std::get_if<MText>(&shape))
+        return {m->position};
     if (const auto* d = std::get_if<Dimension>(&shape))
         return {d->p1, d->p2, d->location};
     if (const auto* w = std::get_if<Wall>(&shape))
@@ -1057,6 +1064,11 @@ std::optional<Shape> moveGrip(const Shape& shape, size_t index, Vec2 to)
         if (!bulge)
             return std::nullopt;
         r.setBulge(seg, *bulge);
+        return r;
+    }
+    if (const auto* m = std::get_if<MText>(&shape)) {
+        MText r = *m;
+        r.position = to;
         return r;
     }
     if (const auto* t = std::get_if<Text>(&shape)) {
@@ -1159,6 +1171,9 @@ std::vector<Shape> explodeShape(const Shape& shape)
             out.push_back(h);
         }
         out.push_back(g.label);
+    } else if (const auto* m = std::get_if<MText>(&shape)) {
+        for (const Text& t : textLines(*m))
+            out.push_back(t);
     } else if (const auto* ref = std::get_if<Insert>(&shape)) {
         if (ref->block) {
             const Transform t = insertTransform(*ref);

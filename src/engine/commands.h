@@ -28,6 +28,7 @@ std::unique_ptr<Command> makeChamferCommand();
 std::unique_ptr<Command> makeStretchCommand();
 std::unique_ptr<Command> makeTextCommand();
 std::unique_ptr<Command> makeTextEditCommand();
+std::unique_ptr<Command> makeMTextCommand();
 std::unique_ptr<Command> makeDimLinearCommand(bool aligned);
 std::unique_ptr<Command> makeDimRadialCommand(bool diameter);
 std::unique_ptr<Command> makeDimScaleCommand();

@@ -280,6 +280,17 @@ QIcon make(const QString& name)
             p.setPen(dashed);
             p.drawRect(QRectF(13, 4, 10, 19));
         };
+    } else if (name == QLatin1String("mtext")) {
+        // A paragraph: a capital A and lines of text.
+        painter = [](QPainter& p) {
+            p.drawPolyline(QPolygonF({{3, 12}, {6.5, 3}, {10, 12}}));
+            p.drawLine(QPointF(4.5, 9), QPointF(8.5, 9));
+            accentPen(p);
+            p.drawLine(QPointF(13, 5), QPointF(21, 5));
+            p.drawLine(QPointF(13, 10), QPointF(21, 10));
+            p.drawLine(QPointF(3, 15), QPointF(21, 15));
+            p.drawLine(QPointF(3, 20), QPointF(16, 20));
+        };
     } else if (name == QLatin1String("text")) {
         painter = [](QPainter& p) {
             p.drawLine(QPointF(4, 4), QPointF(20, 4));

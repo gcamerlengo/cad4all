@@ -93,6 +93,8 @@ private:
     void reportProblem();
     // INSERT with the block chosen from a list.
     void insertBlock();
+    // The editor MTEXT and TEXTEDIT ask for.
+    void editParagraph(const QString& title, const QString& text);
     void about();
     void showLicence();
 
@@ -125,6 +127,8 @@ private:
     std::vector<QComboBox*> storyCombos_;
     // The 3D view opens by itself with the first wall, once.
     bool view3dShown_ = false;
+    // Scripts type their text: no editor opens while one runs.
+    bool runningScript_ = false;
     QLabel* coordinates_;
     QToolButton* osnapButton_;
     QToolButton* orthoButton_;

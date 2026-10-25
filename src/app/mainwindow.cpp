@@ -145,6 +145,12 @@ MainWindow::MainWindow()
             showView3d();
     });
     connect(&engine_, &CommandEngine::view3dRequested, this, &MainWindow::showView3d);
+    connect(&engine_, &CommandEngine::textEditorRequested, this, [this](const QString& title, const QString& text) {
+        // Scripts type their text; otherwise the editor opens once the
+        // command has set its prompt, so it does not run inside the command.
+        if (!runningScript_)
+            QTimer::singleShot(0, this, [this, title, text] { editParagraph(title, text); });
+    });
     connect(&engine_, &CommandEngine::layerManagerRequested, this, [this] {
         layerDock_->show();
         layerDock_->raise();
@@ -421,6 +427,7 @@ void MainWindow::createActions()
     commandAction(tr("Area"), QStringLiteral("AREA"));
     commandAction(tr("Lista"), QStringLiteral("LIST"));
     commandAction(tr("Testo"), QStringLiteral("TEXT"), icons::make(QStringLiteral("text")));
+    commandAction(tr("Testo multilinea"), QStringLiteral("MTEXT"), icons::make(QStringLiteral("mtext")))->setIconText(tr("Multilinea"));
     commandAction(tr("Modifica testo"), QStringLiteral("TEXTEDIT"));
     commandAction(tr("Quota lineare"), QStringLiteral("DIMLINEAR"), icons::make(QStringLiteral("dimLinear")));
     commandAction(tr("Quota allineata"), QStringLiteral("DIMALIGNED"), icons::make(QStringLiteral("dimAligned")));
@@ -442,7 +449,7 @@ void MainWindow::createActions()
     const auto drawActions = actions({"LINE", "PLINE", "CIRCLE", "ARC", "RECTANG", "ELLIPSE", "SPLINE", "HATCH"});
     const auto architectureActions = actions({"WALL", "DOOR", "WINDOW", "SLAB", "ROOF", "STAIR"});
     const auto modifyActions = actions({"ERASE", "MOVE", "COPY", "ROTATE", "SCALE", "MIRROR", "OFFSET", "TRIM", "EXTEND", "FILLET", "CHAMFER", "STRETCH", "ARRAY", "EXPLODE", "JOIN"});
-    const auto annotateActions = actions({"TEXT", "DIMLINEAR", "DIMALIGNED", "DIMRADIUS", "DIMDIAMETER"});
+    const auto annotateActions = actions({"TEXT", "MTEXT", "DIMLINEAR", "DIMALIGNED", "DIMRADIUS", "DIMDIAMETER"});
 
     // Menus
     QMenu* file = menuBar()->addMenu(tr("&File"));
@@ -660,7 +667,7 @@ void MainWindow::createRibbon()
 
     QWidget* annotatePage = ribbon_->addPage(tr("Annota"));
     p = ribbon_->addPanel(annotatePage, tr("Testo"));
-    large(p, {"TEXT"});
+    large(p, {"MTEXT", "TEXT"});
     small(p, {"TEXTEDIT", "LEADER"});
     p = ribbon_->addPanel(annotatePage, tr("Quote"));
     large(p, {"DIMLINEAR", "DIMALIGNED"});
@@ -718,7 +725,7 @@ void MainWindow::createToolbox()
     toolbox_->addTool(tr("Oggetto"), QStringLiteral("INSERT"), icons::make(QStringLiteral("insertBlock")));
     toolbox_->addSection(tr("Documentazione"));
     toolbox_->addTool(tr("Quota"), QStringLiteral("DIMLINEAR"), icons::make(QStringLiteral("dimLinear")));
-    toolbox_->addTool(tr("Testo"), QStringLiteral("TEXT"), icons::make(QStringLiteral("text")));
+    toolbox_->addTool(tr("Testo"), QStringLiteral("MTEXT"), icons::make(QStringLiteral("mtext")));
     toolbox_->addTool(tr("Tratteggio"), QStringLiteral("HATCH"), icons::make(QStringLiteral("hatch")));
     toolbox_->addTool(tr("Linea"), QStringLiteral("LINE"), icons::make(QStringLiteral("line")));
     toolbox_->addTool(tr("Polilinea"), QStringLiteral("PLINE"), icons::make(QStringLiteral("polyline")));
@@ -736,6 +743,30 @@ void MainWindow::createToolbox()
     addDockWidget(Qt::LeftDockWidgetArea, toolboxDock_);
     toolboxDock_->hide();
     named_.value(QStringLiteral("panels"))->menu()->addAction(toolboxDock_->toggleViewAction());
+}
+
+void MainWindow::editParagraph(const QString& title, const QString& text)
+{
+    if (!engine_.wantsText())
+        return;
+    QDialog dialog(this);
+    dialog.setWindowTitle(title);
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* hint = new QLabel(tr("Invio va a capo; le righe lunghe vanno a capo da sole alla larghezza del riquadro."), &dialog);
+    hint->setWordWrap(true);
+    layout->addWidget(hint);
+    auto* editor = new QPlainTextEdit(text, &dialog);
+    editor->setMinimumSize(420, 180);
+    layout->addWidget(editor);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    editor->setFocus();
+    // Cancel leaves the command waiting for lines on the command line.
+    if (dialog.exec() == QDialog::Accepted && engine_.wantsText())
+        engine_.submitParagraph(editor->toPlainText());
+    commandLine_->input()->setFocus();
 }
 
 void MainWindow::insertBlock()
@@ -1065,6 +1096,7 @@ bool MainWindow::runScript(const QString& path)
     content.replace(QLatin1String("\r\n"), QLatin1String("\n"));
     if (content.endsWith(QLatin1Char('\n')))
         content.chop(1);
+    runningScript_ = true;
     // As in AutoCAD scripts, each space and each line break is an Enter.
     for (const QString& line : content.split(QLatin1Char('\n'))) {
         if (line.trimmed().startsWith(QLatin1Char(';')))
@@ -1079,6 +1111,7 @@ bool MainWindow::runScript(const QString& path)
             engine_.submit(tokens[i]);
         }
     }
+    runningScript_ = false;
     return true;
 }
 

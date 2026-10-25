@@ -131,6 +131,9 @@ void DrawingPainter::drawShape(const Shape& shape)
         p_.drawPath(polylinePath(*pl));
     } else if (const auto* t = std::get_if<Text>(&shape)) {
         drawText(*t);
+    } else if (const auto* m = std::get_if<MText>(&shape)) {
+        for (const Text& line : textLines(*m))
+            drawText(line);
     } else if (const auto* d = std::get_if<Dimension>(&shape)) {
         const DimensionGeometry g = dimensionGeometry(*d);
         for (const Line& l : g.lines)

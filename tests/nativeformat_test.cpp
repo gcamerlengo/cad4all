@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "dxf.h"
 #include "nativeformat.h"
 
 #include <gtest/gtest.h>
@@ -211,4 +212,34 @@ TEST(NativeFormat, StairRoundTrip)
     EXPECT_DOUBLE_EQ(r.height, 2900);
     EXPECT_EQ(r.risers, 16);
     EXPECT_DOUBLE_EQ(r.going, 290);
+}
+
+TEST(NativeFormat, ParagraphTextRoundTrip)
+{
+    Document doc;
+    MText m;
+    m.position = {1, 2};
+    m.height = 3.5;
+    m.width = 40;
+    m.rotation = 0.25;
+    m.content = "Riga uno\nRiga due";
+    m.align = Text::Align::Center;
+    m.vertical = MText::Vertical::Middle;
+    m.lineSpacing = 1.5;
+    doc.add(m);
+    Document back;
+    ASSERT_TRUE(io::fromNativeJson(io::toNativeJson(doc), back));
+    const MText r = std::get<MText>(back.entities().begin()->second.shape);
+    EXPECT_EQ(r.content, m.content);
+    EXPECT_EQ(r.position, m.position);
+    EXPECT_DOUBLE_EQ(r.width, 40);
+    EXPECT_DOUBLE_EQ(r.rotation, 0.25);
+    EXPECT_EQ(r.align, Text::Align::Center);
+    EXPECT_EQ(r.vertical, MText::Vertical::Middle);
+    EXPECT_DOUBLE_EQ(r.lineSpacing, 1.5);
+
+    // R12 DXF has no MTEXT: each line becomes a TEXT.
+    Document fromDxf;
+    ASSERT_TRUE(io::fromDxf(io::toDxf(doc), fromDxf));
+    EXPECT_EQ(fromDxf.entities().size(), 2u);
 }

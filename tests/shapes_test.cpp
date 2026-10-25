@@ -276,3 +276,39 @@ TEST(Shapes, PolylineBulgeArcs)
     EXPECT_NEAR(mirrored.bulge(0), -1.0, 1e-9);
     EXPECT_NEAR(boundingBox(mirrored).max.y, 1.0, 1e-9);
 }
+
+TEST(Shapes, ParagraphTextWrapsAtItsWidth)
+{
+    MText m;
+    m.position = {0, 100};
+    m.height = 10;
+    m.width = 66;  // 10 characters of 6.6 units
+    m.content = "uno due tre quattro\nfine";
+    const auto lines = textLines(m);
+    ASSERT_EQ(lines.size(), 4u);
+    EXPECT_EQ(lines[3].content, "fine");
+    EXPECT_EQ(lines[0].content, "uno due");
+    EXPECT_EQ(lines[1].content, "tre");
+    EXPECT_EQ(lines[2].content, "quattro");
+    // Top left: the first line's capitals touch the attachment point.
+    EXPECT_DOUBLE_EQ(lines[0].position.y, 90);
+    EXPECT_NEAR(lines[1].position.y, 90 - 10 * 5.0 / 3.0, 1e-9);
+    EXPECT_NEAR(boundingBox(m).max.y, 100, 1e-9);
+
+    // A word longer than the width keeps a line of its own.
+    m.content = "precipitevolissimevolmente";
+    EXPECT_EQ(textLines(m).size(), 1u);
+
+    // Bottom right: the last line ends on the attachment point.
+    m.content = "a\nb";
+    m.width = 0;
+    m.align = Text::Align::Right;
+    m.vertical = MText::Vertical::Bottom;
+    EXPECT_DOUBLE_EQ(textLines(m).back().position.y, 100);
+
+    // Mirrored left to right it stays readable, anchored on the other side.
+    const MText mirrored = std::get<MText>(transformed(m, Transform::mirror({50, 0}, {50, 1})));
+    EXPECT_NEAR(mirrored.rotation, 0.0, 1e-12);
+    EXPECT_EQ(mirrored.align, Text::Align::Left);
+    EXPECT_NEAR(mirrored.position.x, 100, 1e-9);
+}

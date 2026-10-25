@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <map>
 
 namespace cad {
 
@@ -1357,6 +1358,200 @@ private:
     Vec2 position_;
 };
 
+// MTEXT: a paragraph in a box. The box gives the width the lines wrap at;
+// the text comes from the editor, or line by line from the command line.
+class MTextCommand : public Command {
+public:
+    void start() override
+    {
+        step_ = Step::First;
+        engine->setPrompt(t("Specificare primo angolo:"));
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (step_ == Step::First) {
+            first_ = p;
+            toOpposite();
+            return true;
+        }
+        if (step_ == Step::Opposite) {
+            place(p);
+            toContent();
+            return true;
+        }
+        if (step_ == Step::Rotation) {
+            gTextRotation = radToDeg(angleOf(p - first_));
+            toOpposite();
+            return true;
+        }
+        return false;
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (step_ == Step::Justify) {
+            static const std::map<QString, std::pair<Text::Align, MText::Vertical>> kCodes = {
+                {QStringLiteral("AS"), {Text::Align::Left, MText::Vertical::Top}},
+                {QStringLiteral("AC"), {Text::Align::Center, MText::Vertical::Top}},
+                {QStringLiteral("AD"), {Text::Align::Right, MText::Vertical::Top}},
+                {QStringLiteral("MS"), {Text::Align::Left, MText::Vertical::Middle}},
+                {QStringLiteral("MC"), {Text::Align::Center, MText::Vertical::Middle}},
+                {QStringLiteral("MD"), {Text::Align::Right, MText::Vertical::Middle}},
+                {QStringLiteral("BS"), {Text::Align::Left, MText::Vertical::Bottom}},
+                {QStringLiteral("BC"), {Text::Align::Center, MText::Vertical::Bottom}},
+                {QStringLiteral("BD"), {Text::Align::Right, MText::Vertical::Bottom}},
+                {QStringLiteral("TL"), {Text::Align::Left, MText::Vertical::Top}},
+                {QStringLiteral("TC"), {Text::Align::Center, MText::Vertical::Top}},
+                {QStringLiteral("TR"), {Text::Align::Right, MText::Vertical::Top}},
+                {QStringLiteral("ML"), {Text::Align::Left, MText::Vertical::Middle}},
+                {QStringLiteral("MR"), {Text::Align::Right, MText::Vertical::Middle}},
+                {QStringLiteral("BL"), {Text::Align::Left, MText::Vertical::Bottom}},
+                {QStringLiteral("BR"), {Text::Align::Right, MText::Vertical::Bottom}},
+            };
+            const auto it = kCodes.find(w);
+            if (it == kCodes.end())
+                return false;
+            text_.align = it->second.first;
+            text_.vertical = it->second.second;
+            toOpposite();
+            return true;
+        }
+        if (step_ != Step::Opposite)
+            return false;
+        if (isAny(w, {"A", "ALTEZZA", "H", "HEIGHT"})) {
+            step_ = Step::Height;
+            engine->setPrompt(t("Specificare altezza <%1>:").arg(gTextHeight));
+        } else if (isAny(w, {"G", "GIUSTIFICA", "J", "JUSTIFY"})) {
+            step_ = Step::Justify;
+            engine->setPrompt(t("Immettere giustificazione [AS/AC/AD/MS/MC/MD/BS/BC/BD] <AS>:"));
+        } else if (isAny(w, {"R", "ROTAZIONE", "ROTATION"})) {
+            step_ = Step::Rotation;
+            engine->setPrompt(t("Specificare angolo di rotazione <%1>:").arg(gTextRotation));
+        } else if (isAny(w, {"L", "LARGHEZZA", "W", "WIDTH"})) {
+            step_ = Step::Width;
+            engine->setPrompt(t("Specificare larghezza (0 = nessun a capo automatico):"));
+        } else {
+            return false;
+        }
+        return true;
+    }
+
+    bool number(double v) override
+    {
+        if (step_ == Step::Height && v > kEps) {
+            gTextHeight = v;
+            toOpposite();
+            return true;
+        }
+        if (step_ == Step::Rotation) {
+            gTextRotation = v;
+            toOpposite();
+            return true;
+        }
+        if (step_ == Step::Width && v >= 0.0) {
+            setup();
+            text_.position = first_;
+            text_.width = v;
+            toContent();
+            return true;
+        }
+        return false;
+    }
+
+    void enter() override
+    {
+        if (step_ == Step::Content) {
+            create();
+        } else if (step_ == Step::First) {
+            engine->finish();
+        } else if (step_ != Step::Opposite) {
+            toOpposite();
+        }
+    }
+
+    bool wantsText() const override { return step_ == Step::Content; }
+
+    void text(const QString& line) override
+    {
+        lines_ << line;
+        engine->setPrompt(t("Immettere testo (Invio a vuoto per terminare):"));
+    }
+
+    void paragraph(const QString& s) override
+    {
+        lines_ = QStringList{s};
+        create();
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (step_ != Step::Opposite)
+            return;
+        const Vec2 dir = polar(1.0, degToRad(gTextRotation));
+        const Vec2 up = perpendicular(dir);
+        const Vec2 d = cursor - first_;
+        const Vec2 a = first_ + dir * dot(d, dir);
+        out.push_back(Polyline({first_, a, cursor, first_ + up * dot(d, up)}, true));
+    }
+
+    std::optional<Vec2> base() const override
+    {
+        return step_ == Step::Rotation ? std::optional<Vec2>(first_) : std::nullopt;
+    }
+
+private:
+    enum class Step { First, Opposite, Height, Justify, Rotation, Width, Content };
+
+    void toOpposite()
+    {
+        step_ = Step::Opposite;
+        engine->setPrompt(t("Specificare angolo opposto o [Altezza/Giustifica/Rotazione/Larghezza]:"));
+    }
+
+    void setup()
+    {
+        text_.height = gTextHeight;
+        text_.rotation = degToRad(gTextRotation);
+    }
+
+    // The attachment point and width from the two corners of the box.
+    void place(Vec2 opposite)
+    {
+        setup();
+        const Vec2 dir = polar(1.0, text_.rotation);
+        const Vec2 up = perpendicular(dir);
+        const double u = dot(opposite - first_, dir);
+        const double v = dot(opposite - first_, up);
+        const double left = std::min(0.0, u);
+        const double top = std::max(0.0, v);
+        text_.width = std::abs(u);
+        const double x = text_.align == Text::Align::Left ? left : text_.align == Text::Align::Center ? left + text_.width / 2.0 : left + text_.width;
+        const double y = text_.vertical == MText::Vertical::Top ? top : text_.vertical == MText::Vertical::Middle ? top - std::abs(v) / 2.0 : top - std::abs(v);
+        text_.position = first_ + dir * x + up * y;
+    }
+
+    void toContent()
+    {
+        step_ = Step::Content;
+        engine->setPrompt(t("Immettere testo (Invio a vuoto per terminare):"));
+        engine->requestTextEditor(t("Testo multilinea"), QString());
+    }
+
+    void create()
+    {
+        text_.content = lines_.join(QLatin1Char('\n')).toStdString();
+        if (!lines_.join(QString()).trimmed().isEmpty())
+            engine->document().add(text_);
+        engine->finish();
+    }
+
+    Step step_ = Step::First;
+    Vec2 first_;
+    MText text_;
+    QStringList lines_;
+};
+
 // Changes the content of texts, or the label of dimensions ("<>" = measured value).
 class TextEditCommand : public Command {
 public:
@@ -1373,6 +1568,10 @@ public:
         QString current;
         if (const auto* tx = std::get_if<Text>(&shape)) {
             current = QString::fromStdString(tx->content);
+        } else if (const auto* m = std::get_if<MText>(&shape)) {
+            current = QString::fromStdString(m->content);
+            engine->requestTextEditor(t("Modifica testo multilinea"), current);
+            current.replace(QLatin1Char('\n'), QLatin1Char(' '));
         } else if (const auto* d = std::get_if<Dimension>(&shape)) {
             current = d->text.empty() ? QStringLiteral("<>") : QString::fromStdString(d->text);
         } else {
@@ -1404,6 +1603,8 @@ public:
     bool wantsObjectPick() const override { return !editing_; }
     bool wantsText() const override { return editing_; }
 
+    void paragraph(const QString& s) override { text(s); }
+
     void text(const QString& s) override
     {
         Document& doc = engine->document();
@@ -1411,6 +1612,8 @@ public:
             Shape shape = e->shape;
             if (auto* tx = std::get_if<Text>(&shape))
                 tx->content = s.toStdString();
+            else if (auto* m = std::get_if<MText>(&shape))
+                m->content = s.toStdString();
             else if (auto* d = std::get_if<Dimension>(&shape))
                 d->text = s.trimmed() == QLatin1String("<>") ? std::string() : s.toStdString();
             doc.replace(target_, shape);
@@ -4464,6 +4667,7 @@ QString shapeKind(const Shape& shape)
             else if constexpr (std::is_same_v<T, Arc>) return t("ARCO");
             else if constexpr (std::is_same_v<T, Polyline>) return t("POLILINEA");
             else if constexpr (std::is_same_v<T, Text>) return t("TESTO");
+            else if constexpr (std::is_same_v<T, MText>) return t("TESTOM");
             else if constexpr (std::is_same_v<T, Dimension>) return t("QUOTA");
             else if constexpr (std::is_same_v<T, Hatch>) return t("TRATTEGGIO");
             else if constexpr (std::is_same_v<T, Wall>) return t("MURO");
@@ -4515,6 +4719,10 @@ private:
         }
         if (const auto* tx = std::get_if<Text>(&shape))
             return t("\"%1\" in %2, altezza %3").arg(QString::fromStdString(tx->content), xy(tx->position), fmt(tx->height));
+        if (const auto* m = std::get_if<MText>(&shape))
+            return t("\"%1\" in %2, altezza %3, larghezza %4")
+                .arg(QString::fromStdString(m->content).replace(QLatin1Char('\n'), QStringLiteral(" / ")), xy(m->position),
+                     fmt(m->height), fmt(m->width));
         if (const auto* d = std::get_if<Dimension>(&shape))
             return t("misura %1").arg(fmt(d->measurement()));
         if (const auto* h = std::get_if<Hatch>(&shape))
@@ -4825,6 +5033,7 @@ std::unique_ptr<Command> makeChamferCommand() { return std::make_unique<ChamferC
 std::unique_ptr<Command> makeStretchCommand() { return std::make_unique<StretchCommand>(); }
 std::unique_ptr<Command> makeTextCommand() { return std::make_unique<TextCommand>(); }
 std::unique_ptr<Command> makeTextEditCommand() { return std::make_unique<TextEditCommand>(); }
+std::unique_ptr<Command> makeMTextCommand() { return std::make_unique<MTextCommand>(); }
 std::unique_ptr<Command> makeDimLinearCommand(bool aligned) { return std::make_unique<DimLinearCommand>(aligned); }
 std::unique_ptr<Command> makeDimRadialCommand(bool diameter) { return std::make_unique<DimRadialCommand>(diameter); }
 std::unique_ptr<Command> makeDimScaleCommand() { return std::make_unique<DimScaleCommand>(); }

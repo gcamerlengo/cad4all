@@ -114,7 +114,7 @@ std::optional<double> shapeArea(const Shape& shape);
 double polylineArea(const Polyline& pl);
 
 // EXPLODE: a polyline into its lines and arcs, a dimension into lines, text
-// and solid arrowheads, a block reference into its objects (one level: nested
+// and solid arrowheads, a paragraph text into its lines, a block reference into its objects (one level: nested
 // references stay). Empty for shapes that cannot be exploded.
 std::vector<Shape> explodeShape(const Shape& shape);
 

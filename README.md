@@ -67,7 +67,8 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | INSERISCI / INSERT | I | nome del blocco (Invio = l'ultimo), poi Scala e Rotazione o il punto di inserimento |
 | UNISCI / JOIN | J | linee, archi e polilinee con le estremità in comune diventano una polilinea |
 | TESTO / TEXT | DT | Giustifica (Sinistra/Centro/Destra); Spazio scrive uno spazio, Invio va a capo, Invio a vuoto termina |
-| MODIFICATESTO / TEXTEDIT | ED | cambia un testo o il testo di una quota (`<>` = valore misurato) |
+| TESTOM / MTEXT | MT, T | testo su più righe: due angoli del riquadro (le righe vanno a capo alla sua larghezza) o Altezza, Giustifica (AS/AC/AD/MS/MC/MD/BS/BC/BD), Rotazione, Larghezza (0 = nessun a capo); il testo si scrive in una finestra, o riga per riga sulla riga di comando |
+| MODIFICATESTO / TEXTEDIT | ED | cambia un testo, un testo multilinea (nella finestra) o il testo di una quota (`<>` = valore misurato) |
 | QUOTALIN / DIMLINEAR | DLI | Invio per selezionare una linea; Testo, Orizzontale, Verticale, Ruotato |
 | QUOTALLINEATA / DIMALIGNED | DAL | Invio per selezionare una linea; Testo |
 | QUOTARAGGIO / DIMRADIUS | DRA | Testo |
@@ -131,9 +132,9 @@ Per provare uno script: `CAD4All --script docs/esempi/pianta.scr` oppure `docs/e
 File > Apri legge i DWG di AutoCAD dalla versione R14 alla 2018 e successive grazie a [LibreDWG](https://www.gnu.org/software/libredwg/) (GPL 3), con gli stessi oggetti del DXF. Il DWG non viene mai sovrascritto: Salva chiede dove salvare il disegno in `.c4a` o `.dxf`.
 
 
-File > Apri legge i DXF di qualsiasi versione salvati da AutoCAD o da altri CAD: linee, cerchi, archi, polilinee (anche con archi), testi e testi multilinea, quote, tratteggi (anche con motivi che CAD4All non ha), ellissi e spline (convertite in polilinee), solidi, direttrici e blocchi (che restano blocchi; gli attributi diventano testi e i blocchi anonimi sono esplosi), con i layer e i loro colori. Quello che non viene ancora letto (per esempio i solidi 3D) è elencato sulla riga di comando dopo l'apertura.
+File > Apri legge i DXF di qualsiasi versione salvati da AutoCAD o da altri CAD: linee, cerchi, archi, polilinee (anche con archi), testi e testi multilinea (che restano multilinea), quote, tratteggi (anche con motivi che CAD4All non ha), ellissi e spline (convertite in polilinee), solidi, direttrici e blocchi (che restano blocchi; gli attributi diventano testi e i blocchi anonimi sono esplosi), con i layer e i loro colori. Quello che non viene ancora letto (per esempio i solidi 3D) è elencato sulla riga di comando dopo l'apertura.
 
-File > Salva con estensione `.dxf` o File > Esporta DXF scrivono un DXF R12, che si apre in ogni CAD; le quote restano quote, i blocchi restano blocchi, i tratteggi diventano blocchi di linee come in AutoCAD R12 (si vedono uguali ma non si modificano più come tratteggi). Da riga di comando: `CAD4All --script disegno.scr --export disegno.dxf`, oppure `CAD4All disegno.dwg --export disegno.dxf` per convertire un DWG.
+File > Salva con estensione `.dxf` o File > Esporta DXF scrivono un DXF R12, che si apre in ogni CAD; le quote restano quote, i blocchi restano blocchi, i testi multilinea diventano un testo per riga, i tratteggi diventano blocchi di linee come in AutoCAD R12 (si vedono uguali ma non si modificano più come tratteggi). Da riga di comando: `CAD4All --script disegno.scr --export disegno.dxf`, oppure `CAD4All disegno.dwg --export disegno.dxf` per convertire un DWG.
 
 ![Polilinee con archi, raccordi e cime](docs/immagini/polilinee.png)
 

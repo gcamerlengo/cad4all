@@ -829,3 +829,34 @@ TEST_F(Commands, SelectAllOrLastAtTheSelectionPrompt)
     EXPECT_EQ(shapes<Circle>()[0].center, (Vec2{5, 10}));
     EXPECT_EQ(shapes<Line>()[0].a, (Vec2{5, 0}));
 }
+
+TEST_F(Commands, ParagraphTextFromTheCommandLine)
+{
+    QString editor;
+    QObject::connect(&engine, &CommandEngine::textEditorRequested, [&](const QString&, const QString& text) { editor = "?" + text; });
+    type({"TESTOM", "0,100", "A", "5", "200,50"});
+    EXPECT_EQ(editor, QStringLiteral("?"));
+    EXPECT_TRUE(engine.wantsText());
+    type({"Prima riga", "Seconda riga", ""});
+    EXPECT_FALSE(engine.isActive());
+    ASSERT_EQ(shapes<MText>().size(), 1u);
+    const MText m = shapes<MText>()[0];
+    EXPECT_EQ(m.content, "Prima riga\nSeconda riga");
+    EXPECT_DOUBLE_EQ(m.width, 200);
+    EXPECT_DOUBLE_EQ(m.height, 5);
+    EXPECT_EQ(m.position, (Vec2{0, 100}));
+
+    // The editor gives the whole paragraph at once, also to TEXTEDIT.
+    type({"MT", "10,10", "L", "0"});
+    engine.submitParagraph(QStringLiteral("a\nb\nc"));
+    EXPECT_FALSE(engine.isActive());
+    EXPECT_EQ(textLines(shapes<MText>()[1]).size(), 3u);
+    type({"MODIFICATESTO", "1,99"});
+    EXPECT_EQ(editor, QStringLiteral("?Prima riga\nSeconda riga"));
+    engine.submitParagraph(QStringLiteral("Nuovo"));
+    type({""});
+    EXPECT_EQ(shapes<MText>()[0].content, "Nuovo");
+
+    type({"ESPLODI", "TUTTO", ""});
+    EXPECT_EQ(shapes<Text>().size(), 4u);
+}

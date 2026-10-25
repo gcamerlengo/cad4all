@@ -166,6 +166,19 @@ QJsonObject shapeToJson(const Shape& shape)
         o[QStringLiteral("rotation")] = t->rotation;
         o[QStringLiteral("align")] = QLatin1String(alignName(t->align));
         o[QStringLiteral("content")] = QString::fromStdString(t->content);
+    } else if (const auto* m = std::get_if<MText>(&shape)) {
+        o[QStringLiteral("type")] = QStringLiteral("mtext");
+        o[QStringLiteral("position")] = toJson(m->position);
+        o[QStringLiteral("height")] = m->height;
+        o[QStringLiteral("width")] = m->width;
+        o[QStringLiteral("rotation")] = m->rotation;
+        o[QStringLiteral("align")] = QLatin1String(alignName(m->align));
+        o[QStringLiteral("vertical")] = m->vertical == MText::Vertical::Top      ? QStringLiteral("top")
+                                        : m->vertical == MText::Vertical::Middle ? QStringLiteral("middle")
+                                                                                 : QStringLiteral("bottom");
+        if (m->lineSpacing != 1.0)
+            o[QStringLiteral("lineSpacing")] = m->lineSpacing;
+        o[QStringLiteral("content")] = QString::fromStdString(m->content);
     } else if (const auto* d = std::get_if<Dimension>(&shape)) {
         o[QStringLiteral("type")] = QStringLiteral("dimension");
         o[QStringLiteral("kind")] = QLatin1String(kindName(d->kind));
@@ -313,6 +326,20 @@ std::optional<Shape> shapeFromJson(const QJsonObject& o, const Document& doc)
         t.content = o[QStringLiteral("content")].toString().toStdString();
         if (fromJson(o[QStringLiteral("position")], t.position) && t.height > 0.0)
             return t;
+    } else if (type == QLatin1String("mtext")) {
+        MText m;
+        m.height = o[QStringLiteral("height")].toDouble(-1.0);
+        m.width = std::max(0.0, o[QStringLiteral("width")].toDouble());
+        m.rotation = o[QStringLiteral("rotation")].toDouble();
+        m.align = alignFromName(o[QStringLiteral("align")].toString());
+        const QString vertical = o[QStringLiteral("vertical")].toString();
+        m.vertical = vertical == QLatin1String("middle")   ? MText::Vertical::Middle
+                   : vertical == QLatin1String("bottom") ? MText::Vertical::Bottom
+                                                         : MText::Vertical::Top;
+        m.lineSpacing = o[QStringLiteral("lineSpacing")].toDouble(1.0);
+        m.content = o[QStringLiteral("content")].toString().toStdString();
+        if (fromJson(o[QStringLiteral("position")], m.position) && m.height > 0.0 && m.lineSpacing > 0.0)
+            return m;
     } else if (type == QLatin1String("dimension")) {
         Dimension d;
         const auto kind = kindFromName(o[QStringLiteral("kind")].toString());
