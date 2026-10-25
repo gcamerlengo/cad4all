@@ -908,15 +908,19 @@ void MainWindow::about()
 {
     const QString author = QStringLiteral(CAD4ALL_AUTHOR);
     const QString email = QStringLiteral(CAD4ALL_EMAIL);
-    QMessageBox::about(this, tr("Informazioni su CAD4All"),
-                       tr("<h3>CAD4All %1</h3>"
-                          "<p>CAD 2D e 3D parametrico per tecnici.</p>"
-                          "<p>Copyright © %2 %3<br><a href=\"mailto:%4\">%4</a><br>"
-                          "<a href=\"%5\">%5</a></p>"
-                          "<p>Software libero distribuito con licenza GNU GPL versione 3 o successiva "
-                          "(Aiuto &gt; Licenza). Non c'è alcuna garanzia.</p>")
-                           .arg(QApplication::applicationVersion(), QStringLiteral(CAD4ALL_YEARS), author, email,
-                                QStringLiteral(CAD4ALL_HOMEPAGE)));
+    QMessageBox box(this);
+    box.setWindowTitle(tr("Informazioni su CAD4All"));
+    box.setIconPixmap(QApplication::windowIcon().pixmap(96, 96));
+    box.setTextFormat(Qt::RichText);
+    box.setText(tr("<h3>CAD4All %1</h3>"
+                   "<p>CAD 2D e 3D parametrico per tecnici.</p>"
+                   "<p>Copyright © %2 %3<br><a href=\"mailto:%4\">%4</a><br>"
+                   "<a href=\"%5\">%5</a></p>"
+                   "<p>Software libero distribuito con licenza GNU GPL versione 3 o successiva "
+                   "(Aiuto &gt; Licenza). Non c'è alcuna garanzia.</p>")
+                    .arg(QApplication::applicationVersion(), QStringLiteral(CAD4ALL_YEARS), author, email,
+                         QStringLiteral(CAD4ALL_HOMEPAGE)));
+    box.exec();
 }
 
 void MainWindow::showLicence()

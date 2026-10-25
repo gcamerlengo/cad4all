@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/immagini/logo-scuro.png">
+  <img alt="CAD4All" src="docs/immagini/logo.png" width="420">
+</picture>
+
 # CAD4All
 
 CAD 2D e 3D parametrico per tecnici, open source. Il disegno 2D funziona come AutoCAD (comandi, alias, riga di comando, snap); il 3D parametrico è in stile ArchiCAD: si disegnano in pianta muri, porte e finestre e la vista 3D accanto si aggiorna mentre si disegna.

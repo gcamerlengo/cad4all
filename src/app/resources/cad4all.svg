@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- CAD4All icon: a house in 3D over the drawing grid, with the 2D cursor. Source of the PNG, ICO and ICNS files next to it. -->
+  <defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b3644"/><stop offset="1" stop-color="#18202a"/></linearGradient></defs>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bg)"/>
+  <g stroke="#3a4757" stroke-width="6">
+    <path d="M64 320H960M64 512H960M64 704H960M320 64V960M512 64V960M704 64V960"/>
+  </g>
+  <!-- house in isometric wireframe -->
+  <g fill="none" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M232 420 L232 640 L512 780 L512 560 Z" fill="#d8dde3"/>
+    <path d="M512 560 L512 780 L792 640 L792 420 Z" fill="#b9c1ca"/>
+    <path d="M232 420 L372 230 L652 370 L512 560 Z" fill="#c8604a"/>
+    <path d="M512 560 L652 370 L792 420 Z" fill="#aab3bd"/>
+    <path d="M512 560 L652 370" stroke="#8e4030" stroke-width="10"/>
+    <path d="M300 520 L300 600 L360 630 L360 550 Z" fill="#7fb3e8"/>
+    <path d="M580 600 L580 700 L640 670 L640 570 Z" fill="#8a5a3c"/>
+    <path d="M690 545 L690 600 L740 575 L740 520 Z" fill="#7fb3e8"/>
+  </g>
+  <!-- crosshair cursor -->
+  <g stroke="#348ce6" stroke-width="22" stroke-linecap="round">
+    <path d="M800 690 V890 M700 790 H900"/>
+  </g>
+  <rect x="770" y="760" width="60" height="60" fill="none" stroke="#ffffff" stroke-width="12"/>
+</svg>
