@@ -15,6 +15,7 @@ Versione 0.1. Funziona già:
 - **Precisione:** coordinate assolute e relative (`10,20`, `@5,0`, `@10<45`), inserimento diretto della distanza, snap ad oggetto (fine, punto medio, centro, quadrante, intersezione, inserimento), orto.
 - **Selezione:** clic, finestra (da sinistra a destra) e interseca (da destra a sinistra), Maiusc+clic per togliere.
 - **Organizzazione:** layer con colore, visibilità e blocco.
+- **Interfaccia:** ribbon come AutoCAD, oppure strumenti, Info Box e navigatore come ArchiCAD, con pianta e 3D in un pannello, affiancate o a schede.
 - **File:** formato nativo `.c4a` (JSON leggibile), apertura dei DWG di AutoCAD, apertura e salvataggio DXF, stampa su stampante e in PDF in scala, esportazione del modello 3D in OBJ e STL, annulla e ripristina illimitati, script di comandi `.scr`.
 
 In arrivo: installatori per Windows, macOS e Linux; tetti su piante con angoli diversi dal retto.
@@ -128,6 +129,19 @@ L'esempio [casa-due-piani.scr](docs/esempi/casa-due-piani.scr) disegna una casa 
 
 ![Scale dritta, a L e a U](docs/immagini/scale-3d.png)
 
+## Interfaccia come AutoCAD o come ArchiCAD
+
+Visualizza > Interfaccia sceglie tra due disposizioni della finestra, ricordate alla riapertura:
+
+- **Come AutoCAD:** ribbon con le schede Base, Architettura, Annota, Vista e Output, pannelli con i titoli e pulsanti grandi e piccoli; layer a destra e vista 3D in un pannello che si apre da solo con il primo muro.
+- **Come ArchiCAD:** a sinistra la casella **Strumenti** (Freccia, Muro, Porta, Finestra, Solaio, Tetto, Scala, Quota, Testo, Tratteggio e gli oggetti 2D), con lo strumento in uso evidenziato; in alto l'**Info Box** con i parametri dello strumento (spessore e altezza del muro, tipo e pendenza del tetto, pedata della scala...) che si cambiano lì e valgono per i nuovi oggetti; a destra il **Navigatore** con i piani e le viste; pianta e 3D affiancate.
+
+Selezionando un solo muro, solaio, tetto o scala l'Info Box mostra i suoi valori: cambiandoli l'oggetto si aggiorna in pianta e in 3D, con un solo passo di annullamento. Visualizza > Vista 3D mette il 3D in un pannello, affiancato alla pianta o in una scheda accanto. La riga di comando resta in entrambe. Da riga di comando: `--profilo autocad|archicad` e `--viste pannello|affiancate|schede`.
+
+![Interfaccia come AutoCAD, con il ribbon](docs/immagini/interfaccia-autocad.png)
+
+![Interfaccia come ArchiCAD: strumenti, Info Box, navigatore, pianta e 3D affiancate](docs/immagini/interfaccia-archicad.png)
+
 ## Esportare il modello 3D
 
 File > Esporta modello 3D salva l'edificio in OBJ (con i colori dei materiali in un file .mtl accanto, per Blender, SketchUp e i programmi di rendering) o in STL binario per la stampa 3D. Le misure sono quelle del disegno, di solito millimetri. Da riga di comando: `CAD4All --script casa.scr --export casa.obj`.
@@ -149,7 +163,7 @@ File > Stampa (Ctrl+P, o il comando STAMPA) stampa su una stampante o salva un P
 | `src/core` | Geometria, entità e documento con annulla; C++ puro, senza Qt |
 | `src/io` | Lettura e scrittura dei file (formato nativo, DXF, DWG con LibreDWG) |
 | `src/engine` | Motore dei comandi e comandi stile AutoCAD (usa solo QtCore, si prova senza finestra) |
-| `src/app` | Interfaccia Qt: vista di disegno, vista 3D, riga di comando, pannello layer, stampa |
+| `src/app` | Interfaccia Qt: vista di disegno, vista 3D, riga di comando, ribbon, strumenti, Info Box, navigatore, pannello layer, stampa |
 | `tests` | Test automatici (GoogleTest) |
 
 ## Licenza

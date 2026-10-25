@@ -8,6 +8,7 @@
 #include "building.h"
 #include "editing.h"
 #include "hatch.h"
+#include "properties.h"
 
 #include <QCoreApplication>
 
@@ -2051,9 +2052,10 @@ private:
 // ---------------------------------------------------------------- walls, doors, windows
 
 // Remembered between runs. Sizes in drawing units (millimetres by default).
-double gWallThickness = 300.0;
-double gWallHeight = 2700.0;
-Wall::Justification gWallJustification = Wall::Justification::Center;
+// The tool settings are shared with the windows (see properties.h).
+double& gWallThickness = toolSettings().wallThickness;
+double& gWallHeight = toolSettings().wallHeight;
+Wall::Justification& gWallJustification = toolSettings().wallJustification;
 
 QString justificationName(Wall::Justification j)
 {
@@ -2249,8 +2251,8 @@ std::optional<EntityId> pickWall(CommandEngine* engine, Vec2 p)
 }
 
 // Remembered between runs, separately for doors and windows.
-Opening gDoor{Opening::Kind::Door, 0.0, 900.0, 2100.0, 0.0};
-Opening gWindow{Opening::Kind::Window, 0.0, 1200.0, 1400.0, 900.0};
+Opening& gDoor = toolSettings().door;
+Opening& gWindow = toolSettings().window;
 
 // DOOR and WINDOW: places openings in walls, centred on the picked point.
 // A door then asks the side it opens towards.
@@ -2837,8 +2839,8 @@ private:
     std::vector<Vec2> points_;
 };
 
-double gSlabThickness = 300.0;
-double gSlabOffset = 0.0;
+double& gSlabThickness = toolSettings().slabThickness;
+double& gSlabOffset = toolSettings().slabOffset;
 
 // SLAB: a floor slab inside a room, under all the walls, along a closed
 // object or drawn.
@@ -3041,11 +3043,11 @@ private:
     std::optional<EntityId> slab_;
 };
 
-RoofStyle gRoofType = RoofStyle::Hip;
-double gRoofPitch = 30.0;  // degrees
-double gRoofOverhang = 500.0;
-double gRoofThickness = 250.0;
-std::optional<double> gRoofBase;  // unset: the top of the walls
+RoofStyle& gRoofType = toolSettings().roofStyle;
+double& gRoofPitch = toolSettings().roofPitch;  // degrees
+double& gRoofOverhang = toolSettings().roofOverhang;
+double& gRoofThickness = toolSettings().roofThickness;
+std::optional<double>& gRoofBase = toolSettings().roofBase;  // unset: the top of the walls
 
 QString roofTypeName(RoofStyle type)
 {
@@ -3272,12 +3274,11 @@ private:
     Ask ask_ = Ask::None;
 };
 
-Stair::Kind gStairKind = Stair::Kind::Straight;
-bool gStairTurnRight = false;
-double gStairWidth = 1000.0;
-double gStairGoing = 280.0;
-std::optional<double> gStairHeight;  // unset: the height of the story
-constexpr double kMaxRiser = 180.0;
+Stair::Kind& gStairKind = toolSettings().stairKind;
+bool& gStairTurnRight = toolSettings().stairTurnRight;
+double& gStairWidth = toolSettings().stairWidth;
+double& gStairGoing = toolSettings().stairGoing;
+std::optional<double>& gStairHeight = toolSettings().stairHeight;  // unset: the height of the story
 
 QString stairKindName(Stair::Kind kind)
 {
@@ -3426,7 +3427,7 @@ private:
         return s ? s->height : 3000.0;
     }
 
-    int risers() const { return std::max(2, static_cast<int>(std::ceil(height() / kMaxRiser - 1e-9))); }
+    int risers() const { return stairRisers(height()); }
 
     Stair stairTo(Vec2 direction) const
     {

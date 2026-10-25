@@ -10,7 +10,8 @@ namespace icons {
 
 // Names: line, polyline, circle, arc, rectangle, hatch, erase, move, copy, rotate,
 // scale, mirror, offset, trim, extend, fillet, chamfer, stretch, text, dimLinear, dimAligned,
-// dimRadius, dimDiameter, zoomExtents.
+// dimRadius, dimDiameter, zoomExtents, wall, door, window, slab, roof, stair, story, view3d,
+// select, layers, new, open, save, print, export, undo, redo, plan, script.
 QIcon make(const QString& name);
 
 } // namespace icons

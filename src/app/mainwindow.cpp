@@ -4,7 +4,11 @@
 #include "cadview.h"
 #include "commandline.h"
 #include "icons.h"
+#include "infobox.h"
 #include "layerpanel.h"
+#include "navigator.h"
+#include "ribbon.h"
+#include "toolbox.h"
 #include "dwgreader.h"
 #include "dxf.h"
 #include "meshexport.h"
@@ -14,6 +18,7 @@
 #include "view3d.h"
 
 #include <QAction>
+#include <QActionGroup>
 #include <QApplication>
 #include <QComboBox>
 #include <QCloseEvent>
@@ -24,9 +29,14 @@
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QSettings>
+#include <QSplitter>
 #include <QStatusBar>
+#include <QTabWidget>
 #include <QToolBar>
 #include <QToolButton>
+
+#include <algorithm>
 
 using namespace cad;
 
@@ -57,7 +67,17 @@ MainWindow::MainWindow()
     : engine_(doc_)
 {
     view_ = new CadView(engine_, this);
-    setCentralWidget(view_);
+    view3d_ = new View3D(doc_, this);
+    // The plan alone, the plan with the 3D view beside it, or both in tabs.
+    central_ = new QSplitter(Qt::Horizontal, this);
+    central_->setChildrenCollapsible(false);
+    viewTabs_ = new QTabWidget(central_);
+    viewTabs_->setDocumentMode(true);
+    viewTabs_->setTabPosition(QTabWidget::South);
+    viewTabs_->hide();
+    central_->addWidget(viewTabs_);
+    central_->addWidget(view_);
+    setCentralWidget(central_);
 
     commandLine_ = new CommandLine(this);
     auto* commandDock = new QDockWidget(tr("Riga di comando"), this);
@@ -72,12 +92,25 @@ MainWindow::MainWindow()
     layerDock_->setWidget(layerPanel_);
     addDockWidget(Qt::RightDockWidgetArea, layerDock_);
 
-    view3d_ = new View3D(doc_, this);
+    navigator_ = new Navigator(doc_, this);
+    navigatorDock_ = new QDockWidget(tr("Navigatore"), this);
+    navigatorDock_->setObjectName(QStringLiteral("navigatorDock"));
+    navigatorDock_->setWidget(navigator_);
+    addDockWidget(Qt::RightDockWidgetArea, navigatorDock_);
+    navigatorDock_->hide();
+
     view3dDock_ = new QDockWidget(tr("Vista 3D"), this);
     view3dDock_->setObjectName(QStringLiteral("view3dDock"));
     view3dDock_->setWidget(view3d_);
     addDockWidget(Qt::RightDockWidgetArea, view3dDock_);
     view3dDock_->hide();
+
+    infoBox_ = new InfoBox(engine_, this);
+    infoDock_ = new QDockWidget(tr("Info Box"), this);
+    infoDock_->setObjectName(QStringLiteral("infoDock"));
+    infoDock_->setWidget(infoBox_);
+    addDockWidget(Qt::TopDockWidgetArea, infoDock_);
+    infoDock_->hide();
 
     CommandInput* input = commandLine_->input();
     connect(input, &CommandInput::submitted, &engine_, &CommandEngine::submit);
@@ -93,7 +126,8 @@ MainWindow::MainWindow()
     connect(&engine_, &CommandEngine::changed, this, [this] {
         updateStories();
         view3d_->refresh();
-        if (view3d_->hasModel() && !view3dShown_)
+        // Only the side panel opens by itself: a tab would hide the plan being drawn.
+        if (view3d_->hasModel() && !view3dShown_ && viewLayout_ == ViewLayout::Docked)
             showView3d();
     });
     connect(&engine_, &CommandEngine::view3dRequested, this, &MainWindow::showView3d);
@@ -101,9 +135,22 @@ MainWindow::MainWindow()
         layerDock_->show();
         layerDock_->raise();
     });
+    connect(navigator_, &Navigator::storyChosen, this, [this](StoryId id) {
+        setStory(id);
+        showPlan();
+    });
+    connect(navigator_, &Navigator::planChosen, this, &MainWindow::showPlan);
+    connect(navigator_, &Navigator::view3dChosen, this, &MainWindow::showView3d);
 
     createActions();
+    createRibbon();
+    createToolbox();
     createStatusBar();
+
+    const QSettings settings;
+    const QString profile = settings.value(QStringLiteral("interfaccia/profilo"), QStringLiteral("autocad")).toString();
+    setProfile(profile == QLatin1String("archicad") ? Profile::ArchiCad : Profile::AutoCad);
+    setViewLayout(settings.value(QStringLiteral("interfaccia/viste")).toString());
 
     commandLine_->setPrompt(engine_.prompt());
     commandLine_->appendMessage(tr("Benvenuto in CAD4All %1. Digitare ? per l'elenco dei comandi.").arg(QApplication::applicationVersion()));
@@ -121,29 +168,44 @@ QAction* MainWindow::commandAction(const QString& text, const QString& command, 
         engine_.run(command);
         commandLine_->input()->setFocus();
     });
+    commands_.insert(command, action);
     return action;
 }
 
-// The combo box lists the stories from the top, like a section of the building.
+QComboBox* MainWindow::makeStoryCombo(QWidget* parent)
+{
+    auto* combo = new QComboBox(parent);
+    combo->setToolTip(tr("Piano corrente"));
+    combo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    combo->setFocusPolicy(Qt::ClickFocus);
+    connect(combo, &QComboBox::activated, this, [this, combo](int index) {
+        setStory(combo->itemData(index).toInt());
+    });
+    storyCombos_.push_back(combo);
+    updateStories();
+    return combo;
+}
+
+// The combo boxes list the stories from the top, like a section of the building.
 void MainWindow::updateStories()
 {
-    if (!storyCombo_)
-        return;
+    navigator_->refresh();
     QStringList names;
     for (auto it = doc_.stories().rbegin(); it != doc_.stories().rend(); ++it)
         names << tr("%1  (%2)").arg(QString::fromStdString(it->name)).arg(it->elevation);
-    QStringList shown;
-    for (int i = 0; i < storyCombo_->count(); ++i)
-        shown << storyCombo_->itemText(i);
-    if (names != shown) {
-        const QSignalBlocker block(storyCombo_);
-        storyCombo_->clear();
-        int k = 0;
-        for (auto it = doc_.stories().rbegin(); it != doc_.stories().rend(); ++it)
-            storyCombo_->addItem(names[k++], it->id);
+    for (QComboBox* combo : storyCombos_) {
+        QStringList shown;
+        for (int i = 0; i < combo->count(); ++i)
+            shown << combo->itemText(i);
+        const QSignalBlocker block(combo);
+        if (names != shown) {
+            combo->clear();
+            int k = 0;
+            for (auto it = doc_.stories().rbegin(); it != doc_.stories().rend(); ++it)
+                combo->addItem(names[k++], it->id);
+        }
+        combo->setCurrentIndex(combo->findData(doc_.currentStory()));
     }
-    const QSignalBlocker block(storyCombo_);
-    storyCombo_->setCurrentIndex(storyCombo_->findData(doc_.currentStory()));
 }
 
 void MainWindow::setStory(StoryId id)
@@ -171,32 +233,191 @@ void MainWindow::changeStory(int step)
 void MainWindow::showView3d()
 {
     view3dShown_ = true;
-    view3dDock_->show();
-    view3dDock_->raise();
+    if (viewLayout_ == ViewLayout::Docked) {
+        view3dDock_->show();
+        view3dDock_->raise();
+    } else if (viewLayout_ == ViewLayout::Tabs) {
+        viewTabs_->setCurrentWidget(view3d_);
+    }
+    view3d_->refresh();
+}
+
+void MainWindow::showPlan()
+{
+    if (viewLayout_ == ViewLayout::Tabs)
+        viewTabs_->setCurrentWidget(view_);
+    commandLine_->input()->setFocus();
+}
+
+void MainWindow::setProfile(Profile profile, bool remember)
+{
+    profile_ = profile;
+    const bool archicad = profile == Profile::ArchiCad;
+    ribbonBar_->setVisible(!archicad);
+    for (QToolBar* bar : classicBars_)
+        bar->setVisible(archicad && bar->property("archicad").toBool());
+    toolboxDock_->setVisible(archicad);
+    infoDock_->setVisible(archicad);
+    navigatorDock_->setVisible(archicad);
+    layerDock_->setVisible(!archicad);
+    profiles_->actions().at(archicad ? 1 : 0)->setChecked(true);
+    if (remember) {
+        QSettings().setValue(QStringLiteral("interfaccia/profilo"), archicad ? QStringLiteral("archicad") : QStringLiteral("autocad"));
+        // Each profile comes with its usual place for the 3D view.
+        setViewLayout(archicad ? ViewLayout::SideBySide : ViewLayout::Docked, true);
+    }
+}
+
+bool MainWindow::setProfile(const QString& name)
+{
+    const QString n = name.toLower();
+    if (n != QLatin1String("autocad") && n != QLatin1String("archicad"))
+        return false;
+    setProfile(n == QLatin1String("archicad") ? Profile::ArchiCad : Profile::AutoCad);
+    setViewLayout(QString());
+    return true;
+}
+
+namespace {
+
+const QStringList kLayoutNames = {QStringLiteral("pannello"), QStringLiteral("affiancate"), QStringLiteral("schede")};
+
+} // namespace
+
+bool MainWindow::setViewLayout(const QString& name)
+{
+    const qsizetype i = kLayoutNames.indexOf(name.toLower());
+    if (i < 0 && !name.isEmpty())
+        return false;
+    // No name: the usual one for the profile.
+    if (i < 0)
+        setViewLayout(profile_ == Profile::ArchiCad ? ViewLayout::SideBySide : ViewLayout::Docked);
+    else
+        setViewLayout(static_cast<ViewLayout>(i));
+    return true;
+}
+
+void MainWindow::setViewLayout(ViewLayout layout, bool remember)
+{
+    viewLayout_ = layout;
+    // addTab, addWidget and setWidget take each view from where it was.
+    viewTabs_->clear();
+    if (layout == ViewLayout::Tabs) {
+        view3dDock_->hide();
+        viewTabs_->addTab(view_, icons::make(QStringLiteral("plan")), tr("Pianta"));
+        viewTabs_->addTab(view3d_, icons::make(QStringLiteral("view3d")), tr("Vista 3D"));
+        viewTabs_->show();
+    } else {
+        viewTabs_->hide();
+        central_->addWidget(view_);
+        if (layout == ViewLayout::SideBySide) {
+            view3dDock_->hide();
+            central_->addWidget(view3d_);
+            const int w = std::max(central_->width(), 1000);
+            central_->setSizes({0, w * 11 / 20, w * 9 / 20});
+        } else {
+            view3dDock_->setWidget(view3d_);
+            view3dDock_->setVisible(view3dShown_);
+        }
+    }
+    view_->show();
+    view3d_->show();
+    view3dDock_->toggleViewAction()->setEnabled(layout == ViewLayout::Docked);
+    layouts_->actions().at(static_cast<int>(layout))->setChecked(true);
+    if (remember)
+        QSettings().setValue(QStringLiteral("interfaccia/viste"), kLayoutNames[static_cast<int>(layout)]);
     view3d_->refresh();
 }
 
 void MainWindow::createActions()
 {
-    // File
+    auto named = [this](const QString& key, const QString& icon, const QString& text, auto slot, QKeySequence key2 = {}) {
+        auto* a = new QAction(icon.isEmpty() ? QIcon() : icons::make(icon), text, this);
+        a->setShortcut(key2);
+        connect(a, &QAction::triggered, this, slot);
+        named_.insert(key, a);
+        return a;
+    };
+    named(QStringLiteral("new"), QStringLiteral("new"), tr("&Nuovo"), [this] { newDrawing(); }, QKeySequence::New);
+    named(QStringLiteral("open"), QStringLiteral("open"), tr("&Apri..."), [this] { openDrawing(); }, QKeySequence::Open);
+    named(QStringLiteral("save"), QStringLiteral("save"), tr("&Salva"), [this] { save(); }, QKeySequence::Save);
+    named(QStringLiteral("saveAs"), QString(), tr("Salva &con nome..."), [this] { saveAs(); }, QKeySequence::SaveAs);
+    named(QStringLiteral("exportDxf"), QStringLiteral("export"), tr("Esporta &DXF..."), [this] { exportDxf(); });
+    named(QStringLiteral("exportModel"), QStringLiteral("view3d"), tr("Esporta &modello 3D (OBJ, STL)..."), [this] { exportModel(); });
+    named(QStringLiteral("print"), QStringLiteral("print"), tr("S&tampa..."), [this] { plot(); }, QKeySequence::Print);
+    named(QStringLiteral("script"), QStringLiteral("script"), tr("Esegui sc&ript..."), [this] { runScriptDialog(); });
+    named(QStringLiteral("undo"), QStringLiteral("undo"), tr("&Annulla"), [this] { engine_.run(QStringLiteral("U")); }, QKeySequence::Undo);
+    named(QStringLiteral("redo"), QStringLiteral("redo"), tr("&Ripristina"), [this] { engine_.run(QStringLiteral("REDO")); }, QKeySequence::Redo);
+    named(QStringLiteral("zoom"), QStringLiteral("zoomExtents"), tr("Zoom &estensioni"), [this] { view_->zoomExtents(); });
+    named(QStringLiteral("view3d"), QStringLiteral("view3d"), tr("Vista &3D"), [this] { showView3d(); })->setToolTip(tr("Vista 3D (VISTA3D)"));
+    named(QStringLiteral("plan"), QStringLiteral("plan"), tr("&Pianta"), [this] { showPlan(); });
+    named(QStringLiteral("storyUp"), QString(), tr("Piano s&uperiore"), [this] { changeStory(+1); }, QKeySequence(Qt::CTRL | Qt::Key_PageUp));
+    named(QStringLiteral("storyDown"), QString(), tr("Piano &inferiore"), [this] { changeStory(-1); }, QKeySequence(Qt::CTRL | Qt::Key_PageDown));
+    named(QStringLiteral("layers"), QStringLiteral("layers"), tr("&Layer"), [this] {
+        layerDock_->show();
+        layerDock_->raise();
+    });
+
+    commandAction(tr("Linea"), QStringLiteral("LINE"), icons::make(QStringLiteral("line")));
+    commandAction(tr("Polilinea"), QStringLiteral("PLINE"), icons::make(QStringLiteral("polyline")));
+    commandAction(tr("Cerchio"), QStringLiteral("CIRCLE"), icons::make(QStringLiteral("circle")));
+    commandAction(tr("Arco"), QStringLiteral("ARC"), icons::make(QStringLiteral("arc")));
+    commandAction(tr("Rettangolo"), QStringLiteral("RECTANG"), icons::make(QStringLiteral("rectangle")));
+    commandAction(tr("Tratteggio"), QStringLiteral("HATCH"), icons::make(QStringLiteral("hatch")));
+    commandAction(tr("Modifica tratteggio"), QStringLiteral("HATCHEDIT"));
+    commandAction(tr("Muro"), QStringLiteral("WALL"), icons::make(QStringLiteral("wall")));
+    commandAction(tr("Porta"), QStringLiteral("DOOR"), icons::make(QStringLiteral("door")));
+    commandAction(tr("Finestra"), QStringLiteral("WINDOW"), icons::make(QStringLiteral("window")));
+    commandAction(tr("Solaio"), QStringLiteral("SLAB"), icons::make(QStringLiteral("slab")));
+    commandAction(tr("Tetto"), QStringLiteral("ROOF"), icons::make(QStringLiteral("roof")));
+    commandAction(tr("Scala"), QStringLiteral("STAIR"), icons::make(QStringLiteral("stair")));
+    commandAction(tr("Modifica muro"), QStringLiteral("WALLEDIT"));
+    commandAction(tr("Piani..."), QStringLiteral("STORY"), icons::make(QStringLiteral("story")));
+    commandAction(tr("Cancella"), QStringLiteral("ERASE"), icons::make(QStringLiteral("erase")));
+    commandAction(tr("Sposta"), QStringLiteral("MOVE"), icons::make(QStringLiteral("move")));
+    commandAction(tr("Copia"), QStringLiteral("COPY"), icons::make(QStringLiteral("copy")));
+    commandAction(tr("Ruota"), QStringLiteral("ROTATE"), icons::make(QStringLiteral("rotate")));
+    commandAction(tr("Scala"), QStringLiteral("SCALE"), icons::make(QStringLiteral("scale")));
+    commandAction(tr("Specchio"), QStringLiteral("MIRROR"), icons::make(QStringLiteral("mirror")));
+    commandAction(tr("Offset"), QStringLiteral("OFFSET"), icons::make(QStringLiteral("offset")));
+    commandAction(tr("Taglia"), QStringLiteral("TRIM"), icons::make(QStringLiteral("trim")));
+    commandAction(tr("Estendi"), QStringLiteral("EXTEND"), icons::make(QStringLiteral("extend")));
+    commandAction(tr("Raccordo"), QStringLiteral("FILLET"), icons::make(QStringLiteral("fillet")));
+    commandAction(tr("Cima"), QStringLiteral("CHAMFER"), icons::make(QStringLiteral("chamfer")));
+    commandAction(tr("Stira"), QStringLiteral("STRETCH"), icons::make(QStringLiteral("stretch")));
+    commandAction(tr("Testo"), QStringLiteral("TEXT"), icons::make(QStringLiteral("text")));
+    commandAction(tr("Modifica testo"), QStringLiteral("TEXTEDIT"));
+    commandAction(tr("Quota lineare"), QStringLiteral("DIMLINEAR"), icons::make(QStringLiteral("dimLinear")));
+    commandAction(tr("Quota allineata"), QStringLiteral("DIMALIGNED"), icons::make(QStringLiteral("dimAligned")));
+    commandAction(tr("Quota raggio"), QStringLiteral("DIMRADIUS"), icons::make(QStringLiteral("dimRadius")));
+    commandAction(tr("Quota diametro"), QStringLiteral("DIMDIAMETER"), icons::make(QStringLiteral("dimDiameter")));
+    commandAction(tr("Scala quote"), QStringLiteral("DIMSCALE"));
+
+    auto actions = [this](std::initializer_list<const char*> names) {
+        QList<QAction*> list;
+        for (const char* n : names) {
+            const QString name = QString::fromLatin1(n);
+            list << (commands_.contains(name) ? commands_.value(name) : named_.value(name));
+        }
+        return list;
+    };
+    const auto drawActions = actions({"LINE", "PLINE", "CIRCLE", "ARC", "RECTANG", "HATCH"});
+    const auto architectureActions = actions({"WALL", "DOOR", "WINDOW", "SLAB", "ROOF", "STAIR"});
+    const auto modifyActions = actions({"ERASE", "MOVE", "COPY", "ROTATE", "SCALE", "MIRROR", "OFFSET", "TRIM", "EXTEND", "FILLET", "CHAMFER", "STRETCH"});
+    const auto annotateActions = actions({"TEXT", "DIMLINEAR", "DIMALIGNED", "DIMRADIUS", "DIMDIAMETER"});
+
+    // Menus
     QMenu* file = menuBar()->addMenu(tr("&File"));
-    file->addAction(tr("&Nuovo"), QKeySequence::New, this, &MainWindow::newDrawing);
-    file->addAction(tr("&Apri..."), QKeySequence::Open, this, &MainWindow::openDrawing);
-    file->addAction(tr("&Salva"), QKeySequence::Save, this, &MainWindow::save);
-    file->addAction(tr("Salva &con nome..."), QKeySequence::SaveAs, this, &MainWindow::saveAs);
-    file->addAction(tr("Esporta &DXF..."), this, &MainWindow::exportDxf);
-    file->addAction(tr("Esporta &modello 3D (OBJ, STL)..."), this, &MainWindow::exportModel);
+    file->addActions(actions({"new", "open", "save", "saveAs", "exportDxf", "exportModel"}));
     file->addSeparator();
-    file->addAction(tr("S&tampa..."), QKeySequence::Print, this, &MainWindow::plot);
+    file->addAction(named_.value(QStringLiteral("print")));
     file->addSeparator();
-    file->addAction(tr("Esegui sc&ript..."), this, &MainWindow::runScriptDialog);
+    file->addAction(named_.value(QStringLiteral("script")));
     file->addSeparator();
     file->addAction(tr("&Esci"), QKeySequence::Quit, this, &QWidget::close);
 
-    // Edit
     QMenu* edit = menuBar()->addMenu(tr("&Modifica"));
-    edit->addAction(tr("&Annulla"), QKeySequence::Undo, this, [this] { engine_.run(QStringLiteral("U")); });
-    edit->addAction(tr("&Ripristina"), QKeySequence::Redo, this, [this] { engine_.run(QStringLiteral("REDO")); });
+    edit->addActions(actions({"undo", "redo"}));
     edit->addSeparator();
     edit->addAction(tr("Seleziona &tutto"), QKeySequence::SelectAll, this, [this] {
         std::vector<EntityId> ids;
@@ -205,125 +426,103 @@ void MainWindow::createActions()
         engine_.select(ids);
     });
 
-    // Draw
     QMenu* draw = menuBar()->addMenu(tr("&Disegna"));
-    QToolBar* drawBar = addToolBar(tr("Disegna"));
-    drawBar->setObjectName(QStringLiteral("drawToolBar"));
-    const QList<QAction*> drawActions = {
-        commandAction(tr("Linea"), QStringLiteral("LINE"), icons::make(QStringLiteral("line"))),
-        commandAction(tr("Polilinea"), QStringLiteral("PLINE"), icons::make(QStringLiteral("polyline"))),
-        commandAction(tr("Cerchio"), QStringLiteral("CIRCLE"), icons::make(QStringLiteral("circle"))),
-        commandAction(tr("Arco"), QStringLiteral("ARC"), icons::make(QStringLiteral("arc"))),
-        commandAction(tr("Rettangolo"), QStringLiteral("RECTANG"), icons::make(QStringLiteral("rectangle"))),
-        commandAction(tr("Tratteggio"), QStringLiteral("HATCH"), icons::make(QStringLiteral("hatch"))),
-    };
     draw->addActions(drawActions);
-    drawBar->addActions(drawActions);
-    draw->addAction(commandAction(tr("Modifica tratteggio"), QStringLiteral("HATCHEDIT"), QIcon()));
+    draw->addAction(command(QStringLiteral("HATCHEDIT")));
 
-    // Architecture
     QMenu* architecture = menuBar()->addMenu(tr("A&rchitettura"));
-    QToolBar* architectureBar = addToolBar(tr("Architettura"));
-    architectureBar->setObjectName(QStringLiteral("architectureToolBar"));
-    const QList<QAction*> architectureActions = {
-        commandAction(tr("Muro"), QStringLiteral("WALL"), icons::make(QStringLiteral("wall"))),
-        commandAction(tr("Porta"), QStringLiteral("DOOR"), icons::make(QStringLiteral("door"))),
-        commandAction(tr("Finestra"), QStringLiteral("WINDOW"), icons::make(QStringLiteral("window"))),
-        commandAction(tr("Solaio"), QStringLiteral("SLAB"), icons::make(QStringLiteral("slab"))),
-        commandAction(tr("Tetto"), QStringLiteral("ROOF"), icons::make(QStringLiteral("roof"))),
-        commandAction(tr("Scala"), QStringLiteral("STAIR"), icons::make(QStringLiteral("stair"))),
-    };
     architecture->addActions(architectureActions);
-    architectureBar->addActions(architectureActions);
-    architecture->addAction(commandAction(tr("Modifica muro"), QStringLiteral("WALLEDIT"), QIcon()));
+    architecture->addAction(command(QStringLiteral("WALLEDIT")));
     architecture->addSeparator();
-    QAction* stories = commandAction(tr("Piani..."), QStringLiteral("STORY"), icons::make(QStringLiteral("story")));
-    architecture->addAction(stories);
-    QAction* storyUp = architecture->addAction(tr("Piano s&uperiore"), this, [this] { changeStory(+1); });
-    storyUp->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_PageUp));
-    QAction* storyDown = architecture->addAction(tr("Piano &inferiore"), this, [this] { changeStory(-1); });
-    storyDown->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_PageDown));
-    architectureBar->addSeparator();
-    architectureBar->addAction(stories);
-    storyCombo_ = new QComboBox(this);
-    storyCombo_->setToolTip(tr("Piano corrente"));
-    storyCombo_->setSizeAdjustPolicy(QComboBox::AdjustToContents);
-    architectureBar->addWidget(storyCombo_);
-    connect(storyCombo_, &QComboBox::activated, this, [this](int index) {
-        setStory(storyCombo_->itemData(index).toInt());
-    });
-    updateStories();
+    architecture->addActions(actions({"STORY", "storyUp", "storyDown"}));
     architecture->addSeparator();
-    QAction* show3d = architecture->addAction(icons::make(QStringLiteral("view3d")), tr("Vista &3D"), this, &MainWindow::showView3d);
-    show3d->setToolTip(tr("Vista 3D (VISTA3D)"));
-    architectureBar->addAction(show3d);
+    architecture->addAction(named_.value(QStringLiteral("view3d")));
 
-    // Modify
     QMenu* modify = menuBar()->addMenu(tr("&Edita"));
-    QToolBar* modifyBar = addToolBar(tr("Edita"));
-    modifyBar->setObjectName(QStringLiteral("modifyToolBar"));
-    const QList<QAction*> modifyActions = {
-        commandAction(tr("Cancella"), QStringLiteral("ERASE"), icons::make(QStringLiteral("erase"))),
-        commandAction(tr("Sposta"), QStringLiteral("MOVE"), icons::make(QStringLiteral("move"))),
-        commandAction(tr("Copia"), QStringLiteral("COPY"), icons::make(QStringLiteral("copy"))),
-        commandAction(tr("Ruota"), QStringLiteral("ROTATE"), icons::make(QStringLiteral("rotate"))),
-        commandAction(tr("Scala"), QStringLiteral("SCALE"), icons::make(QStringLiteral("scale"))),
-        commandAction(tr("Specchio"), QStringLiteral("MIRROR"), icons::make(QStringLiteral("mirror"))),
-        commandAction(tr("Offset"), QStringLiteral("OFFSET"), icons::make(QStringLiteral("offset"))),
-        commandAction(tr("Taglia"), QStringLiteral("TRIM"), icons::make(QStringLiteral("trim"))),
-        commandAction(tr("Estendi"), QStringLiteral("EXTEND"), icons::make(QStringLiteral("extend"))),
-        commandAction(tr("Raccordo"), QStringLiteral("FILLET"), icons::make(QStringLiteral("fillet"))),
-        commandAction(tr("Cima"), QStringLiteral("CHAMFER"), icons::make(QStringLiteral("chamfer"))),
-        commandAction(tr("Stira"), QStringLiteral("STRETCH"), icons::make(QStringLiteral("stretch"))),
-    };
     modify->addActions(modifyActions);
-    modifyBar->addActions(modifyActions);
 
-    // Annotations
     QMenu* annotate = menuBar()->addMenu(tr("&Annota"));
-    QToolBar* annotateBar = addToolBar(tr("Annota"));
-    annotateBar->setObjectName(QStringLiteral("annotateToolBar"));
-    const QList<QAction*> annotateActions = {
-        commandAction(tr("Testo"), QStringLiteral("TEXT"), icons::make(QStringLiteral("text"))),
-        commandAction(tr("Quota lineare"), QStringLiteral("DIMLINEAR"), icons::make(QStringLiteral("dimLinear"))),
-        commandAction(tr("Quota allineata"), QStringLiteral("DIMALIGNED"), icons::make(QStringLiteral("dimAligned"))),
-        commandAction(tr("Quota raggio"), QStringLiteral("DIMRADIUS"), icons::make(QStringLiteral("dimRadius"))),
-        commandAction(tr("Quota diametro"), QStringLiteral("DIMDIAMETER"), icons::make(QStringLiteral("dimDiameter"))),
-    };
     annotate->addActions(annotateActions);
-    annotateBar->addActions(annotateActions);
     annotate->addSeparator();
-    annotate->addAction(commandAction(tr("Modifica testo"), QStringLiteral("TEXTEDIT"), QIcon()));
-    annotate->addAction(commandAction(tr("Scala quote"), QStringLiteral("DIMSCALE"), QIcon()));
+    annotate->addActions(actions({"TEXTEDIT", "DIMSCALE"}));
+
+    // Classic toolbars: the ArchiCAD profile shows some of them, the others
+    // are there for whoever wants them.
+    auto toolBar = [this](const QString& title, const char* name, const QList<QAction*>& list, bool archicad) {
+        QToolBar* bar = addToolBar(title);
+        bar->setObjectName(QString::fromLatin1(name));
+        bar->addActions(list);
+        bar->setProperty("archicad", archicad);
+        classicBars_.push_back(bar);
+        return bar;
+    };
+    standardBar_ = toolBar(tr("Standard"), "standardToolBar", actions({"new", "open", "save", "print", "undo", "redo"}), true);
+    toolBar(tr("Disegna"), "drawToolBar", drawActions, false);
+    QToolBar* architectureBar = toolBar(tr("Architettura"), "architectureToolBar", architectureActions, false);
+    architectureBar->addSeparator();
+    architectureBar->addAction(command(QStringLiteral("STORY")));
+    architectureBar->addWidget(makeStoryCombo(architectureBar));
+    architectureBar->addAction(named_.value(QStringLiteral("view3d")));
+    // ArchiCAD has its tools in the Toolbox: on top only the stories and the 3D.
+    QToolBar* storyBar = toolBar(tr("Piani"), "storyToolBar", actions({"STORY"}), true);
+    storyBar->addWidget(makeStoryCombo(storyBar));
+    storyBar->addActions(actions({"plan", "view3d"}));
+    QToolBar* modifyBar = toolBar(tr("Edita"), "modifyToolBar", modifyActions, true);
+    modifyBar->addSeparator();
+    modifyBar->addAction(named_.value(QStringLiteral("zoom")));
+    toolBar(tr("Annota"), "annotateToolBar", annotateActions, false);
 
     // View
     QMenu* viewMenu = menuBar()->addMenu(tr("&Visualizza"));
-    QAction* zoom = viewMenu->addAction(icons::make(QStringLiteral("zoomExtents")), tr("Zoom &estensioni"), this,
-                                        [this] { view_->zoomExtents(); });
-    modifyBar->addSeparator();
-    modifyBar->addAction(zoom);
+    viewMenu->addAction(named_.value(QStringLiteral("zoom")));
     viewMenu->addSeparator();
 
-    auto toggle = [&](const QString& text, QKeySequence key, bool on, auto slot) {
+    auto toggle = [&](const QString& key, const QString& text, QKeySequence shortcut, bool on, auto slot) {
         QAction* a = viewMenu->addAction(text);
         a->setCheckable(true);
         a->setChecked(on);
-        a->setShortcut(key);
+        a->setShortcut(shortcut);
         a->setShortcutContext(Qt::ApplicationShortcut);
         connect(a, &QAction::toggled, this, slot);
+        named_.insert(key, a);
         return a;
     };
-    QAction* osnap = toggle(tr("Snap ad &oggetto"), QKeySequence(Qt::Key_F3), engine_.osnapEnabled(),
+    QAction* osnap = toggle(QStringLiteral("osnap"), tr("Snap ad &oggetto"), QKeySequence(Qt::Key_F3), engine_.osnapEnabled(),
                             [this](bool on) { engine_.setOsnapEnabled(on); });
-    QAction* grid = toggle(tr("&Griglia"), QKeySequence(Qt::Key_F7), view_->gridVisible(), [this](bool on) {
+    QAction* grid = toggle(QStringLiteral("grid"), tr("&Griglia"), QKeySequence(Qt::Key_F7), view_->gridVisible(), [this](bool on) {
         view_->setGridVisible(on);
         updateToggles();
     });
-    QAction* ortho = toggle(tr("O&rto"), QKeySequence(Qt::Key_F8), engine_.orthoEnabled(),
+    QAction* ortho = toggle(QStringLiteral("ortho"), tr("O&rto"), QKeySequence(Qt::Key_F8), engine_.orthoEnabled(),
                             [this](bool on) { engine_.setOrthoEnabled(on); });
+    viewMenu->addSeparator();
+
+    QMenu* profileMenu = viewMenu->addMenu(tr("&Interfaccia"));
+    profiles_ = new QActionGroup(this);
+    for (const auto& [text, profile] : {std::pair{tr("Come &AutoCAD: ribbon"), Profile::AutoCad},
+                                        std::pair{tr("Come A&rchiCAD: strumenti, Info Box e navigatore"), Profile::ArchiCad}}) {
+        QAction* a = profileMenu->addAction(text);
+        a->setCheckable(true);
+        profiles_->addAction(a);
+        connect(a, &QAction::triggered, this, [this, profile] { setProfile(profile, true); });
+    }
+    QMenu* layoutMenu = viewMenu->addMenu(tr("Vista &3D"));
+    layouts_ = new QActionGroup(this);
+    for (const auto& [text, layout] : {std::pair{tr("In un &pannello"), ViewLayout::Docked},
+                                       std::pair{tr("&Affiancata alla pianta"), ViewLayout::SideBySide},
+                                       std::pair{tr("A &schede"), ViewLayout::Tabs}}) {
+        QAction* a = layoutMenu->addAction(text);
+        a->setCheckable(true);
+        layouts_->addAction(a);
+        connect(a, &QAction::triggered, this, [this, layout] { setViewLayout(layout, true); });
+    }
     viewMenu->addSeparator();
     viewMenu->addAction(layerDock_->toggleViewAction());
     viewMenu->addAction(view3dDock_->toggleViewAction());
+    viewMenu->addAction(navigatorDock_->toggleViewAction());
+    viewMenu->addAction(infoDock_->toggleViewAction());
+    // Filled when the ribbon and the Toolbox exist.
+    named_.insert(QStringLiteral("panels"), viewMenu->menuAction());
 
     // The status bar buttons share these actions.
     osnapButton_ = new QToolButton(this);
@@ -338,6 +537,126 @@ void MainWindow::createActions()
 
     QMenu* help = menuBar()->addMenu(tr("&Aiuto"));
     help->addAction(tr("&Informazioni su CAD4All"), this, &MainWindow::about);
+}
+
+void MainWindow::createRibbon()
+{
+    ribbon_ = new Ribbon(this);
+    auto large = [this](RibbonPanel* panel, std::initializer_list<const char*> names) {
+        for (const char* n : names) {
+            const QString name = QString::fromLatin1(n);
+            panel->addLarge(commands_.contains(name) ? commands_.value(name) : named_.value(name));
+        }
+    };
+    auto small = [this](RibbonPanel* panel, std::initializer_list<const char*> names) {
+        for (const char* n : names) {
+            const QString name = QString::fromLatin1(n);
+            panel->addSmall(commands_.contains(name) ? commands_.value(name) : named_.value(name));
+        }
+    };
+
+    QWidget* home = ribbon_->addPage(tr("Base"));
+    RibbonPanel* p = ribbon_->addPanel(home, tr("Disegna"));
+    large(p, {"LINE", "PLINE", "CIRCLE", "ARC"});
+    small(p, {"RECTANG", "HATCH", "HATCHEDIT"});
+    p = ribbon_->addPanel(home, tr("Edita"));
+    small(p, {"MOVE", "COPY", "STRETCH", "ROTATE", "MIRROR", "SCALE", "TRIM", "EXTEND", "OFFSET", "FILLET", "CHAMFER", "ERASE"});
+    p = ribbon_->addPanel(home, tr("Annotazione"));
+    large(p, {"TEXT", "DIMLINEAR"});
+    p = ribbon_->addPanel(home, tr("Layer"));
+    large(p, {"layers"});
+    p = ribbon_->addPanel(home, tr("Utilità"));
+    large(p, {"zoom"});
+    small(p, {"undo", "redo"});
+
+    QWidget* arch = ribbon_->addPage(tr("Architettura"));
+    p = ribbon_->addPanel(arch, tr("Costruzione"));
+    large(p, {"WALL", "DOOR", "WINDOW", "SLAB", "ROOF", "STAIR"});
+    p = ribbon_->addPanel(arch, tr("Modifica"));
+    small(p, {"WALLEDIT"});
+    p = ribbon_->addPanel(arch, tr("Piani"));
+    large(p, {"STORY"});
+    p->addSmall(makeStoryCombo(p));
+    small(p, {"storyUp", "storyDown"});
+    p = ribbon_->addPanel(arch, tr("Modello"));
+    large(p, {"view3d", "exportModel"});
+
+    QWidget* annotatePage = ribbon_->addPage(tr("Annota"));
+    p = ribbon_->addPanel(annotatePage, tr("Testo"));
+    large(p, {"TEXT"});
+    small(p, {"TEXTEDIT"});
+    p = ribbon_->addPanel(annotatePage, tr("Quote"));
+    large(p, {"DIMLINEAR", "DIMALIGNED"});
+    small(p, {"DIMRADIUS", "DIMDIAMETER", "DIMSCALE"});
+    p = ribbon_->addPanel(annotatePage, tr("Tratteggi"));
+    large(p, {"HATCH"});
+    small(p, {"HATCHEDIT"});
+
+    QWidget* viewPage = ribbon_->addPage(tr("Vista"));
+    p = ribbon_->addPanel(viewPage, tr("Navigazione"));
+    large(p, {"zoom", "plan", "view3d"});
+    p = ribbon_->addPanel(viewPage, tr("Aiuti al disegno"));
+    small(p, {"osnap", "grid", "ortho"});
+    p = ribbon_->addPanel(viewPage, tr("Vista 3D"));
+    for (QAction* a : layouts_->actions())
+        p->addSmall(a);
+    p = ribbon_->addPanel(viewPage, tr("Interfaccia"));
+    for (QAction* a : profiles_->actions())
+        p->addSmall(a);
+
+    QWidget* output = ribbon_->addPage(tr("Output"));
+    p = ribbon_->addPanel(output, tr("Stampa"));
+    large(p, {"print"});
+    p = ribbon_->addPanel(output, tr("Esporta"));
+    large(p, {"exportDxf", "exportModel"});
+    p = ribbon_->addPanel(output, tr("Script"));
+    large(p, {"script"});
+
+    ribbon_->setCurrentIndex(0);
+    ribbonBar_ = new QToolBar(tr("Ribbon"), this);
+    ribbonBar_->setObjectName(QStringLiteral("ribbonToolBar"));
+    ribbonBar_->setMovable(false);
+    ribbonBar_->setFloatable(false);
+    ribbonBar_->addWidget(ribbon_);
+    addToolBar(Qt::TopToolBarArea, ribbonBar_);
+    // The ribbon on its own row, above the classic toolbars.
+    insertToolBar(classicBars_.front(), ribbonBar_);
+    insertToolBarBreak(classicBars_.front());
+    named_.value(QStringLiteral("panels"))->menu()->addAction(ribbonBar_->toggleViewAction());
+}
+
+void MainWindow::createToolbox()
+{
+    toolbox_ = new Toolbox(engine_, this);
+    toolbox_->addSection(tr("Selezione"));
+    toolbox_->addTool(tr("Freccia"), QString(), icons::make(QStringLiteral("select")));
+    toolbox_->addSection(tr("Costruzione"));
+    toolbox_->addTool(tr("Muro"), QStringLiteral("WALL"), icons::make(QStringLiteral("wall")));
+    toolbox_->addTool(tr("Porta"), QStringLiteral("DOOR"), icons::make(QStringLiteral("door")));
+    toolbox_->addTool(tr("Finestra"), QStringLiteral("WINDOW"), icons::make(QStringLiteral("window")));
+    toolbox_->addTool(tr("Solaio"), QStringLiteral("SLAB"), icons::make(QStringLiteral("slab")));
+    toolbox_->addTool(tr("Tetto"), QStringLiteral("ROOF"), icons::make(QStringLiteral("roof")));
+    toolbox_->addTool(tr("Scala"), QStringLiteral("STAIR"), icons::make(QStringLiteral("stair")));
+    toolbox_->addSection(tr("Documentazione"));
+    toolbox_->addTool(tr("Quota"), QStringLiteral("DIMLINEAR"), icons::make(QStringLiteral("dimLinear")));
+    toolbox_->addTool(tr("Testo"), QStringLiteral("TEXT"), icons::make(QStringLiteral("text")));
+    toolbox_->addTool(tr("Tratteggio"), QStringLiteral("HATCH"), icons::make(QStringLiteral("hatch")));
+    toolbox_->addTool(tr("Linea"), QStringLiteral("LINE"), icons::make(QStringLiteral("line")));
+    toolbox_->addTool(tr("Polilinea"), QStringLiteral("PLINE"), icons::make(QStringLiteral("polyline")));
+    toolbox_->addTool(tr("Arco"), QStringLiteral("ARC"), icons::make(QStringLiteral("arc")));
+    toolbox_->addTool(tr("Cerchio"), QStringLiteral("CIRCLE"), icons::make(QStringLiteral("circle")));
+    toolbox_->addTool(tr("Rettangolo"), QStringLiteral("RECTANG"), icons::make(QStringLiteral("rectangle")));
+    connect(toolbox_, &Toolbox::toolChosen, this, [this](const QString& command) {
+        infoBox_->setTool(command);
+        commandLine_->input()->setFocus();
+    });
+
+    toolboxDock_ = new QDockWidget(tr("Strumenti"), this);
+    toolboxDock_->setObjectName(QStringLiteral("toolboxDock"));
+    toolboxDock_->setWidget(toolbox_);
+    addDockWidget(Qt::LeftDockWidgetArea, toolboxDock_);
+    toolboxDock_->hide();
+    named_.value(QStringLiteral("panels"))->menu()->addAction(toolboxDock_->toggleViewAction());
 }
 
 void MainWindow::createStatusBar()
