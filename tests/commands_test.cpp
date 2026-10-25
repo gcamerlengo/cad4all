@@ -829,3 +829,97 @@ TEST_F(Commands, SelectAllOrLastAtTheSelectionPrompt)
     EXPECT_EQ(shapes<Circle>()[0].center, (Vec2{5, 10}));
     EXPECT_EQ(shapes<Line>()[0].a, (Vec2{5, 0}));
 }
+
+TEST_F(Commands, ParagraphTextFromTheCommandLine)
+{
+    QString editor;
+    QObject::connect(&engine, &CommandEngine::textEditorRequested, [&](const QString&, const QString& text) { editor = "?" + text; });
+    type({"TESTOM", "0,100", "A", "5", "200,50"});
+    EXPECT_EQ(editor, QStringLiteral("?"));
+    EXPECT_TRUE(engine.wantsText());
+    type({"Prima riga", "Seconda riga", ""});
+    EXPECT_FALSE(engine.isActive());
+    ASSERT_EQ(shapes<MText>().size(), 1u);
+    const MText m = shapes<MText>()[0];
+    EXPECT_EQ(m.content, "Prima riga\nSeconda riga");
+    EXPECT_DOUBLE_EQ(m.width, 200);
+    EXPECT_DOUBLE_EQ(m.height, 5);
+    EXPECT_EQ(m.position, (Vec2{0, 100}));
+
+    // The editor gives the whole paragraph at once, also to TEXTEDIT.
+    type({"MT", "10,10", "L", "0"});
+    engine.submitParagraph(QStringLiteral("a\nb\nc"));
+    EXPECT_FALSE(engine.isActive());
+    EXPECT_EQ(textLines(shapes<MText>()[1]).size(), 3u);
+    type({"MODIFICATESTO", "1,99"});
+    EXPECT_EQ(editor, QStringLiteral("?Prima riga\nSeconda riga"));
+    engine.submitParagraph(QStringLiteral("Nuovo"));
+    type({""});
+    EXPECT_EQ(shapes<MText>()[0].content, "Nuovo");
+
+    type({"ESPLODI", "TUTTO", ""});
+    EXPECT_EQ(shapes<Text>().size(), 4u);
+}
+
+TEST_F(Commands, LayoutCommandCreatesSheets)
+{
+    int shown = 0;
+    QObject::connect(&engine, &CommandEngine::layoutsRequested, [&] { ++shown; });
+    type({"RETTANGOLO", "0,0", "12000,8000"});
+    type({"TAVOLA", "", "", "", ""});
+    ASSERT_EQ(doc.layouts().size(), 1u);
+    EXPECT_EQ(doc.layouts()[0].name, "Tavola 1");
+    EXPECT_EQ(doc.layouts()[0].paper, "A3");
+    EXPECT_TRUE(doc.layouts()[0].landscape);
+    EXPECT_DOUBLE_EQ(doc.layouts()[0].viewports[0].scale, 50);
+    EXPECT_EQ(shown, 1);
+
+    type({"LO", "N", "Dettaglio", "A4", "1:20"});
+    ASSERT_EQ(doc.layouts().size(), 2u);
+    EXPECT_EQ(doc.layouts()[1].paper, "A4");
+    EXPECT_DOUBLE_EQ(doc.layouts()[1].viewports[0].scale, 20);
+    EXPECT_EQ(doc.layouts()[1].titleBlock.number, "2");
+
+    type({"TAVOLA", "E", "Tavola 1"});
+    EXPECT_FALSE(engine.isActive());
+    ASSERT_EQ(doc.layouts().size(), 1u);
+    EXPECT_EQ(doc.layouts()[0].name, "Dettaglio");
+}
+
+TEST_F(Commands, SectionAndElevationAsBlocks)
+{
+    type({"MURO", "0,0", "4000,0", "4000,3000", "0,3000", "C"});
+    // Across the two long walls, looking east.
+    type({"SEZIONE", "2000,-1000", "2000,4000", "3000,1500", "10000,0"});
+    EXPECT_FALSE(engine.isActive());
+    const auto block = doc.block("SEZIONE A-A");
+    ASSERT_NE(block, nullptr);
+    int fills = 0;
+    for (const BlockItem& item : block->items)
+        fills += std::holds_alternative<Hatch>(item.shape);
+    EXPECT_EQ(fills, 2);
+    const auto inserts = shapes<Insert>();
+    ASSERT_EQ(inserts.size(), 1u);
+    EXPECT_EQ(inserts[0].position, (Vec2{10000, 0}));
+    // The section line and its letters are in the plan.
+    int letters = 0;
+    for (const Text& t : shapes<Text>())
+        letters += t.content == "A";
+    EXPECT_EQ(letters, 2);
+
+    type({"PROSPETTO", "N", "0,-8000"});
+    EXPECT_NE(doc.block("PROSPETTO NORD"), nullptr);
+    type({"PS", "", "0,-16000"});
+    EXPECT_NE(doc.block("PROSPETTO SUD"), nullptr);
+    type({"SZ", "-1000,1500", "5000,1500", "0,3000", "0,-20000"});
+    EXPECT_NE(doc.block("SEZIONE B-B"), nullptr);
+    EXPECT_EQ(shapes<Insert>().size(), 4u);
+}
+
+TEST_F(Commands, SectionNeedsABuilding)
+{
+    type({"LINEA", "0,0", "100,0", ""});
+    type({"PROSPETTO", "S"});
+    EXPECT_FALSE(engine.isActive());
+    EXPECT_TRUE(doc.blocks().empty());
+}

@@ -9,12 +9,16 @@
 #include "editing.h"
 #include "hatch.h"
 #include "properties.h"
+#include "section.h"
 #include "stylenames.h"
 
 #include <QCoreApplication>
+#include <QDate>
 
 #include <algorithm>
+#include <functional>
 #include <limits>
+#include <map>
 
 namespace cad {
 
@@ -1357,6 +1361,200 @@ private:
     Vec2 position_;
 };
 
+// MTEXT: a paragraph in a box. The box gives the width the lines wrap at;
+// the text comes from the editor, or line by line from the command line.
+class MTextCommand : public Command {
+public:
+    void start() override
+    {
+        step_ = Step::First;
+        engine->setPrompt(t("Specificare primo angolo:"));
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (step_ == Step::First) {
+            first_ = p;
+            toOpposite();
+            return true;
+        }
+        if (step_ == Step::Opposite) {
+            place(p);
+            toContent();
+            return true;
+        }
+        if (step_ == Step::Rotation) {
+            gTextRotation = radToDeg(angleOf(p - first_));
+            toOpposite();
+            return true;
+        }
+        return false;
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (step_ == Step::Justify) {
+            static const std::map<QString, std::pair<Text::Align, MText::Vertical>> kCodes = {
+                {QStringLiteral("AS"), {Text::Align::Left, MText::Vertical::Top}},
+                {QStringLiteral("AC"), {Text::Align::Center, MText::Vertical::Top}},
+                {QStringLiteral("AD"), {Text::Align::Right, MText::Vertical::Top}},
+                {QStringLiteral("MS"), {Text::Align::Left, MText::Vertical::Middle}},
+                {QStringLiteral("MC"), {Text::Align::Center, MText::Vertical::Middle}},
+                {QStringLiteral("MD"), {Text::Align::Right, MText::Vertical::Middle}},
+                {QStringLiteral("BS"), {Text::Align::Left, MText::Vertical::Bottom}},
+                {QStringLiteral("BC"), {Text::Align::Center, MText::Vertical::Bottom}},
+                {QStringLiteral("BD"), {Text::Align::Right, MText::Vertical::Bottom}},
+                {QStringLiteral("TL"), {Text::Align::Left, MText::Vertical::Top}},
+                {QStringLiteral("TC"), {Text::Align::Center, MText::Vertical::Top}},
+                {QStringLiteral("TR"), {Text::Align::Right, MText::Vertical::Top}},
+                {QStringLiteral("ML"), {Text::Align::Left, MText::Vertical::Middle}},
+                {QStringLiteral("MR"), {Text::Align::Right, MText::Vertical::Middle}},
+                {QStringLiteral("BL"), {Text::Align::Left, MText::Vertical::Bottom}},
+                {QStringLiteral("BR"), {Text::Align::Right, MText::Vertical::Bottom}},
+            };
+            const auto it = kCodes.find(w);
+            if (it == kCodes.end())
+                return false;
+            text_.align = it->second.first;
+            text_.vertical = it->second.second;
+            toOpposite();
+            return true;
+        }
+        if (step_ != Step::Opposite)
+            return false;
+        if (isAny(w, {"A", "ALTEZZA", "H", "HEIGHT"})) {
+            step_ = Step::Height;
+            engine->setPrompt(t("Specificare altezza <%1>:").arg(gTextHeight));
+        } else if (isAny(w, {"G", "GIUSTIFICA", "J", "JUSTIFY"})) {
+            step_ = Step::Justify;
+            engine->setPrompt(t("Immettere giustificazione [AS/AC/AD/MS/MC/MD/BS/BC/BD] <AS>:"));
+        } else if (isAny(w, {"R", "ROTAZIONE", "ROTATION"})) {
+            step_ = Step::Rotation;
+            engine->setPrompt(t("Specificare angolo di rotazione <%1>:").arg(gTextRotation));
+        } else if (isAny(w, {"L", "LARGHEZZA", "W", "WIDTH"})) {
+            step_ = Step::Width;
+            engine->setPrompt(t("Specificare larghezza (0 = nessun a capo automatico):"));
+        } else {
+            return false;
+        }
+        return true;
+    }
+
+    bool number(double v) override
+    {
+        if (step_ == Step::Height && v > kEps) {
+            gTextHeight = v;
+            toOpposite();
+            return true;
+        }
+        if (step_ == Step::Rotation) {
+            gTextRotation = v;
+            toOpposite();
+            return true;
+        }
+        if (step_ == Step::Width && v >= 0.0) {
+            setup();
+            text_.position = first_;
+            text_.width = v;
+            toContent();
+            return true;
+        }
+        return false;
+    }
+
+    void enter() override
+    {
+        if (step_ == Step::Content) {
+            create();
+        } else if (step_ == Step::First) {
+            engine->finish();
+        } else if (step_ != Step::Opposite) {
+            toOpposite();
+        }
+    }
+
+    bool wantsText() const override { return step_ == Step::Content; }
+
+    void text(const QString& line) override
+    {
+        lines_ << line;
+        engine->setPrompt(t("Immettere testo (Invio a vuoto per terminare):"));
+    }
+
+    void paragraph(const QString& s) override
+    {
+        lines_ = QStringList{s};
+        create();
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (step_ != Step::Opposite)
+            return;
+        const Vec2 dir = polar(1.0, degToRad(gTextRotation));
+        const Vec2 up = perpendicular(dir);
+        const Vec2 d = cursor - first_;
+        const Vec2 a = first_ + dir * dot(d, dir);
+        out.push_back(Polyline({first_, a, cursor, first_ + up * dot(d, up)}, true));
+    }
+
+    std::optional<Vec2> base() const override
+    {
+        return step_ == Step::Rotation ? std::optional<Vec2>(first_) : std::nullopt;
+    }
+
+private:
+    enum class Step { First, Opposite, Height, Justify, Rotation, Width, Content };
+
+    void toOpposite()
+    {
+        step_ = Step::Opposite;
+        engine->setPrompt(t("Specificare angolo opposto o [Altezza/Giustifica/Rotazione/Larghezza]:"));
+    }
+
+    void setup()
+    {
+        text_.height = gTextHeight;
+        text_.rotation = degToRad(gTextRotation);
+    }
+
+    // The attachment point and width from the two corners of the box.
+    void place(Vec2 opposite)
+    {
+        setup();
+        const Vec2 dir = polar(1.0, text_.rotation);
+        const Vec2 up = perpendicular(dir);
+        const double u = dot(opposite - first_, dir);
+        const double v = dot(opposite - first_, up);
+        const double left = std::min(0.0, u);
+        const double top = std::max(0.0, v);
+        text_.width = std::abs(u);
+        const double x = text_.align == Text::Align::Left ? left : text_.align == Text::Align::Center ? left + text_.width / 2.0 : left + text_.width;
+        const double y = text_.vertical == MText::Vertical::Top ? top : text_.vertical == MText::Vertical::Middle ? top - std::abs(v) / 2.0 : top - std::abs(v);
+        text_.position = first_ + dir * x + up * y;
+    }
+
+    void toContent()
+    {
+        step_ = Step::Content;
+        engine->setPrompt(t("Immettere testo (Invio a vuoto per terminare):"));
+        engine->requestTextEditor(t("Testo multilinea"), QString());
+    }
+
+    void create()
+    {
+        text_.content = lines_.join(QLatin1Char('\n')).toStdString();
+        if (!lines_.join(QString()).trimmed().isEmpty())
+            engine->document().add(text_);
+        engine->finish();
+    }
+
+    Step step_ = Step::First;
+    Vec2 first_;
+    MText text_;
+    QStringList lines_;
+};
+
 // Changes the content of texts, or the label of dimensions ("<>" = measured value).
 class TextEditCommand : public Command {
 public:
@@ -1373,6 +1571,10 @@ public:
         QString current;
         if (const auto* tx = std::get_if<Text>(&shape)) {
             current = QString::fromStdString(tx->content);
+        } else if (const auto* m = std::get_if<MText>(&shape)) {
+            current = QString::fromStdString(m->content);
+            engine->requestTextEditor(t("Modifica testo multilinea"), current);
+            current.replace(QLatin1Char('\n'), QLatin1Char(' '));
         } else if (const auto* d = std::get_if<Dimension>(&shape)) {
             current = d->text.empty() ? QStringLiteral("<>") : QString::fromStdString(d->text);
         } else {
@@ -1404,6 +1606,8 @@ public:
     bool wantsObjectPick() const override { return !editing_; }
     bool wantsText() const override { return editing_; }
 
+    void paragraph(const QString& s) override { text(s); }
+
     void text(const QString& s) override
     {
         Document& doc = engine->document();
@@ -1411,6 +1615,8 @@ public:
             Shape shape = e->shape;
             if (auto* tx = std::get_if<Text>(&shape))
                 tx->content = s.toStdString();
+            else if (auto* m = std::get_if<MText>(&shape))
+                m->content = s.toStdString();
             else if (auto* d = std::get_if<Dimension>(&shape))
                 d->text = s.trimmed() == QLatin1String("<>") ? std::string() : s.toStdString();
             doc.replace(target_, shape);
@@ -3506,6 +3712,163 @@ public:
     }
 };
 
+// LAYOUT: the sheets for printing. A new sheet shows the current story,
+// fitted or at the scale given, with a title block.
+class LayoutCommand : public Command {
+public:
+    void start() override
+    {
+        engine->message(layoutList());
+        toOption();
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (step_ == Step::Option) {
+            if (isAny(w, {"N", "NUOVA", "NEW"})) {
+                toName();
+            } else if (isAny(w, {"E", "ELIMINA", "DELETE"})) {
+                step_ = Step::Remove;
+                engine->setPrompt(t("Specificare nome della tavola da eliminare:"));
+            } else if (w == QLatin1String("?")) {
+                engine->message(layoutList());
+            } else {
+                return false;
+            }
+            return true;
+        }
+        if (step_ == Step::Paper) {
+            if (!paperSize(w.toStdString()))
+                return false;
+            paper_ = w.toStdString();
+            toScale();
+            return true;
+        }
+        if (step_ == Step::Scale) {
+            if (isAny(w, {"A", "ADATTA", "F", "FIT"})) {
+                create(0.0);
+                return true;
+            }
+            // 1:50
+            const qsizetype colon = w.indexOf(QLatin1Char(':'));
+            if (colon > 0) {
+                const double a = w.left(colon).toDouble();
+                const double b = w.mid(colon + 1).toDouble();
+                if (a > 0.0 && b > 0.0) {
+                    create(b / a);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    bool number(double v) override
+    {
+        if (step_ != Step::Scale || v <= 0.0)
+            return false;
+        create(v);
+        return true;
+    }
+
+    bool wantsText() const override { return step_ == Step::Name || step_ == Step::Remove; }
+
+    void text(const QString& raw) override
+    {
+        const QString name = raw.trimmed();
+        Document& doc = engine->document();
+        if (step_ == Step::Remove) {
+            if (doc.removeLayout(name.toStdString()))
+                engine->message(t("Tavola %1 eliminata.").arg(name));
+            else
+                engine->message(t("La tavola %1 non esiste.").arg(name));
+            engine->finish();
+            return;
+        }
+        if (doc.layout(name.toStdString())) {
+            engine->message(t("Esiste già una tavola %1.").arg(name));
+            return;
+        }
+        name_ = name;
+        toPaper();
+    }
+
+    void enter() override
+    {
+        switch (step_) {
+        case Step::Option: toName(); break;
+        case Step::Name: name_ = defaultName(); toPaper(); break;
+        case Step::Paper: toScale(); break;
+        case Step::Scale: create(0.0); break;
+        case Step::Remove: engine->finish(); break;
+        }
+    }
+
+private:
+    enum class Step { Option, Name, Paper, Scale, Remove };
+
+    QString layoutList() const
+    {
+        QStringList names;
+        for (const Layout& l : engine->document().layouts())
+            names << QStringLiteral("%1 (%2)").arg(QString::fromStdString(l.name), QString::fromStdString(l.paper));
+        return names.isEmpty() ? t("Il disegno non ha tavole.") : t("Tavole: %1").arg(names.join(QStringLiteral(", ")));
+    }
+
+    QString defaultName() const
+    {
+        for (int i = 1;; ++i) {
+            const QString name = t("Tavola %1").arg(i);
+            if (!engine->document().layout(name.toStdString()))
+                return name;
+        }
+    }
+
+    void toOption()
+    {
+        step_ = Step::Option;
+        engine->setPrompt(t("Immettere un'opzione [Nuova/Elimina/?] <Nuova>:"));
+    }
+
+    void toName()
+    {
+        step_ = Step::Name;
+        engine->setPrompt(t("Specificare nome della tavola <%1>:").arg(defaultName()));
+    }
+
+    void toPaper()
+    {
+        step_ = Step::Paper;
+        engine->setPrompt(t("Specificare formato [A4/A3/A2/A1/A0] <%1>:").arg(QString::fromStdString(paper_)));
+    }
+
+    void toScale()
+    {
+        step_ = Step::Scale;
+        engine->setPrompt(t("Specificare scala 1:N o [Adatta] <Adatta>:"));
+    }
+
+    void create(double scale)
+    {
+        Document& doc = engine->document();
+        const BBox area = doc.extents();
+        const bool landscape = !area.valid() || area.width() >= area.height();
+        Layout layout = makeLayout(name_.toStdString(), paper_, landscape, area, scale, 1.0, doc.currentStory());
+        layout.titleBlock.date = QDate::currentDate().toString(QStringLiteral("dd/MM/yyyy")).toStdString();
+        layout.titleBlock.number = std::to_string(doc.layouts().size() + 1);
+        doc.addLayout(layout);
+        engine->message(t("Tavola %1 creata: %2, scala 1:%3.")
+                            .arg(name_, QString::fromStdString(layout.paper),
+                                 QString::fromStdString(formatMeasurement(layout.viewports.front().scale))));
+        engine->requestLayouts();
+        engine->finish();
+    }
+
+    Step step_ = Step::Option;
+    QString name_;
+    std::string paper_ = "A3";
+};
+
 // ---------------------------------------------------------------- properties
 
 QString linetypeList(const Document& doc)
@@ -4464,6 +4827,7 @@ QString shapeKind(const Shape& shape)
             else if constexpr (std::is_same_v<T, Arc>) return t("ARCO");
             else if constexpr (std::is_same_v<T, Polyline>) return t("POLILINEA");
             else if constexpr (std::is_same_v<T, Text>) return t("TESTO");
+            else if constexpr (std::is_same_v<T, MText>) return t("TESTOM");
             else if constexpr (std::is_same_v<T, Dimension>) return t("QUOTA");
             else if constexpr (std::is_same_v<T, Hatch>) return t("TRATTEGGIO");
             else if constexpr (std::is_same_v<T, Wall>) return t("MURO");
@@ -4515,6 +4879,10 @@ private:
         }
         if (const auto* tx = std::get_if<Text>(&shape))
             return t("\"%1\" in %2, altezza %3").arg(QString::fromStdString(tx->content), xy(tx->position), fmt(tx->height));
+        if (const auto* m = std::get_if<MText>(&shape))
+            return t("\"%1\" in %2, altezza %3, larghezza %4")
+                .arg(QString::fromStdString(m->content).replace(QLatin1Char('\n'), QStringLiteral(" / ")), xy(m->position),
+                     fmt(m->height), fmt(m->width));
         if (const auto* d = std::get_if<Dimension>(&shape))
             return t("misura %1").arg(fmt(d->measurement()));
         if (const auto* h = std::get_if<Hatch>(&shape))
@@ -4805,6 +5173,297 @@ private:
     double rotation_ = 0.0;  // degrees
 };
 
+
+// ---------------------------------------------------------------- sections
+
+// The section or elevation as a block: the cut parts filled and outlined
+// thick, what lies beyond thin, the ground line and the title under it.
+// Its base is the left end of the ground line.
+std::shared_ptr<const Block> sectionBlock(const SectionDrawing& d, const std::string& name)
+{
+    std::vector<BlockItem> items;
+    const Color cutFill{96, 96, 96};
+    for (const Polyline& p : d.cut) {
+        if (p.closed) {
+            BlockItem fill;
+            Hatch h;
+            h.pattern = "SOLID";
+            h.loops = {p};
+            fill.shape = h;
+            fill.color = cutFill;
+            items.push_back(std::move(fill));
+        }
+        BlockItem outline;
+        outline.shape = p;
+        outline.lineweight = 50;
+        items.push_back(std::move(outline));
+    }
+    for (const Line& l : d.beyond) {
+        BlockItem item;
+        item.shape = l;
+        item.lineweight = 18;
+        items.push_back(std::move(item));
+    }
+    BlockItem ground;
+    ground.shape = d.ground;
+    ground.lineweight = 70;
+    items.push_back(std::move(ground));
+    const double width = d.ground.b.x - d.ground.a.x;
+    Text title;
+    title.content = name;
+    title.height = std::clamp(width / 40.0, 150.0, 500.0);
+    title.position = {d.ground.a.x, d.ground.a.y - title.height * 2.5};
+    BlockItem titleItem;
+    titleItem.shape = title;
+    items.push_back(std::move(titleItem));
+    return makeBlock(name, d.ground.a, std::move(items));
+}
+
+// A free block name: "SEZIONE A-A", "SEZIONE B-B"... or "PROSPETTO SUD 2".
+std::string freeBlockName(const Document& doc, const std::function<std::string(int)>& candidate)
+{
+    for (int i = 0;; ++i)
+        if (!doc.block(candidate(i)))
+            return candidate(i);
+}
+
+// Places the drawing as a block whose base goes where the user clicks.
+class SectionPlacement {
+public:
+    bool prepare(const Document& doc, const SectionPlane& plane, const std::string& name, CommandEngine* engine)
+    {
+        const Model3D model = buildingModel(doc);
+        if (model.empty()) {
+            engine->message(t("Il disegno non ha muri, solai o tetti da mostrare."));
+            return false;
+        }
+        const SectionDrawing d = sectionDrawing(model, plane);
+        if (d.empty()) {
+            engine->message(t("Nessun elemento dell'edificio davanti alla linea scelta."));
+            return false;
+        }
+        block_ = sectionBlock(d, name);
+        return true;
+    }
+
+    Insert placed(Vec2 p) const
+    {
+        Insert ref;
+        ref.block = block_;
+        ref.position = p;
+        return ref;
+    }
+
+    void place(CommandEngine* engine, Vec2 p) const
+    {
+        Document& doc = engine->document();
+        doc.defineBlock(block_);
+        doc.add(placed(p));
+        engine->message(t("%1 inserito: si sposta, si copia e si esplode come un blocco.").arg(QString::fromStdString(block_->name)));
+    }
+
+    const std::shared_ptr<const Block>& block() const { return block_; }
+
+private:
+    std::shared_ptr<const Block> block_;
+};
+
+// SECTION: a cut through the building along a line, seen from one side,
+// drawn as a block; the section line goes in the plan with its letter.
+class SectionCommand : public Command {
+public:
+    void start() override { engine->setPrompt(t("Specificare primo punto della linea di sezione:")); }
+
+    bool point(Vec2 p) override
+    {
+        switch (step_) {
+        case Step::First:
+            a_ = p;
+            step_ = Step::Second;
+            engine->setPrompt(t("Specificare secondo punto:"));
+            return true;
+        case Step::Second:
+            if (distance(a_, p) < kEps)
+                return false;
+            b_ = p;
+            step_ = Step::Side;
+            engine->setPrompt(t("Specificare il lato verso cui guardare:"));
+            return true;
+        case Step::Side: {
+            const Vec2 n = lookDirection(p);
+            if (length(n) < kEps)
+                return false;
+            const Document& doc = engine->document();
+            letter_ = freeLetter(doc);
+            plane_.origin = a_;
+            plane_.direction = n;
+            const double xa = sectionX(plane_, a_);
+            const double xb = sectionX(plane_, b_);
+            plane_.from = std::min(xa, xb);
+            plane_.to = std::max(xa, xb);
+            const std::string name = "SEZIONE " + letter_ + "-" + letter_;
+            if (!placement_.prepare(doc, plane_, name, engine)) {
+                engine->finish();
+                return true;
+            }
+            step_ = Step::Place;
+            engine->setPrompt(t("Specificare punto di inserimento della sezione:"));
+            return true;
+        }
+        case Step::Place:
+            addMarker();
+            placement_.place(engine, p);
+            engine->finish();
+            return true;
+        }
+        return false;
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (step_ == Step::Second)
+            out.push_back(Line{a_, cursor});
+        else if (step_ == Step::Side)
+            for (const Shape& s : marker(lookDirection(cursor), "?"))
+                out.push_back(s);
+        else if (step_ == Step::Place)
+            out.push_back(placement_.placed(cursor));
+    }
+
+private:
+    enum class Step { First, Second, Side, Place };
+
+    Vec2 lookDirection(Vec2 side) const
+    {
+        const Vec2 n = perpendicular(normalized(b_ - a_));
+        const double s = dot(side - a_, n);
+        return std::abs(s) < kEps ? Vec2{} : n * (s > 0.0 ? 1.0 : -1.0);
+    }
+
+    static std::string freeLetter(const Document& doc)
+    {
+        for (char c = 'A'; c <= 'Z'; ++c) {
+            const std::string l(1, c);
+            if (!doc.block("SEZIONE " + l + "-" + l))
+                return l;
+        }
+        return freeBlockName(doc, [](int i) { return std::to_string(i + 1); });
+    }
+
+    // The section line, with arrows towards the side seen and the letter
+    // at both ends.
+    std::vector<Shape> marker(Vec2 n, const std::string& letter) const
+    {
+        std::vector<Shape> out;
+        out.push_back(Line{a_, b_});
+        if (length(n) < kEps)
+            return out;
+        const double size = std::clamp(distance(a_, b_) / 10.0, 300.0, 800.0);
+        const Vec2 d = normalized(b_ - a_);
+        for (Vec2 end : {a_, b_}) {
+            const Vec2 tip = end + n * size;
+            out.push_back(Line{end, tip});
+            out.push_back(Line{tip, tip - n * (size * 0.35) + d * (size * 0.2)});
+            out.push_back(Line{tip, tip - n * (size * 0.35) - d * (size * 0.2)});
+            Text label;
+            label.content = letter;
+            label.height = size * 0.6;
+            label.align = Text::Align::Center;
+            const Vec2 outward = end == a_ ? -d : d;
+            label.position = end + outward * (size * 0.5) + n * (size * 0.3) - Vec2{0.0, label.height * 0.5};
+            out.push_back(label);
+        }
+        return out;
+    }
+
+    void addMarker()
+    {
+        for (const Shape& s : marker(plane_.direction, letter_))
+            engine->document().add(s);
+    }
+
+    Step step_ = Step::First;
+    Vec2 a_, b_;
+    SectionPlane plane_;
+    std::string letter_;
+    SectionPlacement placement_;
+};
+
+// ELEVATION: the building seen from one side, drawn as a block.
+class ElevationCommand : public Command {
+public:
+    void start() override
+    {
+        engine->setPrompt(t("Specificare lato [Nord/Sud/Est/Ovest] <Sud>:"));
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (step_ != Step::Side)
+            return false;
+        if (isAny(w, {"N", "NORD", "NORTH"}))
+            choose({0.0, -1.0}, "NORD");
+        else if (isAny(w, {"S", "SUD", "SOUTH"}))
+            choose({0.0, 1.0}, "SUD");
+        else if (isAny(w, {"E", "EST", "EAST"}))
+            choose({-1.0, 0.0}, "EST");
+        else if (isAny(w, {"O", "OVEST", "W", "WEST"}))
+            choose({1.0, 0.0}, "OVEST");
+        else
+            return false;
+        return true;
+    }
+
+    void enter() override
+    {
+        if (step_ == Step::Side)
+            choose({0.0, 1.0}, "SUD");
+        else
+            engine->finish();
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (step_ != Step::Place)
+            return false;
+        placement_.place(engine, p);
+        engine->finish();
+        return true;
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (step_ == Step::Place)
+            out.push_back(placement_.placed(cursor));
+    }
+
+private:
+    enum class Step { Side, Place };
+
+    // `direction`: where the viewer looks, from the side named `side`.
+    void choose(Vec2 direction, const std::string& side)
+    {
+        const Document& doc = engine->document();
+        SectionPlane plane;
+        plane.direction = direction;
+        // In front of the whole drawing.
+        const BBox all = doc.extents();
+        const Vec2 c = all.valid() ? all.center() : Vec2{};
+        const double reach = all.valid() ? all.width() + all.height() + 1000.0 : 1000.0;
+        plane.origin = c - direction * reach;
+        const std::string base = "PROSPETTO " + side;
+        const std::string name = freeBlockName(doc, [&](int i) { return i == 0 ? base : base + " " + std::to_string(i + 1); });
+        if (!placement_.prepare(doc, plane, name, engine)) {
+            engine->finish();
+            return;
+        }
+        step_ = Step::Place;
+        engine->setPrompt(t("Specificare punto di inserimento del prospetto:"));
+    }
+
+    Step step_ = Step::Side;
+    SectionPlacement placement_;
+};
 } // namespace
 
 std::unique_ptr<Command> makeLineCommand() { return std::make_unique<LineCommand>(); }
@@ -4825,6 +5484,7 @@ std::unique_ptr<Command> makeChamferCommand() { return std::make_unique<ChamferC
 std::unique_ptr<Command> makeStretchCommand() { return std::make_unique<StretchCommand>(); }
 std::unique_ptr<Command> makeTextCommand() { return std::make_unique<TextCommand>(); }
 std::unique_ptr<Command> makeTextEditCommand() { return std::make_unique<TextEditCommand>(); }
+std::unique_ptr<Command> makeMTextCommand() { return std::make_unique<MTextCommand>(); }
 std::unique_ptr<Command> makeDimLinearCommand(bool aligned) { return std::make_unique<DimLinearCommand>(aligned); }
 std::unique_ptr<Command> makeDimRadialCommand(bool diameter) { return std::make_unique<DimRadialCommand>(diameter); }
 std::unique_ptr<Command> makeDimScaleCommand() { return std::make_unique<DimScaleCommand>(); }
@@ -4842,6 +5502,9 @@ std::unique_ptr<Command> makeRoofCommand() { return std::make_unique<RoofCommand
 std::unique_ptr<Command> makeView3dCommand() { return std::make_unique<View3dCommand>(); }
 std::unique_ptr<Command> makeZoomCommand() { return std::make_unique<ZoomCommand>(); }
 std::unique_ptr<Command> makeLayerCommand() { return std::make_unique<LayerCommand>(); }
+std::unique_ptr<Command> makeLayoutCommand() { return std::make_unique<LayoutCommand>(); }
+std::unique_ptr<Command> makeSectionCommand() { return std::make_unique<SectionCommand>(); }
+std::unique_ptr<Command> makeElevationCommand() { return std::make_unique<ElevationCommand>(); }
 std::unique_ptr<Command> makeColorCommand() { return std::make_unique<CurrentStyleCommand>(StyleQuestion::Kind::Color); }
 std::unique_ptr<Command> makeLinetypeCommand() { return std::make_unique<CurrentStyleCommand>(StyleQuestion::Kind::Linetype); }
 std::unique_ptr<Command> makeLineweightCommand() { return std::make_unique<CurrentStyleCommand>(StyleQuestion::Kind::Lineweight); }

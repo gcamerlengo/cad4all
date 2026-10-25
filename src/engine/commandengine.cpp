@@ -167,6 +167,12 @@ void CommandEngine::submit(const QString& rawText)
     emit promptChanged(prompt_);
 }
 
+void CommandEngine::submitParagraph(const QString& text)
+{
+    if (current_ && current_->wantsText())
+        dispatch([&](Command& c) { c.paragraph(text); });
+}
+
 void CommandEngine::pickPoint(Vec2 p)
 {
     if (!current_)
@@ -455,6 +461,7 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("JOIN"), {QStringLiteral("UNISCI"), QStringLiteral("J")}, [] { return makeJoinCommand(); });
     add(QStringLiteral("STRETCH"), {QStringLiteral("STIRA"), QStringLiteral("S")}, [] { return makeStretchCommand(); });
     add(QStringLiteral("TEXT"), {QStringLiteral("TESTO"), QStringLiteral("DTEXT"), QStringLiteral("DT")}, [] { return makeTextCommand(); });
+    add(QStringLiteral("MTEXT"), {QStringLiteral("TESTOM"), QStringLiteral("MT"), QStringLiteral("T")}, [] { return makeMTextCommand(); });
     add(QStringLiteral("TEXTEDIT"), {QStringLiteral("MODIFICATESTO"), QStringLiteral("DDEDIT"), QStringLiteral("ED")}, [] { return makeTextEditCommand(); });
     add(QStringLiteral("DIMLINEAR"), {QStringLiteral("QUOTALIN"), QStringLiteral("QUOTALINEARE"), QStringLiteral("DLI")}, [] { return makeDimLinearCommand(false); });
     add(QStringLiteral("DIMALIGNED"), {QStringLiteral("QUOTALLINEATA"), QStringLiteral("DAL")}, [] { return makeDimLinearCommand(true); });
@@ -479,6 +486,9 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("ZOOM"), {QStringLiteral("Z")}, [] { return makeZoomCommand(); });
     add(QStringLiteral("PLOT"), {QStringLiteral("STAMPA"), QStringLiteral("PRINT")}, [] { return makePlotCommand(); });
     add(QStringLiteral("LAYER"), {QStringLiteral("LA")}, [] { return makeLayerCommand(); });
+    add(QStringLiteral("SECTION"), {QStringLiteral("SEZIONE"), QStringLiteral("SZ")}, [] { return makeSectionCommand(); });
+    add(QStringLiteral("ELEVATION"), {QStringLiteral("PROSPETTO"), QStringLiteral("PS")}, [] { return makeElevationCommand(); });
+    add(QStringLiteral("LAYOUT"), {QStringLiteral("TAVOLA"), QStringLiteral("LO")}, [] { return makeLayoutCommand(); });
     add(QStringLiteral("COLOR"), {QStringLiteral("COLORE"), QStringLiteral("COL")}, [] { return makeColorCommand(); });
     add(QStringLiteral("LINETYPE"), {QStringLiteral("TIPOLINEA"), QStringLiteral("LT")}, [] { return makeLinetypeCommand(); });
     add(QStringLiteral("LWEIGHT"), {QStringLiteral("SPESSLINEA"), QStringLiteral("LW")}, [] { return makeLineweightCommand(); });

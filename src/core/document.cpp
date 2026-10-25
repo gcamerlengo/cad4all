@@ -22,6 +22,7 @@ void Document::reset()
     nextStory_ = 1;
     currentStory_ = addStory({0, "Piano terra", 0.0, 3000.0});
     blocks_.clear();
+    layouts_.clear();
     entities_.clear();
     nextId_ = 1;
     clearHistory();
@@ -159,6 +160,46 @@ int Document::lineweightOf(const Entity& e) const
         return e.lineweight;
     const Layer* l = layer(e.layer);
     return l ? l->lineweight : kLineweightDefault;
+}
+
+const Layout* Document::layout(const std::string& name) const
+{
+    auto it = std::find_if(layouts_.begin(), layouts_.end(), [&](const Layout& l) { return l.name == name; });
+    return it == layouts_.end() ? nullptr : &*it;
+}
+
+bool Document::addLayout(const Layout& value)
+{
+    if (value.name.empty() || layout(value.name))
+        return false;
+    layouts_.push_back(value);
+    modified_ = true;
+    touch();
+    return true;
+}
+
+bool Document::updateLayout(const std::string& name, const Layout& value)
+{
+    auto it = std::find_if(layouts_.begin(), layouts_.end(), [&](const Layout& l) { return l.name == name; });
+    if (it == layouts_.end() || value.name.empty())
+        return false;
+    const Layout* same = layout(value.name);
+    if (same && same != &*it)
+        return false;
+    *it = value;
+    modified_ = true;
+    touch();
+    return true;
+}
+
+bool Document::removeLayout(const std::string& name)
+{
+    const auto removed = std::erase_if(layouts_, [&](const Layout& l) { return l.name == name; });
+    if (removed == 0)
+        return false;
+    modified_ = true;
+    touch();
+    return true;
 }
 
 std::shared_ptr<const Block> Document::block(const std::string& name) const

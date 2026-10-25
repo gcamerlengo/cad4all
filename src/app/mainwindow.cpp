@@ -6,6 +6,7 @@
 #include "icons.h"
 #include "infobox.h"
 #include "layerpanel.h"
+#include "layoutpanel.h"
 #include "navigator.h"
 #include "ribbon.h"
 #include "stylecontrols.h"
@@ -106,6 +107,13 @@ MainWindow::MainWindow()
     layerDock_->setWidget(layerPanel_);
     addDockWidget(Qt::RightDockWidgetArea, layerDock_);
 
+    layoutPanel_ = new LayoutPanel(engine_, [this] { return view_->visibleArea(); }, this);
+    layoutDock_ = new QDockWidget(tr("Tavole"), this);
+    layoutDock_->setObjectName(QStringLiteral("layoutDock"));
+    layoutDock_->setWidget(layoutPanel_);
+    addDockWidget(Qt::RightDockWidgetArea, layoutDock_);
+    layoutDock_->hide();
+
     navigator_ = new Navigator(doc_, this);
     navigatorDock_ = new QDockWidget(tr("Navigatore"), this);
     navigatorDock_->setObjectName(QStringLiteral("navigatorDock"));
@@ -145,6 +153,14 @@ MainWindow::MainWindow()
             showView3d();
     });
     connect(&engine_, &CommandEngine::view3dRequested, this, &MainWindow::showView3d);
+    connect(&engine_, &CommandEngine::textEditorRequested, this, [this](const QString& title, const QString& text) {
+        // Scripts type their text; otherwise the editor opens once the
+        // command has set its prompt, so it does not run inside the command.
+        if (!runningScript_)
+            QTimer::singleShot(0, this, [this, title, text] { editParagraph(title, text); });
+    });
+    connect(&engine_, &CommandEngine::layoutsRequested, this, &MainWindow::showLayouts);
+    connect(layoutPanel_, &LayoutPanel::message, commandLine_, &CommandLine::appendMessage);
     connect(&engine_, &CommandEngine::layerManagerRequested, this, [this] {
         layerDock_->show();
         layerDock_->raise();
@@ -366,6 +382,7 @@ void MainWindow::createActions()
     named(QStringLiteral("exportDxf"), QStringLiteral("export"), tr("Esporta &DXF..."), [this] { exportDxf(); });
     named(QStringLiteral("exportModel"), QStringLiteral("view3d"), tr("Esporta &modello 3D (OBJ, STL)..."), [this] { exportModel(); });
     named(QStringLiteral("print"), QStringLiteral("print"), tr("S&tampa..."), [this] { plot(); }, QKeySequence::Print);
+    named(QStringLiteral("layouts"), QStringLiteral("sheet"), tr("&Tavole..."), [this] { showLayouts(); })->setToolTip(tr("Tavole di stampa con cartiglio (TAVOLA)"));
     named(QStringLiteral("script"), QStringLiteral("script"), tr("Esegui sc&ript..."), [this] { runScriptDialog(); });
     named(QStringLiteral("undo"), QStringLiteral("undo"), tr("&Annulla"), [this] { engine_.run(QStringLiteral("U")); }, QKeySequence::Undo);
     named(QStringLiteral("redo"), QStringLiteral("redo"), tr("&Ripristina"), [this] { engine_.run(QStringLiteral("REDO")); }, QKeySequence::Redo);
@@ -394,6 +411,8 @@ void MainWindow::createActions()
     commandAction(tr("Solaio"), QStringLiteral("SLAB"), icons::make(QStringLiteral("slab")));
     commandAction(tr("Tetto"), QStringLiteral("ROOF"), icons::make(QStringLiteral("roof")));
     commandAction(tr("Scala"), QStringLiteral("STAIR"), icons::make(QStringLiteral("stair")));
+    commandAction(tr("Sezione"), QStringLiteral("SECTION"), icons::make(QStringLiteral("section")));
+    commandAction(tr("Prospetto"), QStringLiteral("ELEVATION"), icons::make(QStringLiteral("elevation")));
     commandAction(tr("Modifica muro"), QStringLiteral("WALLEDIT"));
     commandAction(tr("Piani..."), QStringLiteral("STORY"), icons::make(QStringLiteral("story")));
     commandAction(tr("Cancella"), QStringLiteral("ERASE"), icons::make(QStringLiteral("erase")));
@@ -421,6 +440,7 @@ void MainWindow::createActions()
     commandAction(tr("Area"), QStringLiteral("AREA"));
     commandAction(tr("Lista"), QStringLiteral("LIST"));
     commandAction(tr("Testo"), QStringLiteral("TEXT"), icons::make(QStringLiteral("text")));
+    commandAction(tr("Testo multilinea"), QStringLiteral("MTEXT"), icons::make(QStringLiteral("mtext")))->setIconText(tr("Multilinea"));
     commandAction(tr("Modifica testo"), QStringLiteral("TEXTEDIT"));
     commandAction(tr("Quota lineare"), QStringLiteral("DIMLINEAR"), icons::make(QStringLiteral("dimLinear")));
     commandAction(tr("Quota allineata"), QStringLiteral("DIMALIGNED"), icons::make(QStringLiteral("dimAligned")));
@@ -442,13 +462,14 @@ void MainWindow::createActions()
     const auto drawActions = actions({"LINE", "PLINE", "CIRCLE", "ARC", "RECTANG", "ELLIPSE", "SPLINE", "HATCH"});
     const auto architectureActions = actions({"WALL", "DOOR", "WINDOW", "SLAB", "ROOF", "STAIR"});
     const auto modifyActions = actions({"ERASE", "MOVE", "COPY", "ROTATE", "SCALE", "MIRROR", "OFFSET", "TRIM", "EXTEND", "FILLET", "CHAMFER", "STRETCH", "ARRAY", "EXPLODE", "JOIN"});
-    const auto annotateActions = actions({"TEXT", "DIMLINEAR", "DIMALIGNED", "DIMRADIUS", "DIMDIAMETER"});
+    const auto annotateActions = actions({"TEXT", "MTEXT", "DIMLINEAR", "DIMALIGNED", "DIMRADIUS", "DIMDIAMETER"});
 
     // Menus
     QMenu* file = menuBar()->addMenu(tr("&File"));
     file->addActions(actions({"new", "open", "save", "saveAs", "exportDxf", "exportModel"}));
     file->addSeparator();
     file->addAction(named_.value(QStringLiteral("print")));
+    file->addAction(named_.value(QStringLiteral("layouts")));
     file->addSeparator();
     file->addAction(named_.value(QStringLiteral("script")));
     file->addSeparator();
@@ -475,6 +496,8 @@ void MainWindow::createActions()
     architecture->addAction(command(QStringLiteral("WALLEDIT")));
     architecture->addSeparator();
     architecture->addActions(actions({"STORY", "storyUp", "storyDown"}));
+    architecture->addSeparator();
+    architecture->addActions(actions({"SECTION", "ELEVATION"}));
     architecture->addSeparator();
     architecture->addAction(named_.value(QStringLiteral("view3d")));
 
@@ -575,6 +598,7 @@ void MainWindow::createActions()
     }
     viewMenu->addSeparator();
     viewMenu->addAction(layerDock_->toggleViewAction());
+    viewMenu->addAction(layoutDock_->toggleViewAction());
     viewMenu->addAction(view3dDock_->toggleViewAction());
     viewMenu->addAction(navigatorDock_->toggleViewAction());
     viewMenu->addAction(infoDock_->toggleViewAction());
@@ -651,6 +675,8 @@ void MainWindow::createRibbon()
     large(p, {"WALL", "DOOR", "WINDOW", "SLAB", "ROOF", "STAIR"});
     p = ribbon_->addPanel(arch, tr("Modifica"));
     small(p, {"WALLEDIT"});
+    p = ribbon_->addPanel(arch, tr("Viste"));
+    large(p, {"SECTION", "ELEVATION"});
     p = ribbon_->addPanel(arch, tr("Piani"));
     large(p, {"STORY"});
     p->addSmall(makeStoryCombo(p));
@@ -660,7 +686,7 @@ void MainWindow::createRibbon()
 
     QWidget* annotatePage = ribbon_->addPage(tr("Annota"));
     p = ribbon_->addPanel(annotatePage, tr("Testo"));
-    large(p, {"TEXT"});
+    large(p, {"MTEXT", "TEXT"});
     small(p, {"TEXTEDIT", "LEADER"});
     p = ribbon_->addPanel(annotatePage, tr("Quote"));
     large(p, {"DIMLINEAR", "DIMALIGNED"});
@@ -683,7 +709,7 @@ void MainWindow::createRibbon()
 
     QWidget* output = ribbon_->addPage(tr("Output"));
     p = ribbon_->addPanel(output, tr("Stampa"));
-    large(p, {"print"});
+    large(p, {"print", "layouts"});
     p = ribbon_->addPanel(output, tr("Esporta"));
     large(p, {"exportDxf", "exportModel"});
     p = ribbon_->addPanel(output, tr("Script"));
@@ -717,8 +743,10 @@ void MainWindow::createToolbox()
     // ArchiCAD's Object tool places library parts; here they are the blocks.
     toolbox_->addTool(tr("Oggetto"), QStringLiteral("INSERT"), icons::make(QStringLiteral("insertBlock")));
     toolbox_->addSection(tr("Documentazione"));
+    toolbox_->addTool(tr("Sezione"), QStringLiteral("SECTION"), icons::make(QStringLiteral("section")));
+    toolbox_->addTool(tr("Prospetto"), QStringLiteral("ELEVATION"), icons::make(QStringLiteral("elevation")));
     toolbox_->addTool(tr("Quota"), QStringLiteral("DIMLINEAR"), icons::make(QStringLiteral("dimLinear")));
-    toolbox_->addTool(tr("Testo"), QStringLiteral("TEXT"), icons::make(QStringLiteral("text")));
+    toolbox_->addTool(tr("Testo"), QStringLiteral("MTEXT"), icons::make(QStringLiteral("mtext")));
     toolbox_->addTool(tr("Tratteggio"), QStringLiteral("HATCH"), icons::make(QStringLiteral("hatch")));
     toolbox_->addTool(tr("Linea"), QStringLiteral("LINE"), icons::make(QStringLiteral("line")));
     toolbox_->addTool(tr("Polilinea"), QStringLiteral("PLINE"), icons::make(QStringLiteral("polyline")));
@@ -736,6 +764,30 @@ void MainWindow::createToolbox()
     addDockWidget(Qt::LeftDockWidgetArea, toolboxDock_);
     toolboxDock_->hide();
     named_.value(QStringLiteral("panels"))->menu()->addAction(toolboxDock_->toggleViewAction());
+}
+
+void MainWindow::editParagraph(const QString& title, const QString& text)
+{
+    if (!engine_.wantsText())
+        return;
+    QDialog dialog(this);
+    dialog.setWindowTitle(title);
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* hint = new QLabel(tr("Invio va a capo; le righe lunghe vanno a capo da sole alla larghezza del riquadro."), &dialog);
+    hint->setWordWrap(true);
+    layout->addWidget(hint);
+    auto* editor = new QPlainTextEdit(text, &dialog);
+    editor->setMinimumSize(420, 180);
+    layout->addWidget(editor);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    editor->setFocus();
+    // Cancel leaves the command waiting for lines on the command line.
+    if (dialog.exec() == QDialog::Accepted && engine_.wantsText())
+        engine_.submitParagraph(editor->toPlainText());
+    commandLine_->input()->setFocus();
 }
 
 void MainWindow::insertBlock()
@@ -875,7 +927,10 @@ bool MainWindow::exportTo(const QString& path)
 {
     QString error;
     bool saved = false;
-    if (isPdf(path)) {
+    if (isPdf(path) && !doc_.layouts().empty()) {
+        // The drawing's sheets, one per page.
+        saved = writeLayoutsPdf(path, doc_, doc_.layouts(), true, &error);
+    } else if (isPdf(path)) {
         // The whole drawing fitted on an A3 sheet, in black and white.
         PlotSettings settings;
         settings.paper = QPageSize::A3;
@@ -890,6 +945,12 @@ bool MainWindow::exportTo(const QString& path)
     if (!saved)
         commandLine_->appendMessage(tr("Impossibile salvare %1: %2").arg(path, error));
     return saved;
+}
+
+void MainWindow::showLayouts()
+{
+    layoutDock_->show();
+    layoutDock_->raise();
 }
 
 void MainWindow::plot()
@@ -1065,6 +1126,7 @@ bool MainWindow::runScript(const QString& path)
     content.replace(QLatin1String("\r\n"), QLatin1String("\n"));
     if (content.endsWith(QLatin1Char('\n')))
         content.chop(1);
+    runningScript_ = true;
     // As in AutoCAD scripts, each space and each line break is an Enter.
     for (const QString& line : content.split(QLatin1Char('\n'))) {
         if (line.trimmed().startsWith(QLatin1Char(';')))
@@ -1079,6 +1141,7 @@ bool MainWindow::runScript(const QString& path)
             engine_.submit(tokens[i]);
         }
     }
+    runningScript_ = false;
     return true;
 }
 

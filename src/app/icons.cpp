@@ -165,6 +165,24 @@ QIcon make(const QString& name)
             p.drawLine(QPointF(3, 20.5), QPointF(21, 20.5));
             p.drawLine(QPointF(21, 3), QPointF(21, 20.5));
         };
+    } else if (name == QLatin1String("section")) {
+        // A house cut by a section line with its arrows.
+        painter = [](QPainter& p) {
+            p.drawPolyline(QPolygonF({{5, 21}, {5, 11}, {12, 5}, {19, 11}, {19, 21}}));
+            accentPen(p);
+            p.drawLine(QPointF(12, 2.5), QPointF(12, 22));
+            p.drawLine(QPointF(12, 2.5), QPointF(16, 2.5));
+            p.drawLine(QPointF(12, 22), QPointF(16, 22));
+        };
+    } else if (name == QLatin1String("elevation")) {
+        // A facade with its windows over the ground line.
+        painter = [](QPainter& p) {
+            p.drawPolyline(QPolygonF({{4.5, 19.5}, {4.5, 10}, {12, 4}, {19.5, 10}, {19.5, 19.5}}));
+            p.drawRect(QRectF(7.5, 12, 3.5, 3.5));
+            p.drawRect(QRectF(13, 12, 3.5, 7.5));
+            accentPen(p);
+            p.drawLine(QPointF(2, 19.5), QPointF(22, 19.5));
+        };
     } else if (name == QLatin1String("story")) {
         painter = [](QPainter& p) {
             p.drawRect(QRectF(4.5, 3.5, 15, 17));
@@ -279,6 +297,17 @@ QIcon make(const QString& name)
             dashed.setWidthF(1.0);
             p.setPen(dashed);
             p.drawRect(QRectF(13, 4, 10, 19));
+        };
+    } else if (name == QLatin1String("mtext")) {
+        // A paragraph: a capital A and lines of text.
+        painter = [](QPainter& p) {
+            p.drawPolyline(QPolygonF({{3, 12}, {6.5, 3}, {10, 12}}));
+            p.drawLine(QPointF(4.5, 9), QPointF(8.5, 9));
+            accentPen(p);
+            p.drawLine(QPointF(13, 5), QPointF(21, 5));
+            p.drawLine(QPointF(13, 10), QPointF(21, 10));
+            p.drawLine(QPointF(3, 15), QPointF(21, 15));
+            p.drawLine(QPointF(3, 20), QPointF(16, 20));
         };
     } else if (name == QLatin1String("text")) {
         painter = [](QPainter& p) {
@@ -446,6 +475,14 @@ QIcon make(const QString& name)
             p.drawPolygon(QPolygonF({{3.5, 8.5}, {20.5, 8.5}, {20.5, 16.5}, {17, 16.5}, {17, 13}, {7, 13}, {7, 16.5}, {3.5, 16.5}}));
             accentPen(p);
             p.drawRect(QRectF(7, 13, 10, 7.5));
+        };
+    } else if (name == QLatin1String("sheet")) {
+        // A landscape sheet with its frame and the title block.
+        painter = [](QPainter& p) {
+            p.drawRect(QRectF(2.5, 5, 19, 14));
+            accentPen(p);
+            p.drawRect(QRectF(5, 7.5, 9, 9));
+            p.drawRect(QRectF(15, 13, 4.5, 3.5));
         };
     } else if (name == QLatin1String("export")) {
         painter = [](QPainter& p) {

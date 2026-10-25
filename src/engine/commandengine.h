@@ -33,6 +33,9 @@ public:
     // --- Input from the user interface ---
     // Text typed on the command line (Enter or Space pressed).
     void submit(const QString& text);
+    // A whole paragraph, possibly of several lines, from the text editor
+    // the active command asked for with textEditorRequested().
+    void submitParagraph(const QString& text);
     // Starts a command by name or alias (LINE, LINEA, L...).
     bool run(const QString& name);
     // A point picked in the view, already snapped and constrained.
@@ -105,8 +108,12 @@ public:
     void finish();
     void requestZoomExtents() { emit zoomExtentsRequested(); }
     void requestLayerManager() { emit layerManagerRequested(); }
+    void requestLayouts() { emit layoutsRequested(); }
     void requestPlot() { emit plotRequested(); }
     void requestView3d() { emit view3dRequested(); }
+    // Asks the interface for a text editor showing `text`; without one the
+    // lines are typed on the command line.
+    void requestTextEditor(const QString& title, const QString& text) { emit textEditorRequested(title, text); }
 
 signals:
     void promptChanged(const QString& prompt);
@@ -115,8 +122,10 @@ signals:
     void selectionChanged();
     void zoomExtentsRequested();
     void layerManagerRequested();
+    void layoutsRequested();
     void plotRequested();
     void view3dRequested();
+    void textEditorRequested(const QString& title, const QString& text);
     void settingsChanged();
 
 private:
@@ -172,6 +181,8 @@ public:
     virtual bool wantsText() const { return false; }
     // A line of free text, when wantsText() is true. Empty text goes to enter().
     virtual void text(const QString&) {}
+    // Text of one or more lines from the text editor.
+    virtual void paragraph(const QString& s) { text(s); }
     virtual void preview(Vec2, std::vector<Shape>&) const {}
     // Point the rubber band starts from (also used by ortho).
     virtual std::optional<Vec2> base() const { return std::nullopt; }

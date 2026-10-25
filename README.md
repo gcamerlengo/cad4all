@@ -67,7 +67,8 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | INSERISCI / INSERT | I | nome del blocco (Invio = l'ultimo), poi Scala e Rotazione o il punto di inserimento |
 | UNISCI / JOIN | J | linee, archi e polilinee con le estremità in comune diventano una polilinea |
 | TESTO / TEXT | DT | Giustifica (Sinistra/Centro/Destra); Spazio scrive uno spazio, Invio va a capo, Invio a vuoto termina |
-| MODIFICATESTO / TEXTEDIT | ED | cambia un testo o il testo di una quota (`<>` = valore misurato) |
+| TESTOM / MTEXT | MT, T | testo su più righe: due angoli del riquadro (le righe vanno a capo alla sua larghezza) o Altezza, Giustifica (AS/AC/AD/MS/MC/MD/BS/BC/BD), Rotazione, Larghezza (0 = nessun a capo); il testo si scrive in una finestra, o riga per riga sulla riga di comando |
+| MODIFICATESTO / TEXTEDIT | ED | cambia un testo, un testo multilinea (nella finestra) o il testo di una quota (`<>` = valore misurato) |
 | QUOTALIN / DIMLINEAR | DLI | Invio per selezionare una linea; Testo, Orizzontale, Verticale, Ruotato |
 | QUOTALLINEATA / DIMALIGNED | DAL | Invio per selezionare una linea; Testo |
 | QUOTARAGGIO / DIMRADIUS | DRA | Testo |
@@ -86,6 +87,9 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | CAMBIAPROP / CHPROP | CH | Colore, LAyer, TIpolinea, SPessore degli oggetti selezionati |
 | CORRISPPROP / MATCHPROP | MA | oggetto di origine, poi oggetti di destinazione e Invio |
 | STAMPA / PLOT | | apre la finestra di stampa (anche Ctrl+P) |
+| SEZIONE / SECTION | SZ | sezione dell'edificio lungo una linea: parti tagliate piene, il resto senza linee nascoste; inserita come blocco, con la linea di sezione in pianta |
+| PROSPETTO / ELEVATION | PS | prospetto Nord, Sud, Est o Ovest dell'edificio, inserito come blocco |
+| TAVOLA / LAYOUT | LO | crea (formato, scala 1:N o adattata) o elimina le tavole di stampa con cartiglio |
 | ANNULLA / UNDO | U | (anche Ctrl+Z) |
 | RIPRISTINA / REDO | | (anche Ctrl+Y) |
 
@@ -107,7 +111,7 @@ Gli installatori si scaricano dalla pagina Releases del progetto, oppure dagli a
 
 Gli installatori non sono ancora firmati: alla prima apertura Windows mostra "PC protetto da Windows" (Ulteriori informazioni > Esegui comunque) e macOS chiede di confermare l'apertura in Impostazioni di Sistema > Privacy e sicurezza > Apri comunque. Chi prova il programma trova i passi e il modo di segnalare i problemi nella [guida per i tester](docs/tester.md). Con i certificati di Apple e Microsoft questi avvisi spariscono.
 
-Per pubblicare una versione: su GitHub, Releases > Draft a new release, tag nuovo `v0.1.0` (o la versione scritta in `CMakeLists.txt`), Publish release. In una ventina di minuti GitHub Actions aggiunge i tre installatori alla release. Funziona anche con `git push origin v0.1.0`.
+Per pubblicare una versione: su GitHub, Releases > Draft a new release, tag nuovo `v0.2.0` (o la versione scritta in `CMakeLists.txt`), Publish release. In una ventina di minuti GitHub Actions aggiunge i tre installatori alla release. Funziona anche con `git push origin v0.2.0`.
 
 ## Compilare
 
@@ -131,9 +135,9 @@ Per provare uno script: `CAD4All --script docs/esempi/pianta.scr` oppure `docs/e
 File > Apri legge i DWG di AutoCAD dalla versione R14 alla 2018 e successive grazie a [LibreDWG](https://www.gnu.org/software/libredwg/) (GPL 3), con gli stessi oggetti del DXF. Il DWG non viene mai sovrascritto: Salva chiede dove salvare il disegno in `.c4a` o `.dxf`.
 
 
-File > Apri legge i DXF di qualsiasi versione salvati da AutoCAD o da altri CAD: linee, cerchi, archi, polilinee (anche con archi), testi e testi multilinea, quote, tratteggi (anche con motivi che CAD4All non ha), ellissi e spline (convertite in polilinee), solidi, direttrici e blocchi (che restano blocchi; gli attributi diventano testi e i blocchi anonimi sono esplosi), con i layer e i loro colori. Quello che non viene ancora letto (per esempio i solidi 3D) è elencato sulla riga di comando dopo l'apertura.
+File > Apri legge i DXF di qualsiasi versione salvati da AutoCAD o da altri CAD: linee, cerchi, archi, polilinee (anche con archi), testi e testi multilinea (che restano multilinea), quote, tratteggi (anche con motivi che CAD4All non ha), ellissi e spline (convertite in polilinee), solidi, direttrici e blocchi (che restano blocchi; gli attributi diventano testi e i blocchi anonimi sono esplosi), con i layer e i loro colori. Quello che non viene ancora letto (per esempio i solidi 3D) è elencato sulla riga di comando dopo l'apertura.
 
-File > Salva con estensione `.dxf` o File > Esporta DXF scrivono un DXF R12, che si apre in ogni CAD; le quote restano quote, i blocchi restano blocchi, i tratteggi diventano blocchi di linee come in AutoCAD R12 (si vedono uguali ma non si modificano più come tratteggi). Da riga di comando: `CAD4All --script disegno.scr --export disegno.dxf`, oppure `CAD4All disegno.dwg --export disegno.dxf` per convertire un DWG.
+File > Salva con estensione `.dxf` o File > Esporta DXF scrivono un DXF R12, che si apre in ogni CAD; le quote restano quote, i blocchi restano blocchi, i testi multilinea diventano un testo per riga, i tratteggi diventano blocchi di linee come in AutoCAD R12 (si vedono uguali ma non si modificano più come tratteggi). Da riga di comando: `CAD4All --script disegno.scr --export disegno.dxf`, oppure `CAD4All disegno.dwg --export disegno.dxf` per convertire un DWG.
 
 ![Polilinee con archi, raccordi e cime](docs/immagini/polilinee.png)
 
@@ -182,6 +186,12 @@ Selezionando un solo muro, solaio, tetto o scala l'Info Box mostra i suoi valori
 
 ![Interfaccia come ArchiCAD: strumenti, Info Box, navigatore, pianta e 3D affiancate](docs/immagini/interfaccia-archicad.png)
 
+## Sezioni e prospetti
+
+SEZIONE (Architettura > Sezione) chiede la linea di sezione e il lato verso cui guardare: taglia il modello 3D con un piano verticale, riempie le parti tagliate (muri, solai, tetti) e disegna quello che si vede oltre con le linee nascoste tolte, solo tra gli estremi della linea. PROSPETTO fa lo stesso da Nord, Sud, Est o Ovest su tutto l'edificio. Il disegno si inserisce dove si fa clic come un blocco ("SEZIONE A-A", "PROSPETTO SUD"), con la linea di terra e il titolo, e si sposta, si mette in una tavola o si esplode; la linea di sezione resta in pianta con le frecce e le lettere. L'esempio è `docs/esempi/sezioni.scr`.
+
+![Prospetto sud e sezione A-A della casa a due piani](docs/immagini/sezioni.png)
+
 ## Esportare il modello 3D
 
 File > Esporta modello 3D salva l'edificio in OBJ (con i colori dei materiali in un file .mtl accanto, per Blender, SketchUp e i programmi di rendering) o in STL binario per la stampa 3D. Le misure sono quelle del disegno, di solito millimetri. Da riga di comando: `CAD4All --script casa.scr --export casa.obj`.
@@ -195,6 +205,8 @@ TRATTEGGIO (alias H) chiede un punto interno: il contorno chiuso più piccolo at
 ## Stampa e PDF
 
 File > Stampa (Ctrl+P, o il comando STAMPA) stampa su una stampante o salva un PDF: formato da A4 ad A0, orientamento, estensioni o vista corrente, scala adattata al foglio o 1:50, 1:100 e così via con l'unità del disegno, spessore delle linee e bianco e nero, con l'anteprima del foglio. Da riga di comando `--export disegno.pdf` salva un PDF A3 in bianco e nero adattato al foglio.
+
+Le **tavole** (File > Tavole, Output > Tavole o il comando TAVOLA) sono fogli da A4 ad A0 con cornice e cartiglio (titolo, progetto, scala, data, numero della tavola e disegnatore) e una finestra sul disegno in scala, che mostra un piano a scelta. Il pannello Tavole ne mostra l'anteprima, le modifica (formato, orientamento, area, scala, unità, piano e cartiglio), le esporta tutte in un PDF di più pagine o le stampa. Si salvano nel `.c4a`; se il disegno ha tavole, `--export disegno.pdf` le scrive una per pagina.
 
 ## Struttura
 

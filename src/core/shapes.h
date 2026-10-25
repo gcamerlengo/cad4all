@@ -71,6 +71,23 @@ struct Text {
     Align align = Align::Left;
 };
 
+// Paragraph text (AutoCAD's MTEXT): lines separated by '\n', each wrapped
+// at `width` (0: no wrapping). `position` is the attachment point, at the
+// top, middle or bottom of the paragraph and at its left, centre or right
+// as `align` says. Lines are `lineSpacing` times 5/3 of the height apart.
+struct MText {
+    enum class Vertical { Top, Middle, Bottom };
+
+    Vec2 position;
+    double height = 2.5;
+    double width = 0.0;
+    double rotation = 0.0;  // radians, counter-clockwise
+    std::string content;
+    Text::Align align = Text::Align::Left;
+    Vertical vertical = Vertical::Top;
+    double lineSpacing = 1.0;
+};
+
 // Dimension. Its lines, arrows and label are derived from the definition
 // points by dimensionGeometry(), so moving or scaling it keeps it consistent.
 struct Dimension {
@@ -205,7 +222,7 @@ struct Insert {
     double rotation = 0.0;  // radians, counter-clockwise
 };
 
-using Shape = std::variant<Line, Circle, Arc, Polyline, Text, Dimension, Hatch, Wall, Slab, Roof, Stair, Insert>;
+using Shape = std::variant<Line, Circle, Arc, Polyline, Text, MText, Dimension, Hatch, Wall, Slab, Roof, Stair, Insert>;
 
 // Arc of a polyline segment from `from` to `to`: always counter-clockwise, so
 // a negative bulge gives an arc from `to` to `from`.
@@ -254,6 +271,9 @@ bool crossesBox(const Shape& shape, const BBox& box);
 double estimatedTextWidth(const Text& text);
 // Corners of the text box, counter-clockwise from the bottom left.
 std::array<Vec2, 4> textCorners(const Text& text);
+// The lines a paragraph text draws, wrapped at its width with the estimated
+// character widths and placed from its attachment point. Empty lines are left out.
+std::vector<Text> textLines(const MText& text);
 
 // What a dimension draws: lines, filled arrowheads (tip first) and its label.
 struct DimensionGeometry {

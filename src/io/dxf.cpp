@@ -581,36 +581,22 @@ private:
             if (g.code == 3)
                 raw += g.value;
         raw += r.str(1);
-        const QStringList lines = mtextLines(raw);
-        const double height = r.num(40, 2.5);
-        double rotation = degToRad(r.num(50));
+        MText m;
+        m.content = mtextLines(raw).join(QLatin1Char('\n')).toStdString();
+        m.position = r.point(10);
+        m.height = r.num(40, 2.5);
+        m.width = std::max(0.0, r.num(41));
+        m.rotation = degToRad(r.num(50));
         if (r.find(11))
-            rotation = angleOf(r.point(11));
+            m.rotation = angleOf(r.point(11));
+        m.lineSpacing = r.num(44, 1.0) > 0.0 ? r.num(44, 1.0) : 1.0;
+        // Attachment 1..9: top, middle, bottom rows of left, centre, right.
         const int attach = std::clamp(r.integer(71, 1), 1, 9);
-        const Text::Align align = (attach - 1) % 3 == 0 ? Text::Align::Left
-                                : (attach - 1) % 3 == 1 ? Text::Align::Center
-                                                        : Text::Align::Right;
-        const double spacing = height * 1.667 * r.num(44, 1.0);
-        const double total = height + spacing * static_cast<double>(lines.size() - 1);
-        // Baseline of the first line from the attachment row (top, middle, bottom).
-        const int row = (attach - 1) / 3;
-        const double firstBelowTop = height;
-        const double topOffset = row == 0 ? 0.0 : row == 1 ? total / 2.0 : total;
-        const Vec2 dir = polar(1.0, rotation);
-        const Vec2 up = perpendicular(dir);
-        Vec2 baseline = r.point(10) + up * (topOffset - firstBelowTop);
-        for (const QString& line : lines) {
-            if (!line.trimmed().isEmpty()) {
-                Text t;
-                t.position = baseline;
-                t.height = height;
-                t.rotation = rotation;
-                t.align = align;
-                t.content = line.toStdString();
-                add(layer, t, xf);
-            }
-            baseline = baseline - up * spacing;
-        }
+        m.align = (attach - 1) % 3 == 0 ? Text::Align::Left : (attach - 1) % 3 == 1 ? Text::Align::Center : Text::Align::Right;
+        m.vertical = (attach - 1) / 3 == 0 ? MText::Vertical::Top : (attach - 1) / 3 == 1 ? MText::Vertical::Middle : MText::Vertical::Bottom;
+        if (m.height <= 0.0 || QString::fromStdString(m.content).trimmed().isEmpty())
+            return;
+        add(layer, m, xf);
     }
 
     double dimensionBlockTextHeight(const QString& blockName) const
@@ -1267,6 +1253,10 @@ void DxfWriter::shape(const std::string& layer, const Shape& s, int& dimCount, Q
         this->layer(layer);
     } else if (const auto* t = std::get_if<Text>(&s)) {
         text(layer, *t);
+    } else if (const auto* m = std::get_if<MText>(&s)) {
+        // R12 has no MTEXT: one TEXT per line.
+        for (const Text& line : textLines(*m))
+            text(layer, line);
     } else if (const auto* h = std::get_if<Hatch>(&s)) {
         hatch(layer, *h, blocks);
     } else if (const auto* ref = std::get_if<Insert>(&s)) {

@@ -39,3 +39,11 @@ void paintPlot(QPainter& painter, const cad::Document& doc, const PlotSettings& 
 
 bool writePdf(const QString& path, const cad::Document& doc, const PlotSettings& settings, const cad::BBox& area,
               QString* error = nullptr);
+
+// A sheet (layout) drawn on a device with its top left at the origin,
+// `devicePerMm` device units per millimetre of paper.
+void paintLayout(QPainter& painter, const cad::Document& doc, const cad::Layout& layout, double devicePerMm, bool monochrome);
+QPageLayout layoutPageLayout(const cad::Layout& layout);
+// One page per sheet.
+bool writeLayoutsPdf(const QString& path, const cad::Document& doc, const std::vector<cad::Layout>& layouts, bool monochrome,
+                     QString* error = nullptr);

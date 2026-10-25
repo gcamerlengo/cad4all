@@ -14,6 +14,7 @@ class CadView;
 class CommandLine;
 class InfoBox;
 class LayerPanel;
+class LayoutPanel;
 class Navigator;
 class QActionGroup;
 class QComboBox;
@@ -79,6 +80,7 @@ private:
     void exportDxf();
     void exportModel();
     void plot();
+    void showLayouts();
     void showView3d();
     void updateStories();
     void setStory(cad::StoryId id);
@@ -93,6 +95,8 @@ private:
     void reportProblem();
     // INSERT with the block chosen from a list.
     void insertBlock();
+    // The editor MTEXT and TEXTEDIT ask for.
+    void editParagraph(const QString& title, const QString& text);
     void about();
     void showLicence();
 
@@ -102,6 +106,8 @@ private:
     CommandLine* commandLine_;
     LayerPanel* layerPanel_;
     QDockWidget* layerDock_;
+    LayoutPanel* layoutPanel_;
+    QDockWidget* layoutDock_;
     View3D* view3d_;
     QDockWidget* view3dDock_;
     QSplitter* central_;
@@ -125,6 +131,8 @@ private:
     std::vector<QComboBox*> storyCombos_;
     // The 3D view opens by itself with the first wall, once.
     bool view3dShown_ = false;
+    // Scripts type their text: no editor opens while one runs.
+    bool runningScript_ = false;
     QLabel* coordinates_;
     QToolButton* osnapButton_;
     QToolButton* orthoButton_;

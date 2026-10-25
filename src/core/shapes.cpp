@@ -87,6 +87,7 @@ std::vector<Piece> pieces(const Shape& shape)
                    },
                    // Text is not a curve: it never cuts or snaps to other objects.
                    [&](const Text&) {},
+                   [&](const MText&) {},
                    [&](const Dimension& d) {
                        for (const Line& l : dimensionGeometry(d).lines)
                            out.push_back(Piece::segment(l.a, l.b));
@@ -165,6 +166,9 @@ Vec2 nearestOnPiece(const Piece& piece, Vec2 p)
 // Average advance of a character relative to the text height, measured on
 // common sans-serif fonts (capital height about 0.72 of the em).
 constexpr double kCharWidth = 0.8;
+// What a line of ordinary words averages, for wrapping paragraphs: narrower
+// than kCharWidth, which keeps text boxes on the safe side.
+constexpr double kWrapCharWidth = 0.66;
 
 bool insideText(const Text& text, Vec2 p)
 {
@@ -449,6 +453,74 @@ double estimatedTextWidth(const Text& text)
     return static_cast<double>(codePoints(text.content)) * text.height * kCharWidth;
 }
 
+namespace {
+
+// Splits a UTF-8 paragraph into the words (and the spaces before them) that
+// fit `maxChars` characters per line; a longer word gets a line of its own.
+std::vector<std::string> wrapped(const std::string& paragraph, size_t maxChars)
+{
+    std::vector<std::string> lines;
+    std::string line;
+    size_t i = 0;
+    while (i < paragraph.size()) {
+        const size_t space = paragraph.find(' ', i);
+        const size_t end = space == std::string::npos ? paragraph.size() : space;
+        const std::string word = paragraph.substr(i, end - i);
+        const std::string candidate = line.empty() ? word : line + " " + word;
+        if (!line.empty() && maxChars > 0 && codePoints(candidate) > maxChars) {
+            lines.push_back(line);
+            line = word;
+        } else {
+            line = candidate;
+        }
+        i = end + 1;
+    }
+    lines.push_back(line);
+    return lines;
+}
+
+} // namespace
+
+std::vector<Text> textLines(const MText& m)
+{
+    std::vector<std::string> lines;
+    const size_t maxChars = m.width > 0.0 && m.height > 0.0
+                              ? std::max<size_t>(1, static_cast<size_t>(m.width / (m.height * kWrapCharWidth) + 1e-9))
+                              : 0;
+    size_t start = 0;
+    while (start <= m.content.size()) {
+        size_t end = m.content.find('\n', start);
+        if (end == std::string::npos)
+            end = m.content.size();
+        std::string paragraph = m.content.substr(start, end - start);
+        if (!paragraph.empty() && paragraph.back() == '\r')
+            paragraph.pop_back();
+        for (std::string& l : wrapped(paragraph, maxChars))
+            lines.push_back(std::move(l));
+        start = end + 1;
+    }
+    const double spacing = m.height * 5.0 / 3.0 * m.lineSpacing;
+    const double total = m.height + spacing * static_cast<double>(lines.size() - 1);
+    const double fromTop = m.vertical == MText::Vertical::Top ? 0.0 : m.vertical == MText::Vertical::Middle ? total / 2.0 : total;
+    const Vec2 dir = polar(1.0, m.rotation);
+    const Vec2 up = perpendicular(dir);
+    Vec2 baseline = m.position + up * (fromTop - m.height);
+    std::vector<Text> out;
+    for (const std::string& l : lines) {
+        if (l.find_first_not_of(' ') != std::string::npos) {
+            Text t;
+            t.position = baseline;
+            t.height = m.height;
+            t.rotation = m.rotation;
+            t.align = m.align;
+            t.content = l;
+            out.push_back(std::move(t));
+        }
+        baseline = baseline - up * spacing;
+    }
+    return out;
+}
+
 std::array<Vec2, 4> textCorners(const Text& text)
 {
     const Vec2 d = polar(1.0, text.rotation);
@@ -502,6 +574,12 @@ BBox boundingBox(const Shape& shape)
                        for (Vec2 p : textCorners(t))
                            box.add(p);
                    },
+                   [&](const MText& m) {
+                       box.add(m.position);
+                       for (const Text& t : textLines(m))
+                           for (Vec2 p : textCorners(t))
+                               box.add(p);
+                   },
                    [&](const Dimension& d) {
                        const DimensionGeometry g = dimensionGeometry(d);
                        for (const Line& l : g.lines) {
@@ -554,6 +632,8 @@ Vec2 nearestPoint(const Shape& shape, Vec2 p)
 {
     if (const auto* t = std::get_if<Text>(&shape))
         return t->position;
+    if (const auto* m = std::get_if<MText>(&shape))
+        return m->position;
     if (const auto* ref = std::get_if<Insert>(&shape)) {
         Vec2 best = ref->position;
         double bestDist = std::numeric_limits<double>::infinity();
@@ -596,6 +676,12 @@ double distanceTo(const Shape& shape, Vec2 p)
     // Text is picked anywhere inside its box, a dimension also by its label.
     if (const auto* t = std::get_if<Text>(&shape))
         return distanceToText(*t, p);
+    if (const auto* m = std::get_if<MText>(&shape)) {
+        double best = distance(p, m->position);
+        for (const Text& t : textLines(*m))
+            best = std::min(best, distanceToText(t, p));
+        return best;
+    }
     // A block reference is picked on any of its objects.
     if (const auto* ref = std::get_if<Insert>(&shape)) {
         double best = std::numeric_limits<double>::infinity();
@@ -674,6 +760,31 @@ Shape transformed(const Shape& shape, const Transform& t)
                                       const double shift = tx.align == Text::Align::Left ? w : tx.align == Text::Align::Right ? -w : 0.0;
                                       r.position = t.apply(tx.position + d * shift);
                                       r.rotation = angleOf(nd * -1.0);
+                                  }
+                              }
+                              return r;
+                          },
+                          [&](const MText& m) -> Shape {
+                              MText r = m;
+                              const double k = t.scaleFactor();
+                              r.height = m.height * k;
+                              r.width = m.width * k;
+                              r.position = t.apply(m.position);
+                              const Vec2 d = polar(1.0, m.rotation);
+                              const Vec2 nd = normalized(t.applyVector(d));
+                              r.rotation = angleOf(nd);
+                              if (t.isMirroring()) {
+                                  // Kept readable (MIRRTEXT = 0): the attachment point
+                                  // moves to the mirrored side of the paragraph.
+                                  if (dot(nd, d) >= 0.0) {
+                                      r.vertical = m.vertical == MText::Vertical::Top      ? MText::Vertical::Bottom
+                                                 : m.vertical == MText::Vertical::Bottom ? MText::Vertical::Top
+                                                                                          : m.vertical;
+                                  } else {
+                                      r.rotation = angleOf(nd * -1.0);
+                                      r.align = m.align == Text::Align::Left    ? Text::Align::Right
+                                              : m.align == Text::Align::Right ? Text::Align::Left
+                                                                              : m.align;
                                   }
                               }
                               return r;
@@ -797,6 +908,7 @@ void collectSnapPoints(const Shape& shape, unsigned mask, std::vector<SnapPoint>
                        }
                    },
                    [&](const Text& t) { add(t.position, SnapInsertion); },
+                   [&](const MText& m) { add(m.position, SnapInsertion); },
                    [&](const Dimension& d) {
                        for (const Line& l : dimensionGeometry(d).lines) {
                            add(l.a, SnapEndpoint);
@@ -860,6 +972,10 @@ bool crossesBox(const Shape& shape, const BBox& box)
         return true;
     if (const auto* t = std::get_if<Text>(&shape))
         return crossesBox(textOutline(*t), box) || insideText(*t, box.center());
+    if (const auto* m = std::get_if<MText>(&shape)) {
+        const auto lines = textLines(*m);
+        return std::any_of(lines.begin(), lines.end(), [&](const Text& t) { return crossesBox(t, box); });
+    }
     if (const auto* d = std::get_if<Dimension>(&shape)) {
         const DimensionGeometry g = dimensionGeometry(*d);
         return std::any_of(g.lines.begin(), g.lines.end(), [&](const Line& l) { return crossesBox(l, box); })

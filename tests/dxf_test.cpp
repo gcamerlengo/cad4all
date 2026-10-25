@@ -177,12 +177,15 @@ TEST(Dxf, ReadsMtextAndDimensions)
                                 "0 ENDSEC|0 EOF");
     Document doc;
     ASSERT_TRUE(io::fromDxf(data, doc));
-    const auto texts = shapes<Text>(doc);
+    const auto paragraphs = shapes<MText>(doc);
+    ASSERT_EQ(paragraphs.size(), 1u);
+    EXPECT_EQ(paragraphs[0].second.content, "Cucina\n12 m\xC2\xB2");
+    EXPECT_EQ(paragraphs[0].second.vertical, MText::Vertical::Bottom);
+    const auto texts = textLines(paragraphs[0].second);
     ASSERT_EQ(texts.size(), 2u);
-    EXPECT_EQ(texts[0].second.content, "Cucina");
-    EXPECT_EQ(texts[1].second.content, "12 m\xC2\xB2");
+    EXPECT_EQ(texts[0].content, "Cucina");
     // Bottom-left attachment: the last line sits on the insertion point.
-    EXPECT_NEAR(texts[1].second.position.y, 10, 1e-9);
+    EXPECT_NEAR(texts[1].position.y, 10, 1e-9);
 
     const auto dims = shapes<Dimension>(doc);
     ASSERT_EQ(dims.size(), 2u);
