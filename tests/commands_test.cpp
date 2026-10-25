@@ -885,3 +885,41 @@ TEST_F(Commands, LayoutCommandCreatesSheets)
     ASSERT_EQ(doc.layouts().size(), 1u);
     EXPECT_EQ(doc.layouts()[0].name, "Dettaglio");
 }
+
+TEST_F(Commands, SectionAndElevationAsBlocks)
+{
+    type({"MURO", "0,0", "4000,0", "4000,3000", "0,3000", "C"});
+    // Across the two long walls, looking east.
+    type({"SEZIONE", "2000,-1000", "2000,4000", "3000,1500", "10000,0"});
+    EXPECT_FALSE(engine.isActive());
+    const auto block = doc.block("SEZIONE A-A");
+    ASSERT_NE(block, nullptr);
+    int fills = 0;
+    for (const BlockItem& item : block->items)
+        fills += std::holds_alternative<Hatch>(item.shape);
+    EXPECT_EQ(fills, 2);
+    const auto inserts = shapes<Insert>();
+    ASSERT_EQ(inserts.size(), 1u);
+    EXPECT_EQ(inserts[0].position, (Vec2{10000, 0}));
+    // The section line and its letters are in the plan.
+    int letters = 0;
+    for (const Text& t : shapes<Text>())
+        letters += t.content == "A";
+    EXPECT_EQ(letters, 2);
+
+    type({"PROSPETTO", "N", "0,-8000"});
+    EXPECT_NE(doc.block("PROSPETTO NORD"), nullptr);
+    type({"PS", "", "0,-16000"});
+    EXPECT_NE(doc.block("PROSPETTO SUD"), nullptr);
+    type({"SZ", "-1000,1500", "5000,1500", "0,3000", "0,-20000"});
+    EXPECT_NE(doc.block("SEZIONE B-B"), nullptr);
+    EXPECT_EQ(shapes<Insert>().size(), 4u);
+}
+
+TEST_F(Commands, SectionNeedsABuilding)
+{
+    type({"LINEA", "0,0", "100,0", ""});
+    type({"PROSPETTO", "S"});
+    EXPECT_FALSE(engine.isActive());
+    EXPECT_TRUE(doc.blocks().empty());
+}

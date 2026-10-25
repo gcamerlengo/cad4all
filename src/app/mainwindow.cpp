@@ -411,6 +411,8 @@ void MainWindow::createActions()
     commandAction(tr("Solaio"), QStringLiteral("SLAB"), icons::make(QStringLiteral("slab")));
     commandAction(tr("Tetto"), QStringLiteral("ROOF"), icons::make(QStringLiteral("roof")));
     commandAction(tr("Scala"), QStringLiteral("STAIR"), icons::make(QStringLiteral("stair")));
+    commandAction(tr("Sezione"), QStringLiteral("SECTION"), icons::make(QStringLiteral("section")));
+    commandAction(tr("Prospetto"), QStringLiteral("ELEVATION"), icons::make(QStringLiteral("elevation")));
     commandAction(tr("Modifica muro"), QStringLiteral("WALLEDIT"));
     commandAction(tr("Piani..."), QStringLiteral("STORY"), icons::make(QStringLiteral("story")));
     commandAction(tr("Cancella"), QStringLiteral("ERASE"), icons::make(QStringLiteral("erase")));
@@ -494,6 +496,8 @@ void MainWindow::createActions()
     architecture->addAction(command(QStringLiteral("WALLEDIT")));
     architecture->addSeparator();
     architecture->addActions(actions({"STORY", "storyUp", "storyDown"}));
+    architecture->addSeparator();
+    architecture->addActions(actions({"SECTION", "ELEVATION"}));
     architecture->addSeparator();
     architecture->addAction(named_.value(QStringLiteral("view3d")));
 
@@ -671,6 +675,8 @@ void MainWindow::createRibbon()
     large(p, {"WALL", "DOOR", "WINDOW", "SLAB", "ROOF", "STAIR"});
     p = ribbon_->addPanel(arch, tr("Modifica"));
     small(p, {"WALLEDIT"});
+    p = ribbon_->addPanel(arch, tr("Viste"));
+    large(p, {"SECTION", "ELEVATION"});
     p = ribbon_->addPanel(arch, tr("Piani"));
     large(p, {"STORY"});
     p->addSmall(makeStoryCombo(p));
@@ -737,6 +743,8 @@ void MainWindow::createToolbox()
     // ArchiCAD's Object tool places library parts; here they are the blocks.
     toolbox_->addTool(tr("Oggetto"), QStringLiteral("INSERT"), icons::make(QStringLiteral("insertBlock")));
     toolbox_->addSection(tr("Documentazione"));
+    toolbox_->addTool(tr("Sezione"), QStringLiteral("SECTION"), icons::make(QStringLiteral("section")));
+    toolbox_->addTool(tr("Prospetto"), QStringLiteral("ELEVATION"), icons::make(QStringLiteral("elevation")));
     toolbox_->addTool(tr("Quota"), QStringLiteral("DIMLINEAR"), icons::make(QStringLiteral("dimLinear")));
     toolbox_->addTool(tr("Testo"), QStringLiteral("MTEXT"), icons::make(QStringLiteral("mtext")));
     toolbox_->addTool(tr("Tratteggio"), QStringLiteral("HATCH"), icons::make(QStringLiteral("hatch")));

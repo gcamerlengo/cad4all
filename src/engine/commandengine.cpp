@@ -486,6 +486,8 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("ZOOM"), {QStringLiteral("Z")}, [] { return makeZoomCommand(); });
     add(QStringLiteral("PLOT"), {QStringLiteral("STAMPA"), QStringLiteral("PRINT")}, [] { return makePlotCommand(); });
     add(QStringLiteral("LAYER"), {QStringLiteral("LA")}, [] { return makeLayerCommand(); });
+    add(QStringLiteral("SECTION"), {QStringLiteral("SEZIONE"), QStringLiteral("SZ")}, [] { return makeSectionCommand(); });
+    add(QStringLiteral("ELEVATION"), {QStringLiteral("PROSPETTO"), QStringLiteral("PS")}, [] { return makeElevationCommand(); });
     add(QStringLiteral("LAYOUT"), {QStringLiteral("TAVOLA"), QStringLiteral("LO")}, [] { return makeLayoutCommand(); });
     add(QStringLiteral("COLOR"), {QStringLiteral("COLORE"), QStringLiteral("COL")}, [] { return makeColorCommand(); });
     add(QStringLiteral("LINETYPE"), {QStringLiteral("TIPOLINEA"), QStringLiteral("LT")}, [] { return makeLinetypeCommand(); });

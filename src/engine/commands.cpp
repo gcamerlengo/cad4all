@@ -9,12 +9,14 @@
 #include "editing.h"
 #include "hatch.h"
 #include "properties.h"
+#include "section.h"
 #include "stylenames.h"
 
 #include <QCoreApplication>
 #include <QDate>
 
 #include <algorithm>
+#include <functional>
 #include <limits>
 #include <map>
 
@@ -5171,6 +5173,297 @@ private:
     double rotation_ = 0.0;  // degrees
 };
 
+
+// ---------------------------------------------------------------- sections
+
+// The section or elevation as a block: the cut parts filled and outlined
+// thick, what lies beyond thin, the ground line and the title under it.
+// Its base is the left end of the ground line.
+std::shared_ptr<const Block> sectionBlock(const SectionDrawing& d, const std::string& name)
+{
+    std::vector<BlockItem> items;
+    const Color cutFill{96, 96, 96};
+    for (const Polyline& p : d.cut) {
+        if (p.closed) {
+            BlockItem fill;
+            Hatch h;
+            h.pattern = "SOLID";
+            h.loops = {p};
+            fill.shape = h;
+            fill.color = cutFill;
+            items.push_back(std::move(fill));
+        }
+        BlockItem outline;
+        outline.shape = p;
+        outline.lineweight = 50;
+        items.push_back(std::move(outline));
+    }
+    for (const Line& l : d.beyond) {
+        BlockItem item;
+        item.shape = l;
+        item.lineweight = 18;
+        items.push_back(std::move(item));
+    }
+    BlockItem ground;
+    ground.shape = d.ground;
+    ground.lineweight = 70;
+    items.push_back(std::move(ground));
+    const double width = d.ground.b.x - d.ground.a.x;
+    Text title;
+    title.content = name;
+    title.height = std::clamp(width / 40.0, 150.0, 500.0);
+    title.position = {d.ground.a.x, d.ground.a.y - title.height * 2.5};
+    BlockItem titleItem;
+    titleItem.shape = title;
+    items.push_back(std::move(titleItem));
+    return makeBlock(name, d.ground.a, std::move(items));
+}
+
+// A free block name: "SEZIONE A-A", "SEZIONE B-B"... or "PROSPETTO SUD 2".
+std::string freeBlockName(const Document& doc, const std::function<std::string(int)>& candidate)
+{
+    for (int i = 0;; ++i)
+        if (!doc.block(candidate(i)))
+            return candidate(i);
+}
+
+// Places the drawing as a block whose base goes where the user clicks.
+class SectionPlacement {
+public:
+    bool prepare(const Document& doc, const SectionPlane& plane, const std::string& name, CommandEngine* engine)
+    {
+        const Model3D model = buildingModel(doc);
+        if (model.empty()) {
+            engine->message(t("Il disegno non ha muri, solai o tetti da mostrare."));
+            return false;
+        }
+        const SectionDrawing d = sectionDrawing(model, plane);
+        if (d.empty()) {
+            engine->message(t("Nessun elemento dell'edificio davanti alla linea scelta."));
+            return false;
+        }
+        block_ = sectionBlock(d, name);
+        return true;
+    }
+
+    Insert placed(Vec2 p) const
+    {
+        Insert ref;
+        ref.block = block_;
+        ref.position = p;
+        return ref;
+    }
+
+    void place(CommandEngine* engine, Vec2 p) const
+    {
+        Document& doc = engine->document();
+        doc.defineBlock(block_);
+        doc.add(placed(p));
+        engine->message(t("%1 inserito: si sposta, si copia e si esplode come un blocco.").arg(QString::fromStdString(block_->name)));
+    }
+
+    const std::shared_ptr<const Block>& block() const { return block_; }
+
+private:
+    std::shared_ptr<const Block> block_;
+};
+
+// SECTION: a cut through the building along a line, seen from one side,
+// drawn as a block; the section line goes in the plan with its letter.
+class SectionCommand : public Command {
+public:
+    void start() override { engine->setPrompt(t("Specificare primo punto della linea di sezione:")); }
+
+    bool point(Vec2 p) override
+    {
+        switch (step_) {
+        case Step::First:
+            a_ = p;
+            step_ = Step::Second;
+            engine->setPrompt(t("Specificare secondo punto:"));
+            return true;
+        case Step::Second:
+            if (distance(a_, p) < kEps)
+                return false;
+            b_ = p;
+            step_ = Step::Side;
+            engine->setPrompt(t("Specificare il lato verso cui guardare:"));
+            return true;
+        case Step::Side: {
+            const Vec2 n = lookDirection(p);
+            if (length(n) < kEps)
+                return false;
+            const Document& doc = engine->document();
+            letter_ = freeLetter(doc);
+            plane_.origin = a_;
+            plane_.direction = n;
+            const double xa = sectionX(plane_, a_);
+            const double xb = sectionX(plane_, b_);
+            plane_.from = std::min(xa, xb);
+            plane_.to = std::max(xa, xb);
+            const std::string name = "SEZIONE " + letter_ + "-" + letter_;
+            if (!placement_.prepare(doc, plane_, name, engine)) {
+                engine->finish();
+                return true;
+            }
+            step_ = Step::Place;
+            engine->setPrompt(t("Specificare punto di inserimento della sezione:"));
+            return true;
+        }
+        case Step::Place:
+            addMarker();
+            placement_.place(engine, p);
+            engine->finish();
+            return true;
+        }
+        return false;
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (step_ == Step::Second)
+            out.push_back(Line{a_, cursor});
+        else if (step_ == Step::Side)
+            for (const Shape& s : marker(lookDirection(cursor), "?"))
+                out.push_back(s);
+        else if (step_ == Step::Place)
+            out.push_back(placement_.placed(cursor));
+    }
+
+private:
+    enum class Step { First, Second, Side, Place };
+
+    Vec2 lookDirection(Vec2 side) const
+    {
+        const Vec2 n = perpendicular(normalized(b_ - a_));
+        const double s = dot(side - a_, n);
+        return std::abs(s) < kEps ? Vec2{} : n * (s > 0.0 ? 1.0 : -1.0);
+    }
+
+    static std::string freeLetter(const Document& doc)
+    {
+        for (char c = 'A'; c <= 'Z'; ++c) {
+            const std::string l(1, c);
+            if (!doc.block("SEZIONE " + l + "-" + l))
+                return l;
+        }
+        return freeBlockName(doc, [](int i) { return std::to_string(i + 1); });
+    }
+
+    // The section line, with arrows towards the side seen and the letter
+    // at both ends.
+    std::vector<Shape> marker(Vec2 n, const std::string& letter) const
+    {
+        std::vector<Shape> out;
+        out.push_back(Line{a_, b_});
+        if (length(n) < kEps)
+            return out;
+        const double size = std::clamp(distance(a_, b_) / 10.0, 300.0, 800.0);
+        const Vec2 d = normalized(b_ - a_);
+        for (Vec2 end : {a_, b_}) {
+            const Vec2 tip = end + n * size;
+            out.push_back(Line{end, tip});
+            out.push_back(Line{tip, tip - n * (size * 0.35) + d * (size * 0.2)});
+            out.push_back(Line{tip, tip - n * (size * 0.35) - d * (size * 0.2)});
+            Text label;
+            label.content = letter;
+            label.height = size * 0.6;
+            label.align = Text::Align::Center;
+            const Vec2 outward = end == a_ ? -d : d;
+            label.position = end + outward * (size * 0.5) + n * (size * 0.3) - Vec2{0.0, label.height * 0.5};
+            out.push_back(label);
+        }
+        return out;
+    }
+
+    void addMarker()
+    {
+        for (const Shape& s : marker(plane_.direction, letter_))
+            engine->document().add(s);
+    }
+
+    Step step_ = Step::First;
+    Vec2 a_, b_;
+    SectionPlane plane_;
+    std::string letter_;
+    SectionPlacement placement_;
+};
+
+// ELEVATION: the building seen from one side, drawn as a block.
+class ElevationCommand : public Command {
+public:
+    void start() override
+    {
+        engine->setPrompt(t("Specificare lato [Nord/Sud/Est/Ovest] <Sud>:"));
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (step_ != Step::Side)
+            return false;
+        if (isAny(w, {"N", "NORD", "NORTH"}))
+            choose({0.0, -1.0}, "NORD");
+        else if (isAny(w, {"S", "SUD", "SOUTH"}))
+            choose({0.0, 1.0}, "SUD");
+        else if (isAny(w, {"E", "EST", "EAST"}))
+            choose({-1.0, 0.0}, "EST");
+        else if (isAny(w, {"O", "OVEST", "W", "WEST"}))
+            choose({1.0, 0.0}, "OVEST");
+        else
+            return false;
+        return true;
+    }
+
+    void enter() override
+    {
+        if (step_ == Step::Side)
+            choose({0.0, 1.0}, "SUD");
+        else
+            engine->finish();
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (step_ != Step::Place)
+            return false;
+        placement_.place(engine, p);
+        engine->finish();
+        return true;
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (step_ == Step::Place)
+            out.push_back(placement_.placed(cursor));
+    }
+
+private:
+    enum class Step { Side, Place };
+
+    // `direction`: where the viewer looks, from the side named `side`.
+    void choose(Vec2 direction, const std::string& side)
+    {
+        const Document& doc = engine->document();
+        SectionPlane plane;
+        plane.direction = direction;
+        // In front of the whole drawing.
+        const BBox all = doc.extents();
+        const Vec2 c = all.valid() ? all.center() : Vec2{};
+        const double reach = all.valid() ? all.width() + all.height() + 1000.0 : 1000.0;
+        plane.origin = c - direction * reach;
+        const std::string base = "PROSPETTO " + side;
+        const std::string name = freeBlockName(doc, [&](int i) { return i == 0 ? base : base + " " + std::to_string(i + 1); });
+        if (!placement_.prepare(doc, plane, name, engine)) {
+            engine->finish();
+            return;
+        }
+        step_ = Step::Place;
+        engine->setPrompt(t("Specificare punto di inserimento del prospetto:"));
+    }
+
+    Step step_ = Step::Side;
+    SectionPlacement placement_;
+};
 } // namespace
 
 std::unique_ptr<Command> makeLineCommand() { return std::make_unique<LineCommand>(); }
@@ -5210,6 +5503,8 @@ std::unique_ptr<Command> makeView3dCommand() { return std::make_unique<View3dCom
 std::unique_ptr<Command> makeZoomCommand() { return std::make_unique<ZoomCommand>(); }
 std::unique_ptr<Command> makeLayerCommand() { return std::make_unique<LayerCommand>(); }
 std::unique_ptr<Command> makeLayoutCommand() { return std::make_unique<LayoutCommand>(); }
+std::unique_ptr<Command> makeSectionCommand() { return std::make_unique<SectionCommand>(); }
+std::unique_ptr<Command> makeElevationCommand() { return std::make_unique<ElevationCommand>(); }
 std::unique_ptr<Command> makeColorCommand() { return std::make_unique<CurrentStyleCommand>(StyleQuestion::Kind::Color); }
 std::unique_ptr<Command> makeLinetypeCommand() { return std::make_unique<CurrentStyleCommand>(StyleQuestion::Kind::Linetype); }
 std::unique_ptr<Command> makeLineweightCommand() { return std::make_unique<CurrentStyleCommand>(StyleQuestion::Kind::Lineweight); }

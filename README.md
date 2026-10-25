@@ -87,6 +87,8 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | CAMBIAPROP / CHPROP | CH | Colore, LAyer, TIpolinea, SPessore degli oggetti selezionati |
 | CORRISPPROP / MATCHPROP | MA | oggetto di origine, poi oggetti di destinazione e Invio |
 | STAMPA / PLOT | | apre la finestra di stampa (anche Ctrl+P) |
+| SEZIONE / SECTION | SZ | sezione dell'edificio lungo una linea: parti tagliate piene, il resto senza linee nascoste; inserita come blocco, con la linea di sezione in pianta |
+| PROSPETTO / ELEVATION | PS | prospetto Nord, Sud, Est o Ovest dell'edificio, inserito come blocco |
 | TAVOLA / LAYOUT | LO | crea (formato, scala 1:N o adattata) o elimina le tavole di stampa con cartiglio |
 | ANNULLA / UNDO | U | (anche Ctrl+Z) |
 | RIPRISTINA / REDO | | (anche Ctrl+Y) |
@@ -183,6 +185,12 @@ Selezionando un solo muro, solaio, tetto o scala l'Info Box mostra i suoi valori
 ![Interfaccia come AutoCAD, con il ribbon](docs/immagini/interfaccia-autocad.png)
 
 ![Interfaccia come ArchiCAD: strumenti, Info Box, navigatore, pianta e 3D affiancate](docs/immagini/interfaccia-archicad.png)
+
+## Sezioni e prospetti
+
+SEZIONE (Architettura > Sezione) chiede la linea di sezione e il lato verso cui guardare: taglia il modello 3D con un piano verticale, riempie le parti tagliate (muri, solai, tetti) e disegna quello che si vede oltre con le linee nascoste tolte, solo tra gli estremi della linea. PROSPETTO fa lo stesso da Nord, Sud, Est o Ovest su tutto l'edificio. Il disegno si inserisce dove si fa clic come un blocco ("SEZIONE A-A", "PROSPETTO SUD"), con la linea di terra e il titolo, e si sposta, si mette in una tavola o si esplode; la linea di sezione resta in pianta con le frecce e le lettere. L'esempio è `docs/esempi/sezioni.scr`.
+
+![Prospetto sud e sezione A-A della casa a due piani](docs/immagini/sezioni.png)
 
 ## Esportare il modello 3D
 

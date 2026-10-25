@@ -165,6 +165,24 @@ QIcon make(const QString& name)
             p.drawLine(QPointF(3, 20.5), QPointF(21, 20.5));
             p.drawLine(QPointF(21, 3), QPointF(21, 20.5));
         };
+    } else if (name == QLatin1String("section")) {
+        // A house cut by a section line with its arrows.
+        painter = [](QPainter& p) {
+            p.drawPolyline(QPolygonF({{5, 21}, {5, 11}, {12, 5}, {19, 11}, {19, 21}}));
+            accentPen(p);
+            p.drawLine(QPointF(12, 2.5), QPointF(12, 22));
+            p.drawPolyline(QPolygonF({{12, 2.5}, {16, 2.5}}));
+            p.drawPolyline(QPolygonF({{12, 22}, {16, 22}}));
+        };
+    } else if (name == QLatin1String("elevation")) {
+        // A facade with its windows over the ground line.
+        painter = [](QPainter& p) {
+            p.drawPolyline(QPolygonF({{4.5, 19.5}, {4.5, 10}, {12, 4}, {19.5, 10}, {19.5, 19.5}}));
+            p.drawRect(QRectF(7.5, 12, 3.5, 3.5));
+            p.drawRect(QRectF(13, 12, 3.5, 7.5));
+            accentPen(p);
+            p.drawLine(QPointF(2, 19.5), QPointF(22, 19.5));
+        };
     } else if (name == QLatin1String("story")) {
         painter = [](QPainter& p) {
             p.drawRect(QRectF(4.5, 3.5, 15, 17));

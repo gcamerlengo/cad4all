@@ -1,0 +1,40 @@
+; Esempio di SEZIONE e PROSPETTO: la casa a due piani di casa-due-piani.scr
+; con il prospetto sud e la sezione A-A inseriti sotto la pianta.
+; Esempio di PIANO, SOLAIO, SCALINATA e TETTO: una casa di 10 x 8 metri su due piani (misure in millimetri).
+; Ogni piano ha la sua pianta; la vista 3D li mostra tutti, ciascuno alla sua quota.
+; Piano terra: muri esterni da 30 cm alti 2,70 m e tramezzi da 12 cm.
+MURO S 300 A 2700 G C 0,0 10000,0 10000,8000 0,8000 C
+MURO S 120 6000,0 6000,8000 
+MURO 6000,4500 10000,4500 
+PORTA L 1000 3000,0 3600,600 
+PORTA L 800 6000,2000 5400,2600 8000,4500 8600,4000 
+FINESTRA L 1200 A 1400 D 900 1500,8000 4500,8000 10000,2200 10000,6300 0,4000 8000,0 
+FINESTRA L 2000 A 2400 D 0 8000,8000 
+; Il solaio a terra sotto tutti i muri.
+SOLAIO S 300 M 
+; Scala a U fino al primo piano: 17 alzate per salire 3 m, pedata 28 cm.
+SCALINATA T U V S L 1000 P 280 6800,700 7800,700
+; Primo piano a quota 3 m: il nuovo piano diventa quello corrente.
+PIANO N Primo piano
+Q 3000 
+MURO S 300 A 2700 G C 0,0 10000,0 10000,8000 0,8000 C
+MURO S 120 5000,0 5000,8000 
+MURO 0,4000 5000,4000 
+; Il solaio del primo piano, sotto i suoi muri, poggia su quelli del piano terra; il foro è per la scala.
+SOLAIO M 
+RETTANGOLO 6800,200 9760,2200
+SOLAIO F -150,4000 6800,1000 
+PORTA L 800 5000,2000 4400,2600 5000,6000 4400,5400 
+FINESTRA L 1200 A 1400 D 900 2500,0 2500,8000 7500,8000 7500,0 0,2000 0,6000 10000,4000 
+; Tetto a capanna sopra i muri, pendenza 30 gradi e sporto di 60 cm.
+TETTO T C P 30 S 600 M 
+PROSPETTO
+S
+0,-12000
+SEZIONE
+-2000,3000
+12000,3000
+5000,6000
+16000,-12000
+ZOOM
+E

@@ -27,6 +27,7 @@ add_executable(cad4all_tests
     style_test.cpp
     block_test.cpp
     layout_test.cpp
+    section_test.cpp
 )
 target_link_libraries(cad4all_tests PRIVATE cad4all_core cad4all_io cad4all_engine GTest::gtest_main)
 if(CAD4ALL_WITH_DWG)
