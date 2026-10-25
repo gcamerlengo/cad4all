@@ -409,6 +409,8 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("PLINE"), {QStringLiteral("PLINEA"), QStringLiteral("PL")}, [] { return makePolylineCommand(); });
     add(QStringLiteral("CIRCLE"), {QStringLiteral("CERCHIO"), QStringLiteral("C")}, [] { return makeCircleCommand(); });
     add(QStringLiteral("ARC"), {QStringLiteral("ARCO"), QStringLiteral("A")}, [] { return makeArcCommand(); });
+    add(QStringLiteral("ELLIPSE"), {QStringLiteral("ELLISSE"), QStringLiteral("EL")}, [] { return makeEllipseCommand(); });
+    add(QStringLiteral("SPLINE"), {QStringLiteral("SPL")}, [] { return makeSplineCommand(); });
     add(QStringLiteral("RECTANG"), {QStringLiteral("RETTANGOLO"), QStringLiteral("REC")}, [] { return makeRectangleCommand(); });
     add(QStringLiteral("ERASE"), {QStringLiteral("CANCELLA"), QStringLiteral("E")}, [] { return makeEraseCommand(); });
     add(QStringLiteral("MOVE"), {QStringLiteral("SPOSTA"), QStringLiteral("M")}, [] { return makeMoveCommand(false); });
@@ -421,6 +423,9 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("EXTEND"), {QStringLiteral("ESTENDI"), QStringLiteral("EX")}, [] { return makeExtendCommand(); });
     add(QStringLiteral("FILLET"), {QStringLiteral("RACCORDO"), QStringLiteral("RACCORDA"), QStringLiteral("F")}, [] { return makeFilletCommand(); });
     add(QStringLiteral("CHAMFER"), {QStringLiteral("CIMA"), QStringLiteral("CHA")}, [] { return makeChamferCommand(); });
+    add(QStringLiteral("ARRAY"), {QStringLiteral("SERIE"), QStringLiteral("AR")}, [] { return makeArrayCommand(); });
+    add(QStringLiteral("EXPLODE"), {QStringLiteral("ESPLODI"), QStringLiteral("X")}, [] { return makeExplodeCommand(); });
+    add(QStringLiteral("JOIN"), {QStringLiteral("UNISCI"), QStringLiteral("J")}, [] { return makeJoinCommand(); });
     add(QStringLiteral("STRETCH"), {QStringLiteral("STIRA"), QStringLiteral("S")}, [] { return makeStretchCommand(); });
     add(QStringLiteral("TEXT"), {QStringLiteral("TESTO"), QStringLiteral("DTEXT"), QStringLiteral("DT")}, [] { return makeTextCommand(); });
     add(QStringLiteral("TEXTEDIT"), {QStringLiteral("MODIFICATESTO"), QStringLiteral("DDEDIT"), QStringLiteral("ED")}, [] { return makeTextEditCommand(); });
@@ -429,6 +434,7 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("DIMRADIUS"), {QStringLiteral("QUOTARAGGIO"), QStringLiteral("DRA")}, [] { return makeDimRadialCommand(false); });
     add(QStringLiteral("DIMDIAMETER"), {QStringLiteral("QUOTADIAMETRO"), QStringLiteral("QUOTADIAM"), QStringLiteral("DDI")}, [] { return makeDimRadialCommand(true); });
     add(QStringLiteral("DIMSCALE"), {QStringLiteral("SCALAQUOTE")}, [] { return makeDimScaleCommand(); });
+    add(QStringLiteral("LEADER"), {QStringLiteral("DIRETTRICE"), QStringLiteral("LE")}, [] { return makeLeaderCommand(); });
     add(QStringLiteral("HATCH"), {QStringLiteral("TRATTEGGIO"), QStringLiteral("TRATTEGGIA"), QStringLiteral("BHATCH"), QStringLiteral("H"), QStringLiteral("BH")}, [] { return makeHatchCommand(); });
     add(QStringLiteral("HATCHEDIT"), {QStringLiteral("MODIFICATRATTEGGIO"), QStringLiteral("HE")}, [] { return makeHatchEditCommand(); });
     add(QStringLiteral("WALL"), {QStringLiteral("MURO"), QStringLiteral("MU")}, [] { return makeWallCommand(); });
@@ -440,6 +446,9 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("ROOF"), {QStringLiteral("TETTO"), QStringLiteral("TE")}, [] { return makeRoofCommand(); });
     add(QStringLiteral("STAIR"), {QStringLiteral("SCALINATA"), QStringLiteral("SN")}, [] { return makeStairCommand(); });
     add(QStringLiteral("VIEW3D"), {QStringLiteral("VISTA3D"), QStringLiteral("3D")}, [] { return makeView3dCommand(); });
+    add(QStringLiteral("DIST"), {QStringLiteral("DI")}, [] { return makeDistanceCommand(); });
+    add(QStringLiteral("AREA"), {QStringLiteral("AA")}, [] { return makeAreaCommand(); });
+    add(QStringLiteral("LIST"), {QStringLiteral("LISTA"), QStringLiteral("LI")}, [] { return makeListCommand(); });
     add(QStringLiteral("ZOOM"), {QStringLiteral("Z")}, [] { return makeZoomCommand(); });
     add(QStringLiteral("PLOT"), {QStringLiteral("STAMPA"), QStringLiteral("PRINT")}, [] { return makePlotCommand(); });
     add(QStringLiteral("LAYER"), {QStringLiteral("LA")}, [] { return makeLayerCommand(); });

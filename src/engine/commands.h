@@ -51,6 +51,15 @@ std::unique_ptr<Command> makeLineweightCommand();
 std::unique_ptr<Command> makeLinetypeScaleCommand();
 std::unique_ptr<Command> makeChangePropertiesCommand();
 std::unique_ptr<Command> makeMatchPropertiesCommand();
+std::unique_ptr<Command> makeArrayCommand();
+std::unique_ptr<Command> makeExplodeCommand();
+std::unique_ptr<Command> makeJoinCommand();
+std::unique_ptr<Command> makeEllipseCommand();
+std::unique_ptr<Command> makeSplineCommand();
+std::unique_ptr<Command> makeLeaderCommand();
+std::unique_ptr<Command> makeDistanceCommand();
+std::unique_ptr<Command> makeAreaCommand();
+std::unique_ptr<Command> makeListCommand();
 // Drags the grips at `grip` of the selected objects (started by the view).
 std::unique_ptr<Command> makeGripCommand(Vec2 grip);
 

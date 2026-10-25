@@ -334,6 +334,63 @@ QIcon make(const QString& name)
             p.drawPolyline(QPolygonF({{3, 12}, {12, 16.5}, {21, 12}}));
             p.drawPolyline(QPolygonF({{3, 16}, {12, 20.5}, {21, 16}}));
         };
+    } else if (name == QLatin1String("ellipse")) {
+        painter = [](QPainter& p) {
+            p.drawEllipse(QPointF(12, 12), 9.5, 6);
+            accentPen(p);
+            p.drawLine(QPointF(2.5, 12), QPointF(21.5, 12));
+        };
+    } else if (name == QLatin1String("spline")) {
+        painter = [](QPainter& p) {
+            QPainterPath path;
+            path.moveTo(3, 18);
+            path.cubicTo(7, 2, 12, 22, 21, 6);
+            p.drawPath(path);
+            accentPen(p);
+            for (QPointF c : {QPointF(3, 18), QPointF(12, 12.5), QPointF(21, 6)})
+                p.drawRect(QRectF(c.x() - 1.5, c.y() - 1.5, 3, 3));
+        };
+    } else if (name == QLatin1String("array")) {
+        painter = [](QPainter& p) {
+            p.drawRect(QRectF(3, 3, 6, 6));
+            accentPen(p);
+            for (QPointF c : {QPointF(15, 3), QPointF(3, 15), QPointF(15, 15)})
+                p.drawRect(QRectF(c, QSizeF(6, 6)));
+        };
+    } else if (name == QLatin1String("explode")) {
+        painter = [](QPainter& p) {
+            p.drawPolyline(QPolygonF({{4, 9}, {4, 4}, {9, 4}}));
+            p.drawPolyline(QPolygonF({{15, 4}, {20, 4}, {20, 9}}));
+            p.drawPolyline(QPolygonF({{20, 15}, {20, 20}, {15, 20}}));
+            p.drawPolyline(QPolygonF({{9, 20}, {4, 20}, {4, 15}}));
+            accentPen(p);
+            p.drawLine(QPointF(10, 10), QPointF(14, 14));
+            p.drawLine(QPointF(14, 10), QPointF(10, 14));
+        };
+    } else if (name == QLatin1String("join")) {
+        painter = [](QPainter& p) {
+            p.drawLine(QPointF(3, 17), QPointF(11, 9));
+            p.drawLine(QPointF(13, 9), QPointF(21, 17));
+            accentPen(p);
+            p.drawEllipse(QPointF(12, 8), 2, 2);
+        };
+    } else if (name == QLatin1String("leader")) {
+        painter = [](QPainter& p) {
+            p.drawPolyline(QPolygonF({{4, 20}, {12, 10}, {20, 10}}));
+            p.setBrush(p.pen().color());
+            p.drawPolygon(QPolygonF({{4, 20}, {5, 15.5}, {8, 17.8}}));
+            p.setBrush(Qt::NoBrush);
+            accentPen(p);
+            p.drawLine(QPointF(13, 6), QPointF(21, 6));
+        };
+    } else if (name == QLatin1String("measure")) {
+        // A ruler: DIST, AREA and LIST.
+        painter = [](QPainter& p) {
+            p.drawPolygon(QPolygonF({{2.5, 15}, {15, 2.5}, {21.5, 9}, {9, 21.5}}));
+            accentPen(p);
+            for (int i = 0; i < 4; ++i)
+                p.drawLine(QPointF(6 + i * 3, 11.5 - i * 3), QPointF(8 + i * 3, 13.5 - i * 3));
+        };
     } else if (name == QLatin1String("matchProperties")) {
         // A brush: AutoCAD's Match Properties.
         painter = [](QPainter& p) {

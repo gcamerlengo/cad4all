@@ -1086,4 +1086,254 @@ std::optional<Shape> moveGrip(const Shape& shape, size_t index, Vec2 to)
     return std::nullopt;
 }
 
+double shapeLength(const Shape& shape)
+{
+    if (const auto* l = std::get_if<Line>(&shape))
+        return distance(l->a, l->b);
+    if (const auto* c = std::get_if<Circle>(&shape))
+        return kTwoPi * c->radius;
+    if (const auto* a = std::get_if<Arc>(&shape))
+        return a->radius * a->sweep();
+    if (const auto* pl = std::get_if<Polyline>(&shape)) {
+        double total = 0.0;
+        for (size_t i = 0; i < pl->segmentCount(); ++i)
+            total += shapeLength(polylineSegment(*pl, i));
+        return total;
+    }
+    return 0.0;
+}
+
+double polylineArea(const Polyline& pl)
+{
+    const size_t n = pl.points.size();
+    if (n < 2)
+        return 0.0;
+    double area = 0.0;
+    for (size_t i = 0; i < n; ++i)
+        area += cross(pl.points[i], pl.points[(i + 1) % n]) / 2.0;
+    // Each arc adds (or removes) the circular segment between it and its
+    // chord: a counter-clockwise arc lies to the right of its chord.
+    for (size_t i = 0; i < pl.segmentCount(); ++i) {
+        const Shape seg = polylineSegment(pl, i);
+        if (const auto* a = std::get_if<Arc>(&seg)) {
+            const double theta = a->sweep();
+            const double segment = a->radius * a->radius / 2.0 * (theta - std::sin(theta));
+            area += pl.bulge(i) > 0.0 ? segment : -segment;
+        }
+    }
+    return std::abs(area);
+}
+
+std::optional<double> shapeArea(const Shape& shape)
+{
+    if (const auto* c = std::get_if<Circle>(&shape))
+        return kPi * c->radius * c->radius;
+    if (const auto* pl = std::get_if<Polyline>(&shape))
+        if (pl->closed)
+            return polylineArea(*pl);
+    return std::nullopt;
+}
+
+std::vector<Shape> explodeShape(const Shape& shape)
+{
+    std::vector<Shape> out;
+    if (const auto* pl = std::get_if<Polyline>(&shape)) {
+        for (size_t i = 0; i < pl->segmentCount(); ++i)
+            out.push_back(polylineSegment(*pl, i));
+    } else if (const auto* d = std::get_if<Dimension>(&shape)) {
+        const DimensionGeometry g = dimensionGeometry(*d);
+        for (const Line& l : g.lines)
+            out.push_back(l);
+        for (const auto& tri : g.arrows) {
+            Hatch h;
+            h.pattern = "SOLID";
+            h.loops.push_back(Polyline({tri[0], tri[1], tri[2]}, true));
+            out.push_back(h);
+        }
+        out.push_back(g.label);
+    }
+    return out;
+}
+
+namespace {
+
+Polyline reversed(const Polyline& pl)
+{
+    Polyline r;
+    r.points.assign(pl.points.rbegin(), pl.points.rend());
+    const size_t segments = pl.points.size() - 1;
+    for (size_t i = 0; i < segments; ++i)
+        r.setBulge(i, -pl.bulge(segments - 1 - i));
+    return r;
+}
+
+// Appends `next`, whose first point is the last of `chain`.
+void append(Polyline& chain, const Polyline& next)
+{
+    const size_t offset = chain.points.size() - 1;
+    for (size_t i = 1; i < next.points.size(); ++i)
+        chain.points.push_back(next.points[i]);
+    for (size_t i = 0; i + 1 < next.points.size(); ++i)
+        chain.setBulge(offset + i, next.bulge(i));
+}
+
+std::optional<Polyline> chainPiece(const Shape& shape)
+{
+    if (const auto* l = std::get_if<Line>(&shape))
+        return Polyline({l->a, l->b});
+    if (const auto* a = std::get_if<Arc>(&shape))
+        return Polyline({a->startPoint(), a->endPoint()}, false, {bulgeOfSweep(a->sweep())});
+    if (const auto* pl = std::get_if<Polyline>(&shape))
+        if (!pl->closed && pl->points.size() >= 2)
+            return *pl;
+    return std::nullopt;
+}
+
+// Removes the vertices between straight segments in a row.
+Polyline simplified(const Polyline& pl)
+{
+    Polyline r;
+    r.closed = pl.closed;
+    const size_t n = pl.points.size();
+    for (size_t i = 0; i < n; ++i) {
+        const bool interior = pl.closed || (i > 0 && i + 1 < n);
+        if (interior && !r.points.empty()) {
+            const size_t prev = (i + n - 1) % n;
+            const Vec2 a = r.points.back();
+            const Vec2 b = pl.points[i];
+            const Vec2 c = pl.points[(i + 1) % n];
+            const bool straight = std::abs(pl.bulge(prev)) < kEps && std::abs(pl.bulge(i)) < kEps;
+            if (straight && std::abs(cross(normalized(b - a), normalized(c - b))) < 1e-9 && dot(b - a, c - b) > 0.0)
+                continue;
+        }
+        if (!r.points.empty())
+            r.setBulge(r.points.size() - 1, pl.bulge((i + n - 1) % n));
+        r.points.push_back(pl.points[i]);
+    }
+    if (pl.closed)
+        r.setBulge(r.points.size() - 1, pl.bulge(n - 1));
+    return r;
+}
+
+} // namespace
+
+std::vector<JoinedShape> joinShapes(const std::vector<Shape>& shapes, double tolerance)
+{
+    std::vector<JoinedShape> out;
+    std::vector<Polyline> pieces;
+    std::vector<size_t> sources;
+    for (size_t i = 0; i < shapes.size(); ++i) {
+        if (auto p = chainPiece(shapes[i])) {
+            pieces.push_back(*p);
+            sources.push_back(i);
+        }
+    }
+    std::vector<bool> used(pieces.size(), false);
+    for (size_t start = 0; start < pieces.size(); ++start) {
+        if (used[start])
+            continue;
+        used[start] = true;
+        Polyline chain = pieces[start];
+        std::vector<size_t> from{sources[start]};
+        for (bool grew = true; grew;) {
+            grew = false;
+            for (size_t j = 0; j < pieces.size(); ++j) {
+                if (used[j])
+                    continue;
+                const Polyline& p = pieces[j];
+                if (almostEqual(chain.points.back(), p.points.front(), tolerance)) {
+                    append(chain, p);
+                } else if (almostEqual(chain.points.back(), p.points.back(), tolerance)) {
+                    append(chain, reversed(p));
+                } else if (almostEqual(chain.points.front(), p.points.back(), tolerance)) {
+                    Polyline r = p;
+                    append(r, chain);
+                    chain = r;
+                } else if (almostEqual(chain.points.front(), p.points.front(), tolerance)) {
+                    Polyline r = reversed(p);
+                    append(r, chain);
+                    chain = r;
+                } else {
+                    continue;
+                }
+                used[j] = grew = true;
+                from.push_back(sources[j]);
+            }
+        }
+        if (from.size() < 2)
+            continue;
+        if (chain.points.size() > 2 && almostEqual(chain.points.front(), chain.points.back(), tolerance)) {
+            chain.points.pop_back();
+            chain.closed = true;
+        }
+        chain = simplified(chain);
+        if (!chain.closed && chain.points.size() == 2 && std::abs(chain.bulge(0)) < kEps)
+            out.push_back({Line{chain.points[0], chain.points[1]}, from});
+        else
+            out.push_back({chain, from});
+    }
+    return out;
+}
+
+Polyline ellipsePolyline(Vec2 center, Vec2 major, double ratio)
+{
+    // 16 arcs through points of the ellipse: its area is right to 1 part in 10000.
+    constexpr int kSegments = 16;
+    const Vec2 minor = perpendicular(major) * ratio;
+    auto at = [&](double t) { return center + major * std::cos(t) + minor * std::sin(t); };
+    Polyline pl;
+    pl.closed = true;
+    for (int i = 0; i < kSegments; ++i) {
+        const double t0 = kTwoPi * i / kSegments;
+        const double t1 = kTwoPi * (i + 1) / kSegments;
+        pl.points.push_back(at(t0));
+        pl.setBulge(static_cast<size_t>(i), bulgeThrough(at(t0), at((t0 + t1) / 2.0), at(t1)).value_or(0.0));
+    }
+    return pl;
+}
+
+Polyline splinePolyline(const std::vector<Vec2>& fit, bool closed)
+{
+    Polyline pl;
+    pl.closed = closed;
+    const size_t n = fit.size();
+    if (n < 3) {
+        pl.points = fit;
+        return pl;
+    }
+    // Ends of an open curve are mirrored, so it starts and ends on its points.
+    auto point = [&](long i) -> Vec2 {
+        const long count = static_cast<long>(n);
+        if (closed)
+            return fit[static_cast<size_t>(((i % count) + count) % count)];
+        if (i < 0)
+            return fit[0] * 2.0 - fit[1];
+        if (i >= count)
+            return fit[n - 1] * 2.0 - fit[n - 2];
+        return fit[static_cast<size_t>(i)];
+    };
+    constexpr int kSteps = 12;
+    const long spans = static_cast<long>(closed ? n : n - 1);
+    for (long s = 0; s < spans; ++s) {
+        const Vec2 p0 = point(s - 1), p1 = point(s), p2 = point(s + 1), p3 = point(s + 2);
+        // Centripetal parameters: no loops or cusps on uneven spacing.
+        const double t0 = 0.0;
+        const double t1 = t0 + std::sqrt(std::max(distance(p0, p1), kEps));
+        const double t2 = t1 + std::sqrt(std::max(distance(p1, p2), kEps));
+        const double t3 = t2 + std::sqrt(std::max(distance(p2, p3), kEps));
+        for (int k = 0; k < kSteps; ++k) {
+            const double t = t1 + (t2 - t1) * k / kSteps;
+            const Vec2 a1 = p0 * ((t1 - t) / (t1 - t0)) + p1 * ((t - t0) / (t1 - t0));
+            const Vec2 a2 = p1 * ((t2 - t) / (t2 - t1)) + p2 * ((t - t1) / (t2 - t1));
+            const Vec2 a3 = p2 * ((t3 - t) / (t3 - t2)) + p3 * ((t - t2) / (t3 - t2));
+            const Vec2 b1 = a1 * ((t2 - t) / (t2 - t0)) + a2 * ((t - t0) / (t2 - t0));
+            const Vec2 b2 = a2 * ((t3 - t) / (t3 - t1)) + a3 * ((t - t1) / (t3 - t1));
+            pl.points.push_back(b1 * ((t2 - t) / (t2 - t1)) + b2 * ((t - t1) / (t2 - t1)));
+        }
+    }
+    if (!closed)
+        pl.points.push_back(fit.back());
+    return pl;
+}
+
 } // namespace cad
