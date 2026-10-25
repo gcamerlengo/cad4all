@@ -47,6 +47,7 @@ private:
     double pixels(double px) const { return px / scale_; }
 
     void drawGrid(QPainter& p) const;
+    void drawGrips(QPainter& p) const;
     void drawSnapMarker(QPainter& p, const cad::SnapPoint& snap) const;
     void drawCrosshair(QPainter& p) const;
 
@@ -64,6 +65,8 @@ private:
     QPointF panLast_;
     std::optional<QPointF> windowStart_;
     bool windowDragged_ = false;
+    // Where a grip was pressed, while the button is held.
+    std::optional<QPointF> gripPress_;
 
     // Point the next click will give to the command (after snap and ortho).
     cad::Vec2 effective_;

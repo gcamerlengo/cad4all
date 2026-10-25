@@ -713,3 +713,27 @@ TEST_F(Commands, MatchPropertiesCopiesLayerAndStyle)
     EXPECT_EQ(doc.entity(target)->layer, "Assi");
     EXPECT_EQ(styleOf(*doc.entity(target)), styleOf(*doc.entity(source)));
 }
+
+TEST_F(Commands, GripsStretchEverySelectedObjectSharingThePoint)
+{
+    type({"L", "0,0", "10,0", "10,10", ""});
+    std::vector<EntityId> ids;
+    for (const auto& [id, e] : doc.entities())
+        ids.push_back(id);
+    engine.select(ids);
+    EXPECT_EQ(engine.grips().size(), 6u);
+
+    ASSERT_TRUE(engine.startGrip({10, 0}, 0.1));
+    EXPECT_TRUE(engine.isActive());
+    type({"12,1"});
+    EXPECT_FALSE(engine.isActive());
+    const auto lines = shapes<Line>();
+    EXPECT_EQ(lines[0].b, (Vec2{12, 1}));
+    EXPECT_EQ(lines[1].a, (Vec2{12, 1}));
+    // The objects stay selected and the edit is one undo step.
+    EXPECT_EQ(engine.selection().size(), 2u);
+    type({"U"});
+    EXPECT_EQ(shapes<Line>()[0].b, (Vec2{10, 0}));
+
+    EXPECT_FALSE(engine.startGrip({50, 50}, 0.1));
+}

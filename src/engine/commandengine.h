@@ -66,6 +66,15 @@ public:
     void select(const std::vector<EntityId>& ids, bool remove = false);
     void clearSelection();
     void eraseSelection();
+
+    // --- Grips ---
+    // Like AutoCAD's GRIPOBJLIMIT: more selected objects show no grips.
+    static constexpr size_t kMaxGripObjects = 100;
+    // The grips of the selected objects, while no command runs.
+    std::vector<Vec2> grips() const;
+    // Starts dragging the grip within `tolerance` of `p`, if there is one:
+    // the next point picked moves it, on every selected object that has it.
+    bool startGrip(Vec2 p, double tolerance);
     // Editable entity closest to `p` within `tolerance`, if any.
     std::optional<EntityId> pick(Vec2 p, double tolerance) const;
     std::vector<EntityId> pickBox(const BBox& box, bool crossing) const;
@@ -117,6 +126,7 @@ private:
     };
 
     void registerCommands();
+    void start(const QString& name, std::unique_ptr<Command> command);
     void add(const QString& name, const QStringList& aliases, std::function<std::unique_ptr<Command>()> factory);
     void dispatch(const std::function<void(Command&)>& call);
     void endCommand();

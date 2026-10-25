@@ -379,3 +379,67 @@ TEST(PolylineArcs, ChamferSkipsShortSegments)
     // Cuts that meet in the middle of the short segment share one vertex.
     EXPECT_EQ(chamferPolyline(step, 0.5, 0.5).polyline.points.size(), 5u);
 }
+
+TEST(Grips, LineEndsAndMidpoint)
+{
+    const Line l{{0, 0}, {10, 0}};
+    const auto grips = gripPoints(l);
+    ASSERT_EQ(grips.size(), 3u);
+    EXPECT_EQ(grips[2], (Vec2{5, 0}));
+    const auto end = moveGrip(l, 1, {10, 5});
+    ASSERT_TRUE(end);
+    EXPECT_EQ(std::get<Line>(*end).b, (Vec2{10, 5}));
+    EXPECT_EQ(std::get<Line>(*end).a, (Vec2{0, 0}));
+    const auto moved = moveGrip(l, 2, {5, 3});
+    EXPECT_EQ(std::get<Line>(*moved).a, (Vec2{0, 3}));
+    EXPECT_EQ(std::get<Line>(*moved).b, (Vec2{10, 3}));
+    // A line cannot shrink to a point.
+    EXPECT_FALSE(moveGrip(l, 1, {0, 0}));
+}
+
+TEST(Grips, CircleAndArc)
+{
+    const Circle c{{0, 0}, 5};
+    EXPECT_DOUBLE_EQ(std::get<Circle>(*moveGrip(c, 2, {0, 8})).radius, 8.0);
+    EXPECT_EQ(std::get<Circle>(*moveGrip(c, 0, {1, 1})).center, (Vec2{1, 1}));
+
+    const Arc a{{0, 0}, 10, 0.0, kPi};  // upper half
+    const auto grips = gripPoints(a);
+    ASSERT_EQ(grips.size(), 4u);
+    EXPECT_NEAR(grips[3].y, 10.0, 1e-9);
+    // Dragging the midpoint up makes a flatter, larger arc through the same ends.
+    const Arc r = std::get<Arc>(*moveGrip(a, 3, {0, 5}));
+    EXPECT_TRUE(almostEqual(r.startPoint(), {10, 0}, 1e-9) || almostEqual(r.endPoint(), {10, 0}, 1e-9));
+    EXPECT_NEAR(r.radius, 12.5, 1e-9);
+}
+
+TEST(Grips, PolylineVerticesAndSegments)
+{
+    const Polyline pl({{0, 0}, {10, 0}, {10, 10}}, false);
+    const auto grips = gripPoints(pl);
+    ASSERT_EQ(grips.size(), 5u);  // three vertices, two midpoints
+    const Polyline v = std::get<Polyline>(*moveGrip(pl, 1, {12, 0}));
+    EXPECT_EQ(v.points[1], (Vec2{12, 0}));
+    // A straight segment moves parallel.
+    const Polyline s = std::get<Polyline>(*moveGrip(pl, 3, {5, -2}));
+    EXPECT_EQ(s.points[0], (Vec2{0, -2}));
+    EXPECT_EQ(s.points[1], (Vec2{10, -2}));
+    EXPECT_EQ(s.points[2], (Vec2{10, 10}));
+
+    // An arc segment bends through the point: here a half circle below the chord.
+    const Polyline arc({{0, 0}, {10, 0}}, false, {1.0});
+    const Polyline bent = std::get<Polyline>(*moveGrip(arc, 2, {5, -2}));
+    EXPECT_GT(bent.bulge(0), 0.0);
+    EXPECT_LT(bent.bulge(0), 1.0);
+}
+
+TEST(Grips, WallKeepsItsOpeningsInPlace)
+{
+    Wall w;
+    w.start = {0, 0};
+    w.end = {5000, 0};
+    w.openings.push_back({Opening::Kind::Door, 2000.0, 900.0, 2100.0, 0.0});
+    const Wall r = std::get<Wall>(*moveGrip(w, 0, {-1000, 0}));
+    EXPECT_EQ(r.start, (Vec2{-1000, 0}));
+    EXPECT_NEAR(r.openings[0].position, 3000.0, 1e-9);
+}

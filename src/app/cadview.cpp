@@ -24,9 +24,13 @@ const QColor kPreview(120, 190, 255);
 const QColor kSelected(78, 161, 255);
 const QColor kSnap(240, 195, 48);
 const QColor kCrosshair(220, 220, 220);
+const QColor kGrip(30, 120, 255);
+const QColor kGripHover(240, 70, 70);
 
 constexpr double kPickPixels = 5.0;
 constexpr double kSnapPixels = 10.0;
+// Half the side of a grip square; a click this close picks it.
+constexpr double kGripPixels = 5.0;
 constexpr double kZoomStep = 1.2;
 
 QColor toQColor(Color c)
@@ -144,6 +148,12 @@ void CadView::mousePressEvent(QMouseEvent* event)
         engine_.pickPoint(effective_);
         return;
     }
+    // A click on a grip of the selection starts dragging it.
+    if (!engine_.isActive() && !windowStart_ && engine_.startGrip(toWorld(pos), pixels(kGripPixels + 1.0))) {
+        gripPress_ = pos;
+        updateCursor(pos);
+        return;
+    }
 
     const bool remove = event->modifiers() & Qt::ShiftModifier;
     if (windowStart_) {
@@ -168,6 +178,16 @@ void CadView::mouseReleaseEvent(QMouseEvent* event)
     }
     if (event->button() == Qt::LeftButton && windowStart_ && windowDragged_)
         finishWindowSelection(event->position(), event->modifiers() & Qt::ShiftModifier);
+    // A grip dragged with the button held goes where the button is released;
+    // otherwise the next click places it.
+    if (event->button() == Qt::LeftButton && gripPress_) {
+        const bool dragged = QLineF(*gripPress_, event->position()).length() > 4.0;
+        gripPress_.reset();
+        if (dragged && engine_.isActive()) {
+            updateCursor(event->position());
+            engine_.pickPoint(effective_);
+        }
+    }
 }
 
 void CadView::mouseMoveEvent(QMouseEvent* event)
@@ -304,6 +324,7 @@ void CadView::paintEvent(QPaintEvent*)
         p.drawRect(r);
     }
 
+    drawGrips(p);
     if (snap_ && mouseInside_)
         drawSnapMarker(p, *snap_);
     if (mouseInside_)
@@ -338,6 +359,24 @@ void CadView::drawGrid(QPainter& p) const
     p.drawLine(QPointF(0, origin.y()), QPointF(width(), origin.y()));
     p.setPen(kAxisY);
     p.drawLine(QPointF(origin.x(), 0), QPointF(origin.x(), height()));
+    p.setRenderHint(QPainter::Antialiasing, true);
+}
+
+void CadView::drawGrips(QPainter& p) const
+{
+    const std::vector<Vec2> grips = engine_.grips();
+    if (grips.empty())
+        return;
+    p.setRenderHint(QPainter::Antialiasing, false);
+    p.setPen(QPen(Qt::black, 0));
+    const double s = kGripPixels;
+    for (Vec2 g : grips) {
+        const QPointF c = toScreen(g);
+        const bool hover = mouseInside_ && std::abs(c.x() - mouse_.x()) <= s + 1.0 && std::abs(c.y() - mouse_.y()) <= s + 1.0;
+        p.setBrush(hover ? kGripHover : kGrip);
+        p.drawRect(QRectF(c.x() - s, c.y() - s, 2 * s, 2 * s));
+    }
+    p.setBrush(Qt::NoBrush);
     p.setRenderHint(QPainter::Antialiasing, true);
 }
 

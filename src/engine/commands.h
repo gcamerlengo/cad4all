@@ -2,6 +2,8 @@
 // Factories for the built-in commands. Each command lives in commands.cpp.
 #pragma once
 
+#include "geometry.h"
+
 #include <memory>
 
 namespace cad {
@@ -49,5 +51,7 @@ std::unique_ptr<Command> makeLineweightCommand();
 std::unique_ptr<Command> makeLinetypeScaleCommand();
 std::unique_ptr<Command> makeChangePropertiesCommand();
 std::unique_ptr<Command> makeMatchPropertiesCommand();
+// Drags the grips at `grip` of the selected objects (started by the view).
+std::unique_ptr<Command> makeGripCommand(Vec2 grip);
 
 } // namespace cad

@@ -2,6 +2,7 @@
 #include "commandengine.h"
 
 #include "commands.h"
+#include "editing.h"
 #include "coordinput.h"
 
 #include <algorithm>
@@ -65,18 +66,45 @@ bool CommandEngine::run(const QString& rawName)
         return false;
     }
 
+    lastCommand_ = it->second.name;
+    message(tr("Comando: %1").arg(it->second.name));
+    start(it->second.name, it->second.factory());
+    return true;
+}
+
+void CommandEngine::start(const QString& name, std::unique_ptr<Command> command)
+{
     if (current_)
         cancel();
-
-    current_ = it->second.factory();
+    current_ = std::move(command);
     current_->engine = this;
-    activeName_ = it->second.name;
-    lastCommand_ = it->second.name;
-    message(tr("Comando: %1").arg(activeName_));
+    activeName_ = name;
     doc_.beginTransaction(activeName_.toStdString());
     dispatch([](Command& c) { c.start(); });
     emit changed();
-    return true;
+}
+
+std::vector<Vec2> CommandEngine::grips() const
+{
+    std::vector<Vec2> out;
+    if (current_ || selection_.size() > kMaxGripObjects)
+        return out;
+    for (EntityId id : selection_)
+        if (const Entity* e = doc_.entity(id))
+            for (Vec2 g : gripPoints(e->shape))
+                out.push_back(g);
+    return out;
+}
+
+bool CommandEngine::startGrip(Vec2 p, double tolerance)
+{
+    for (Vec2 g : grips()) {
+        if (distance(g, p) <= tolerance) {
+            start(QStringLiteral("STIRA"), makeGripCommand(g));
+            return true;
+        }
+    }
+    return false;
 }
 
 void CommandEngine::submit(const QString& rawText)

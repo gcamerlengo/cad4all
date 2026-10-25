@@ -3790,6 +3790,70 @@ private:
     EntityStyle style_;
 };
 
+// ---------------------------------------------------------------- grips
+
+// Grip editing, as AutoCAD's ** STIRA ** mode: every selected object with a
+// grip on `base` has it moved to the point picked. The selection stays.
+class GripCommand : public Command {
+public:
+    explicit GripCommand(Vec2 base) : base_(base) {}
+
+    void start() override
+    {
+        const Document& doc = engine->document();
+        for (EntityId id : engine->selection()) {
+            const Entity* e = doc.entity(id);
+            if (!e)
+                continue;
+            const std::vector<Vec2> grips = gripPoints(e->shape);
+            for (size_t i = 0; i < grips.size(); ++i)
+                if (almostEqual(grips[i], base_, 1e-6 * std::max(1.0, length(base_)))) {
+                    targets_.push_back({id, i});
+                    break;
+                }
+        }
+        if (targets_.empty()) {
+            engine->finish();
+            return;
+        }
+        engine->setPrompt(t("** STIRA ** Specificare punto di stiramento o [Esci]:"));
+    }
+
+    bool point(Vec2 p) override
+    {
+        Document& doc = engine->document();
+        for (const auto& [id, grip] : targets_)
+            if (const Entity* e = doc.entity(id))
+                if (const auto moved = moveGrip(e->shape, grip, p))
+                    doc.replace(id, *moved);
+        engine->finish();
+        return true;
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (!isExitWord(w))
+            return false;
+        engine->finish();
+        return true;
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        for (const auto& [id, grip] : targets_)
+            if (const Entity* e = engine->document().entity(id))
+                if (const auto moved = moveGrip(e->shape, grip, cursor))
+                    out.push_back(*moved);
+        out.push_back(Line{base_, cursor});
+    }
+
+    std::optional<Vec2> base() const override { return base_; }
+
+private:
+    Vec2 base_;
+    std::vector<std::pair<EntityId, size_t>> targets_;
+};
+
 } // namespace
 
 std::unique_ptr<Command> makeLineCommand() { return std::make_unique<LineCommand>(); }
@@ -3833,5 +3897,6 @@ std::unique_ptr<Command> makeLineweightCommand() { return std::make_unique<Curre
 std::unique_ptr<Command> makeLinetypeScaleCommand() { return std::make_unique<LinetypeScaleCommand>(); }
 std::unique_ptr<Command> makeChangePropertiesCommand() { return std::make_unique<ChangePropertiesCommand>(); }
 std::unique_ptr<Command> makeMatchPropertiesCommand() { return std::make_unique<MatchPropertiesCommand>(); }
+std::unique_ptr<Command> makeGripCommand(Vec2 grip) { return std::make_unique<GripCommand>(grip); }
 
 } // namespace cad

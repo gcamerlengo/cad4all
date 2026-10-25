@@ -95,4 +95,15 @@ PolylineCornersResult chamferPolyline(const Polyline& pl, double dist1, double d
 // when their centre is inside.
 Shape stretchShape(const Shape& shape, const BBox& window, Vec2 offset);
 
+// Grips, AutoCAD's squares on a selected object: line ends and midpoint,
+// circle centre and quadrants, arc centre, ends and midpoint, polyline
+// vertices and segment midpoints, text insertion, dimension points, wall ends
+// and midpoint. Other shapes have none.
+std::vector<Vec2> gripPoints(const Shape& shape);
+// The shape with grip `index` dragged to `to`: an end or vertex moves alone,
+// a midpoint or centre moves the whole line, segment or circle, a quadrant
+// changes the radius, an arc point keeps the other two. Nothing when the
+// result would be degenerate.
+std::optional<Shape> moveGrip(const Shape& shape, size_t index, Vec2 to);
+
 } // namespace cad

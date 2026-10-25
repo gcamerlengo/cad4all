@@ -946,4 +946,144 @@ Shape stretchShape(const Shape& shape, const BBox& window, Vec2 offset)
     return shape;
 }
 
+namespace {
+
+Vec2 arcMidpoint(const Arc& a)
+{
+    return a.center + polar(a.radius, a.startAngle + a.sweep() / 2.0);
+}
+
+Vec2 segmentMidpoint(const Polyline& pl, size_t i)
+{
+    const Shape seg = polylineSegment(pl, i);
+    if (const auto* a = std::get_if<Arc>(&seg))
+        return arcMidpoint(*a);
+    const Line& l = std::get<Line>(seg);
+    return (l.a + l.b) * 0.5;
+}
+
+// The bulge of the arc from `a` through `m` to `b`; 0 when they are in line.
+std::optional<double> bulgeThrough(Vec2 a, Vec2 m, Vec2 b)
+{
+    const auto arc = arcFromThreePoints(a, m, b);
+    if (!arc)
+        return std::nullopt;
+    const bool ccw = cross(m - a, b - a) > 0.0;
+    return ccw ? bulgeOfSweep(arc->sweep()) : -bulgeOfSweep(arc->sweep());
+}
+
+} // namespace
+
+std::vector<Vec2> gripPoints(const Shape& shape)
+{
+    if (const auto* l = std::get_if<Line>(&shape))
+        return {l->a, l->b, (l->a + l->b) * 0.5};
+    if (const auto* c = std::get_if<Circle>(&shape))
+        return {c->center, c->center + Vec2{c->radius, 0}, c->center + Vec2{0, c->radius}, c->center - Vec2{c->radius, 0},
+                c->center - Vec2{0, c->radius}};
+    if (const auto* a = std::get_if<Arc>(&shape))
+        return {a->center, a->startPoint(), a->endPoint(), arcMidpoint(*a)};
+    if (const auto* pl = std::get_if<Polyline>(&shape)) {
+        std::vector<Vec2> grips = pl->points;
+        for (size_t i = 0; i < pl->segmentCount(); ++i)
+            grips.push_back(segmentMidpoint(*pl, i));
+        return grips;
+    }
+    if (const auto* t = std::get_if<Text>(&shape))
+        return {t->position};
+    if (const auto* d = std::get_if<Dimension>(&shape))
+        return {d->p1, d->p2, d->location};
+    if (const auto* w = std::get_if<Wall>(&shape))
+        return {w->start, w->end, (w->start + w->end) * 0.5};
+    return {};
+}
+
+std::optional<Shape> moveGrip(const Shape& shape, size_t index, Vec2 to)
+{
+    const std::vector<Vec2> grips = gripPoints(shape);
+    if (index >= grips.size())
+        return std::nullopt;
+    const Vec2 delta = to - grips[index];
+
+    if (auto l = std::get_if<Line>(&shape)) {
+        Line r = *l;
+        if (index == 0)
+            r.a = to;
+        else if (index == 1)
+            r.b = to;
+        else
+            return transformed(shape, Transform::translation(delta));
+        if (almostEqual(r.a, r.b))
+            return std::nullopt;
+        return r;
+    }
+    if (const auto* c = std::get_if<Circle>(&shape)) {
+        if (index == 0)
+            return transformed(shape, Transform::translation(delta));
+        const double radius = distance(c->center, to);
+        if (radius < kEps)
+            return std::nullopt;
+        return Circle{c->center, radius};
+    }
+    if (const auto* a = std::get_if<Arc>(&shape)) {
+        if (index == 0)
+            return transformed(shape, Transform::translation(delta));
+        Vec2 pts[3] = {a->startPoint(), arcMidpoint(*a), a->endPoint()};
+        pts[index == 1 ? 0 : index == 2 ? 2 : 1] = to;
+        const auto arc = arcFromThreePoints(pts[0], pts[1], pts[2]);
+        if (!arc)
+            return std::nullopt;
+        return *arc;
+    }
+    if (const auto* pl = std::get_if<Polyline>(&shape)) {
+        Polyline r = *pl;
+        const size_t n = pl->points.size();
+        if (index < n) {
+            r.points[index] = to;
+            return r;
+        }
+        const size_t seg = index - n;
+        const size_t next = (seg + 1) % n;
+        if (std::abs(pl->bulge(seg)) < kEps) {
+            // A straight segment moves parallel to itself.
+            r.points[seg] = r.points[seg] + delta;
+            r.points[next] = r.points[next] + delta;
+            return r;
+        }
+        const auto bulge = bulgeThrough(pl->points[seg], to, pl->points[next]);
+        if (!bulge)
+            return std::nullopt;
+        r.setBulge(seg, *bulge);
+        return r;
+    }
+    if (const auto* t = std::get_if<Text>(&shape)) {
+        Text r = *t;
+        r.position = to;
+        return r;
+    }
+    if (const auto* d = std::get_if<Dimension>(&shape)) {
+        Dimension r = *d;
+        (index == 0 ? r.p1 : index == 1 ? r.p2 : r.location) = to;
+        return r;
+    }
+    if (const auto* w = std::get_if<Wall>(&shape)) {
+        if (index == 2)
+            return transformed(shape, Transform::translation(delta));
+        Wall r = *w;
+        (index == 0 ? r.start : r.end) = to;
+        const double len = distance(r.start, r.end);
+        if (len < kEps)
+            return std::nullopt;
+        // Doors and windows stay where they are along the wall, within its new length.
+        const Vec2 oldDir = normalized(w->end - w->start);
+        const Vec2 newDir = (r.end - r.start) * (1.0 / len);
+        for (Opening& o : r.openings) {
+            const Vec2 centre = w->start + oldDir * o.position;
+            o.position = std::clamp(dot(centre - r.start, newDir), o.width / 2.0, std::max(o.width / 2.0, len - o.width / 2.0));
+        }
+        return r;
+    }
+    return std::nullopt;
+}
+
 } // namespace cad
