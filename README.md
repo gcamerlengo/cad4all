@@ -87,6 +87,7 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | CAMBIAPROP / CHPROP | CH | Colore, LAyer, TIpolinea, SPessore degli oggetti selezionati |
 | CORRISPPROP / MATCHPROP | MA | oggetto di origine, poi oggetti di destinazione e Invio |
 | STAMPA / PLOT | | apre la finestra di stampa (anche Ctrl+P) |
+| TAVOLA / LAYOUT | LO | crea (formato, scala 1:N o adattata) o elimina le tavole di stampa con cartiglio |
 | ANNULLA / UNDO | U | (anche Ctrl+Z) |
 | RIPRISTINA / REDO | | (anche Ctrl+Y) |
 
@@ -196,6 +197,8 @@ TRATTEGGIO (alias H) chiede un punto interno: il contorno chiuso più piccolo at
 ## Stampa e PDF
 
 File > Stampa (Ctrl+P, o il comando STAMPA) stampa su una stampante o salva un PDF: formato da A4 ad A0, orientamento, estensioni o vista corrente, scala adattata al foglio o 1:50, 1:100 e così via con l'unità del disegno, spessore delle linee e bianco e nero, con l'anteprima del foglio. Da riga di comando `--export disegno.pdf` salva un PDF A3 in bianco e nero adattato al foglio.
+
+Le **tavole** (File > Tavole, Output > Tavole o il comando TAVOLA) sono fogli da A4 ad A0 con cornice e cartiglio (titolo, progetto, scala, data, numero della tavola e disegnatore) e una finestra sul disegno in scala, che mostra un piano a scelta. Il pannello Tavole ne mostra l'anteprima, le modifica (formato, orientamento, area, scala, unità, piano e cartiglio), le esporta tutte in un PDF di più pagine o le stampa. Si salvano nel `.c4a`; se il disegno ha tavole, `--export disegno.pdf` le scrive una per pagina.
 
 ## Struttura
 

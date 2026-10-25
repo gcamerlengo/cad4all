@@ -14,6 +14,7 @@ class CadView;
 class CommandLine;
 class InfoBox;
 class LayerPanel;
+class LayoutPanel;
 class Navigator;
 class QActionGroup;
 class QComboBox;
@@ -79,6 +80,7 @@ private:
     void exportDxf();
     void exportModel();
     void plot();
+    void showLayouts();
     void showView3d();
     void updateStories();
     void setStory(cad::StoryId id);
@@ -104,6 +106,8 @@ private:
     CommandLine* commandLine_;
     LayerPanel* layerPanel_;
     QDockWidget* layerDock_;
+    LayoutPanel* layoutPanel_;
+    QDockWidget* layoutDock_;
     View3D* view3d_;
     QDockWidget* view3dDock_;
     QSplitter* central_;

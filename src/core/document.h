@@ -3,6 +3,7 @@
 #pragma once
 
 #include "block.h"
+#include "layout.h"
 #include "shapes.h"
 #include "style.h"
 
@@ -134,6 +135,14 @@ public:
     // block that would contain itself.
     bool defineBlock(std::shared_ptr<const Block> block);
 
+    // Sheets for printing, in the order of the book. Names are unique.
+    const std::vector<Layout>& layouts() const { return layouts_; }
+    const Layout* layout(const std::string& name) const;
+    bool addLayout(const Layout& layout);
+    // Replaces the sheet called `name` (the new one may have another name).
+    bool updateLayout(const std::string& name, const Layout& layout);
+    bool removeLayout(const std::string& name);
+
     // Calls `f` with what the entity draws: the entity itself, or each object
     // of a block reference placed in the drawing (nested blocks too), with
     // the layer and style it shows with (layer 0 and BYBLOCK resolved).
@@ -205,6 +214,7 @@ private:
     double linetypeScale_ = 1.0;
     EntityStyle currentStyle_;
     std::map<std::string, std::shared_ptr<const Block>> blocks_;
+    std::vector<Layout> layouts_;
     std::map<EntityId, Entity> entities_;
     EntityId nextId_ = 1;
 

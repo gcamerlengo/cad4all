@@ -108,6 +108,7 @@ public:
     void finish();
     void requestZoomExtents() { emit zoomExtentsRequested(); }
     void requestLayerManager() { emit layerManagerRequested(); }
+    void requestLayouts() { emit layoutsRequested(); }
     void requestPlot() { emit plotRequested(); }
     void requestView3d() { emit view3dRequested(); }
     // Asks the interface for a text editor showing `text`; without one the
@@ -121,6 +122,7 @@ signals:
     void selectionChanged();
     void zoomExtentsRequested();
     void layerManagerRequested();
+    void layoutsRequested();
     void plotRequested();
     void view3dRequested();
     void textEditorRequested(const QString& title, const QString& text);

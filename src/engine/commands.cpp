@@ -12,6 +12,7 @@
 #include "stylenames.h"
 
 #include <QCoreApplication>
+#include <QDate>
 
 #include <algorithm>
 #include <limits>
@@ -3709,6 +3710,163 @@ public:
     }
 };
 
+// LAYOUT: the sheets for printing. A new sheet shows the current story,
+// fitted or at the scale given, with a title block.
+class LayoutCommand : public Command {
+public:
+    void start() override
+    {
+        engine->message(layoutList());
+        toOption();
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (step_ == Step::Option) {
+            if (isAny(w, {"N", "NUOVA", "NEW"})) {
+                toName();
+            } else if (isAny(w, {"E", "ELIMINA", "DELETE"})) {
+                step_ = Step::Remove;
+                engine->setPrompt(t("Specificare nome della tavola da eliminare:"));
+            } else if (w == QLatin1String("?")) {
+                engine->message(layoutList());
+            } else {
+                return false;
+            }
+            return true;
+        }
+        if (step_ == Step::Paper) {
+            if (!paperSize(w.toStdString()))
+                return false;
+            paper_ = w.toStdString();
+            toScale();
+            return true;
+        }
+        if (step_ == Step::Scale) {
+            if (isAny(w, {"A", "ADATTA", "F", "FIT"})) {
+                create(0.0);
+                return true;
+            }
+            // 1:50
+            const qsizetype colon = w.indexOf(QLatin1Char(':'));
+            if (colon > 0) {
+                const double a = w.left(colon).toDouble();
+                const double b = w.mid(colon + 1).toDouble();
+                if (a > 0.0 && b > 0.0) {
+                    create(b / a);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    bool number(double v) override
+    {
+        if (step_ != Step::Scale || v <= 0.0)
+            return false;
+        create(v);
+        return true;
+    }
+
+    bool wantsText() const override { return step_ == Step::Name || step_ == Step::Remove; }
+
+    void text(const QString& raw) override
+    {
+        const QString name = raw.trimmed();
+        Document& doc = engine->document();
+        if (step_ == Step::Remove) {
+            if (doc.removeLayout(name.toStdString()))
+                engine->message(t("Tavola %1 eliminata.").arg(name));
+            else
+                engine->message(t("La tavola %1 non esiste.").arg(name));
+            engine->finish();
+            return;
+        }
+        if (doc.layout(name.toStdString())) {
+            engine->message(t("Esiste già una tavola %1.").arg(name));
+            return;
+        }
+        name_ = name;
+        toPaper();
+    }
+
+    void enter() override
+    {
+        switch (step_) {
+        case Step::Option: toName(); break;
+        case Step::Name: name_ = defaultName(); toPaper(); break;
+        case Step::Paper: toScale(); break;
+        case Step::Scale: create(0.0); break;
+        case Step::Remove: engine->finish(); break;
+        }
+    }
+
+private:
+    enum class Step { Option, Name, Paper, Scale, Remove };
+
+    QString layoutList() const
+    {
+        QStringList names;
+        for (const Layout& l : engine->document().layouts())
+            names << QStringLiteral("%1 (%2)").arg(QString::fromStdString(l.name), QString::fromStdString(l.paper));
+        return names.isEmpty() ? t("Il disegno non ha tavole.") : t("Tavole: %1").arg(names.join(QStringLiteral(", ")));
+    }
+
+    QString defaultName() const
+    {
+        for (int i = 1;; ++i) {
+            const QString name = t("Tavola %1").arg(i);
+            if (!engine->document().layout(name.toStdString()))
+                return name;
+        }
+    }
+
+    void toOption()
+    {
+        step_ = Step::Option;
+        engine->setPrompt(t("Immettere un'opzione [Nuova/Elimina/?] <Nuova>:"));
+    }
+
+    void toName()
+    {
+        step_ = Step::Name;
+        engine->setPrompt(t("Specificare nome della tavola <%1>:").arg(defaultName()));
+    }
+
+    void toPaper()
+    {
+        step_ = Step::Paper;
+        engine->setPrompt(t("Specificare formato [A4/A3/A2/A1/A0] <%1>:").arg(QString::fromStdString(paper_)));
+    }
+
+    void toScale()
+    {
+        step_ = Step::Scale;
+        engine->setPrompt(t("Specificare scala 1:N o [Adatta] <Adatta>:"));
+    }
+
+    void create(double scale)
+    {
+        Document& doc = engine->document();
+        const BBox area = doc.extents();
+        const bool landscape = !area.valid() || area.width() >= area.height();
+        Layout layout = makeLayout(name_.toStdString(), paper_, landscape, area, scale, 1.0, doc.currentStory());
+        layout.titleBlock.date = QDate::currentDate().toString(QStringLiteral("dd/MM/yyyy")).toStdString();
+        layout.titleBlock.number = std::to_string(doc.layouts().size() + 1);
+        doc.addLayout(layout);
+        engine->message(t("Tavola %1 creata: %2, scala 1:%3.")
+                            .arg(name_, QString::fromStdString(layout.paper),
+                                 QString::fromStdString(formatMeasurement(layout.viewports.front().scale))));
+        engine->requestLayouts();
+        engine->finish();
+    }
+
+    Step step_ = Step::Option;
+    QString name_;
+    std::string paper_ = "A3";
+};
+
 // ---------------------------------------------------------------- properties
 
 QString linetypeList(const Document& doc)
@@ -5051,6 +5209,7 @@ std::unique_ptr<Command> makeRoofCommand() { return std::make_unique<RoofCommand
 std::unique_ptr<Command> makeView3dCommand() { return std::make_unique<View3dCommand>(); }
 std::unique_ptr<Command> makeZoomCommand() { return std::make_unique<ZoomCommand>(); }
 std::unique_ptr<Command> makeLayerCommand() { return std::make_unique<LayerCommand>(); }
+std::unique_ptr<Command> makeLayoutCommand() { return std::make_unique<LayoutCommand>(); }
 std::unique_ptr<Command> makeColorCommand() { return std::make_unique<CurrentStyleCommand>(StyleQuestion::Kind::Color); }
 std::unique_ptr<Command> makeLinetypeCommand() { return std::make_unique<CurrentStyleCommand>(StyleQuestion::Kind::Linetype); }
 std::unique_ptr<Command> makeLineweightCommand() { return std::make_unique<CurrentStyleCommand>(StyleQuestion::Kind::Lineweight); }

@@ -6,6 +6,7 @@
 #include "icons.h"
 #include "infobox.h"
 #include "layerpanel.h"
+#include "layoutpanel.h"
 #include "navigator.h"
 #include "ribbon.h"
 #include "stylecontrols.h"
@@ -106,6 +107,13 @@ MainWindow::MainWindow()
     layerDock_->setWidget(layerPanel_);
     addDockWidget(Qt::RightDockWidgetArea, layerDock_);
 
+    layoutPanel_ = new LayoutPanel(engine_, [this] { return view_->visibleArea(); }, this);
+    layoutDock_ = new QDockWidget(tr("Tavole"), this);
+    layoutDock_->setObjectName(QStringLiteral("layoutDock"));
+    layoutDock_->setWidget(layoutPanel_);
+    addDockWidget(Qt::RightDockWidgetArea, layoutDock_);
+    layoutDock_->hide();
+
     navigator_ = new Navigator(doc_, this);
     navigatorDock_ = new QDockWidget(tr("Navigatore"), this);
     navigatorDock_->setObjectName(QStringLiteral("navigatorDock"));
@@ -151,6 +159,8 @@ MainWindow::MainWindow()
         if (!runningScript_)
             QTimer::singleShot(0, this, [this, title, text] { editParagraph(title, text); });
     });
+    connect(&engine_, &CommandEngine::layoutsRequested, this, &MainWindow::showLayouts);
+    connect(layoutPanel_, &LayoutPanel::message, commandLine_, &CommandLine::appendMessage);
     connect(&engine_, &CommandEngine::layerManagerRequested, this, [this] {
         layerDock_->show();
         layerDock_->raise();
@@ -372,6 +382,7 @@ void MainWindow::createActions()
     named(QStringLiteral("exportDxf"), QStringLiteral("export"), tr("Esporta &DXF..."), [this] { exportDxf(); });
     named(QStringLiteral("exportModel"), QStringLiteral("view3d"), tr("Esporta &modello 3D (OBJ, STL)..."), [this] { exportModel(); });
     named(QStringLiteral("print"), QStringLiteral("print"), tr("S&tampa..."), [this] { plot(); }, QKeySequence::Print);
+    named(QStringLiteral("layouts"), QStringLiteral("sheet"), tr("&Tavole..."), [this] { showLayouts(); })->setToolTip(tr("Tavole di stampa con cartiglio (TAVOLA)"));
     named(QStringLiteral("script"), QStringLiteral("script"), tr("Esegui sc&ript..."), [this] { runScriptDialog(); });
     named(QStringLiteral("undo"), QStringLiteral("undo"), tr("&Annulla"), [this] { engine_.run(QStringLiteral("U")); }, QKeySequence::Undo);
     named(QStringLiteral("redo"), QStringLiteral("redo"), tr("&Ripristina"), [this] { engine_.run(QStringLiteral("REDO")); }, QKeySequence::Redo);
@@ -456,6 +467,7 @@ void MainWindow::createActions()
     file->addActions(actions({"new", "open", "save", "saveAs", "exportDxf", "exportModel"}));
     file->addSeparator();
     file->addAction(named_.value(QStringLiteral("print")));
+    file->addAction(named_.value(QStringLiteral("layouts")));
     file->addSeparator();
     file->addAction(named_.value(QStringLiteral("script")));
     file->addSeparator();
@@ -582,6 +594,7 @@ void MainWindow::createActions()
     }
     viewMenu->addSeparator();
     viewMenu->addAction(layerDock_->toggleViewAction());
+    viewMenu->addAction(layoutDock_->toggleViewAction());
     viewMenu->addAction(view3dDock_->toggleViewAction());
     viewMenu->addAction(navigatorDock_->toggleViewAction());
     viewMenu->addAction(infoDock_->toggleViewAction());
@@ -690,7 +703,7 @@ void MainWindow::createRibbon()
 
     QWidget* output = ribbon_->addPage(tr("Output"));
     p = ribbon_->addPanel(output, tr("Stampa"));
-    large(p, {"print"});
+    large(p, {"print", "layouts"});
     p = ribbon_->addPanel(output, tr("Esporta"));
     large(p, {"exportDxf", "exportModel"});
     p = ribbon_->addPanel(output, tr("Script"));
@@ -906,7 +919,10 @@ bool MainWindow::exportTo(const QString& path)
 {
     QString error;
     bool saved = false;
-    if (isPdf(path)) {
+    if (isPdf(path) && !doc_.layouts().empty()) {
+        // The drawing's sheets, one per page.
+        saved = writeLayoutsPdf(path, doc_, doc_.layouts(), true, &error);
+    } else if (isPdf(path)) {
         // The whole drawing fitted on an A3 sheet, in black and white.
         PlotSettings settings;
         settings.paper = QPageSize::A3;
@@ -921,6 +937,12 @@ bool MainWindow::exportTo(const QString& path)
     if (!saved)
         commandLine_->appendMessage(tr("Impossibile salvare %1: %2").arg(path, error));
     return saved;
+}
+
+void MainWindow::showLayouts()
+{
+    layoutDock_->show();
+    layoutDock_->raise();
 }
 
 void MainWindow::plot()

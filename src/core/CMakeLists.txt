@@ -5,6 +5,7 @@ add_library(cad4all_core STATIC
     shapes.h shapes.cpp
     style.h style.cpp
     block.h block.cpp
+    layout.h layout.cpp
     document.h document.cpp
     coordinput.h coordinput.cpp
     editing.h editing.cpp

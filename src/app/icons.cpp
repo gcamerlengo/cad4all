@@ -458,6 +458,14 @@ QIcon make(const QString& name)
             accentPen(p);
             p.drawRect(QRectF(7, 13, 10, 7.5));
         };
+    } else if (name == QLatin1String("sheet")) {
+        // A landscape sheet with its frame and the title block.
+        painter = [](QPainter& p) {
+            p.drawRect(QRectF(2.5, 5, 19, 14));
+            accentPen(p);
+            p.drawRect(QRectF(5, 7.5, 9, 9));
+            p.drawRect(QRectF(15, 13, 4.5, 3.5));
+        };
     } else if (name == QLatin1String("export")) {
         painter = [](QPainter& p) {
             p.drawPolyline(QPolygonF({{14, 5}, {4, 5}, {4, 20}, {18, 20}, {18, 15}}));

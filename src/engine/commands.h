@@ -45,6 +45,7 @@ std::unique_ptr<Command> makeStairCommand();
 std::unique_ptr<Command> makeView3dCommand();
 std::unique_ptr<Command> makeZoomCommand();
 std::unique_ptr<Command> makeLayerCommand();
+std::unique_ptr<Command> makeLayoutCommand();
 std::unique_ptr<Command> makePlotCommand();
 std::unique_ptr<Command> makeColorCommand();
 std::unique_ptr<Command> makeLinetypeCommand();

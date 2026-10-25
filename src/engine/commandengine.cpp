@@ -486,6 +486,7 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("ZOOM"), {QStringLiteral("Z")}, [] { return makeZoomCommand(); });
     add(QStringLiteral("PLOT"), {QStringLiteral("STAMPA"), QStringLiteral("PRINT")}, [] { return makePlotCommand(); });
     add(QStringLiteral("LAYER"), {QStringLiteral("LA")}, [] { return makeLayerCommand(); });
+    add(QStringLiteral("LAYOUT"), {QStringLiteral("TAVOLA"), QStringLiteral("LO")}, [] { return makeLayoutCommand(); });
     add(QStringLiteral("COLOR"), {QStringLiteral("COLORE"), QStringLiteral("COL")}, [] { return makeColorCommand(); });
     add(QStringLiteral("LINETYPE"), {QStringLiteral("TIPOLINEA"), QStringLiteral("LT")}, [] { return makeLinetypeCommand(); });
     add(QStringLiteral("LWEIGHT"), {QStringLiteral("SPESSLINEA"), QStringLiteral("LW")}, [] { return makeLineweightCommand(); });

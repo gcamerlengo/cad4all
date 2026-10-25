@@ -860,3 +860,28 @@ TEST_F(Commands, ParagraphTextFromTheCommandLine)
     type({"ESPLODI", "TUTTO", ""});
     EXPECT_EQ(shapes<Text>().size(), 4u);
 }
+
+TEST_F(Commands, LayoutCommandCreatesSheets)
+{
+    int shown = 0;
+    QObject::connect(&engine, &CommandEngine::layoutsRequested, [&] { ++shown; });
+    type({"RETTANGOLO", "0,0", "12000,8000"});
+    type({"TAVOLA", "", "", "", ""});
+    ASSERT_EQ(doc.layouts().size(), 1u);
+    EXPECT_EQ(doc.layouts()[0].name, "Tavola 1");
+    EXPECT_EQ(doc.layouts()[0].paper, "A3");
+    EXPECT_TRUE(doc.layouts()[0].landscape);
+    EXPECT_DOUBLE_EQ(doc.layouts()[0].viewports[0].scale, 50);
+    EXPECT_EQ(shown, 1);
+
+    type({"LO", "N", "Dettaglio", "A4", "1:20"});
+    ASSERT_EQ(doc.layouts().size(), 2u);
+    EXPECT_EQ(doc.layouts()[1].paper, "A4");
+    EXPECT_DOUBLE_EQ(doc.layouts()[1].viewports[0].scale, 20);
+    EXPECT_EQ(doc.layouts()[1].titleBlock.number, "2");
+
+    type({"TAVOLA", "E", "Tavola 1"});
+    EXPECT_FALSE(engine.isActive());
+    ASSERT_EQ(doc.layouts().size(), 1u);
+    EXPECT_EQ(doc.layouts()[0].name, "Dettaglio");
+}
