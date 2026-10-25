@@ -1,7 +1,8 @@
 # Builds and tests CAD4All on Linux, Windows and macOS and makes the
 # installers: setup .exe for Windows, .dmg for macOS, AppImage for Linux.
-# They stay as downloadable artifacts; a tag such as v0.1.0 also publishes
-# them as a GitHub release.
+# They stay as downloadable artifacts. A release published on GitHub
+# (Releases > Draft a new release, tag v0.1.0) or a pushed v* tag gets the
+# three installers attached.
 name: Build
 
 on:
@@ -9,6 +10,8 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
+  release:
+    types: [published]
   workflow_dispatch:
 
 jobs:
@@ -133,7 +136,7 @@ jobs:
 
   release:
     name: Release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-24.04
     permissions:
@@ -147,7 +150,13 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "CAD4All ${GITHUB_REF_NAME#v}" \
-            --notes "Installatori di CAD4All ${GITHUB_REF_NAME#v} per Windows, macOS e Linux." \
-            installers/*-setup.exe installers/*.dmg installers/*.AppImage
+          files=(installers/*-setup.exe installers/*.dmg installers/*.AppImage)
+          # A release made on the website already exists: add the files to it.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "${files[@]}"
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "CAD4All ${TAG#v}" \
+              --notes "Installatori di CAD4All ${TAG#v} per Windows, macOS e Linux." "${files[@]}"
+          fi

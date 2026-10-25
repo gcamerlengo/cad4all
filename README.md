@@ -84,7 +84,7 @@ Gli installatori si scaricano dalla pagina Releases del progetto, oppure dagli a
 
 Gli installatori non sono ancora firmati: alla prima apertura Windows mostra "PC protetto da Windows" (Ulteriori informazioni > Esegui comunque) e macOS chiede di aprire l'app con il tasto destro > Apri. Con i certificati di Apple e Microsoft questi avvisi spariscono.
 
-Per pubblicare una versione basta un tag: `git tag v0.1.0 && git push origin v0.1.0` crea la release con i tre installatori.
+Per pubblicare una versione: su GitHub, Releases > Draft a new release, tag nuovo `v0.1.0` (o la versione scritta in `CMakeLists.txt`), Publish release. In una ventina di minuti GitHub Actions aggiunge i tre installatori alla release. Funziona anche con `git push origin v0.1.0`.
 
 ## Compilare
 
