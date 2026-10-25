@@ -171,8 +171,8 @@ QIcon make(const QString& name)
             p.drawPolyline(QPolygonF({{5, 21}, {5, 11}, {12, 5}, {19, 11}, {19, 21}}));
             accentPen(p);
             p.drawLine(QPointF(12, 2.5), QPointF(12, 22));
-            p.drawPolyline(QPolygonF({{12, 2.5}, {16, 2.5}}));
-            p.drawPolyline(QPolygonF({{12, 22}, {16, 22}}));
+            p.drawLine(QPointF(12, 2.5), QPointF(16, 2.5));
+            p.drawLine(QPointF(12, 22), QPointF(16, 22));
         };
     } else if (name == QLatin1String("elevation")) {
         // A facade with its windows over the ground line.
