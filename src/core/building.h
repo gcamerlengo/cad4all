@@ -106,23 +106,75 @@ struct Model3D {
     std::pair<Vec3, Vec3> bounds() const;
 };
 
-// A roof broken down: its corners, its outline grown by the overhang and
-// one plan face per sloping edge (edge -1: the single face of a flat roof).
+// Height above the story of one plane of a roof: z = c + grad . p.
+struct RoofPlane {
+    Vec2 grad;
+    double c = 0.0;
+
+    double at(Vec2 p) const { return c + dot(grad, p); }
+};
+
+// A convex part of a roof, a roof of its own: each sloping edge of its
+// footprint gives a plane, its height is the lowest of them.
+struct RoofPiece {
+    std::vector<Vec2> footprint;
+    std::vector<Vec2> outline;
+    std::vector<bool> gables;
+    std::vector<RoofPlane> planes;  // empty: flat, at the base
+    std::vector<int> edges;         // the footprint edge of each plane
+
+    double height(Vec2 p, double base) const;
+    bool contains(Vec2 p) const;
+};
+
+// A visible face of a roof in plan: a convex polygon on one plane. `edge`
+// is the sloping edge of its piece, -1 on a flat roof.
 struct RoofFace {
     std::vector<Vec2> polygon;
     int edge = -1;
+    int piece = 0;
+    RoofPlane plane;
 };
+
+// A roof broken down. A convex footprint is one piece; a footprint with
+// right angles only (L, T, U plans...) is covered by the largest rectangles
+// that fit in it, each a roof of its own, and the roof is the highest of
+// them: the wings meet along valleys, like roofs drawn one per wing.
 struct RoofGeometry {
-    std::vector<Vec2> footprint;
-    std::vector<Vec2> outline;
+    std::vector<Vec2> footprint;  // corners without repeats; `gables` refers to its edges
+    std::vector<Vec2> outline;    // grown by the overhang
+    std::vector<RoofPiece> pieces;
     std::vector<RoofFace> faces;
+    // Ridges, hips and valleys: where two faces meet.
+    std::vector<std::array<Vec2, 2>> lines;
+    double base = 0.0;
+
+    // Height of the underside of the roof at `p`, above the story.
+    double height(Vec2 p) const;
+    bool flat() const;
 };
-// Nullopt when the footprint is not a convex polygon with at least three corners.
+// Nullopt when the footprint has less than three corners, or is neither
+// convex nor made of right angles.
 std::optional<RoofGeometry> roofGeometry(const Roof& roof);
 // Height of the underside of the roof at `p`, above its story.
 double roofHeight(const Roof& roof, Vec2 p);
-// What the roof draws in plan: its outline and the ridges and hips.
+// What the roof draws in plan: its outline and the ridges, hips and valleys.
 std::vector<Shape> roofPlan(const Roof& roof);
+
+// A step of a stair (or its landing): its plan and the height of its top.
+struct StairStep {
+    std::vector<Vec2> polygon;
+    double top = 0.0;
+};
+std::vector<StairStep> stairSteps(const Stair& stair);
+// What a stair draws in plan: the steps and the walking line with its arrow.
+std::vector<Shape> stairPlan(const Stair& stair);
+
+enum class RoofStyle { Hip, Gable, Shed, Flat };
+// The gable ends of a footprint for each style: none for a hip roof; the
+// ends of the wings for a gable roof; all but the longest edge for a shed
+// roof; all for a flat roof.
+std::vector<bool> roofGables(const std::vector<Vec2>& footprint, RoofStyle style);
 
 Model3D buildingModel(const std::vector<Wall>& walls);
 // Walls, slabs and roofs of the visible layers, each story at its elevation.

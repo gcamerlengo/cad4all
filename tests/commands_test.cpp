@@ -596,6 +596,11 @@ TEST_F(Commands, SlabInsideARoomAndUnderTheWalls)
 
     type({"SOLAIO", "D", "0,0", "1000,0", "1000,1000", "C", ""});
     EXPECT_EQ(shapes<Slab>().size(), 3u);
+    // A stairwell: a hole in the slab under the walls.
+    type({"RETTANGOLO", "1000,1000", "2000,3000"});
+    type({"SOLAIO", "F", "-100,2000", "1000,2000", ""});
+    slabs = shapes<Slab>();
+    ASSERT_EQ(slabs[1].loops.size(), 2u);
     type({"SOLAIO", "S", "300", ""});
 }
 
@@ -616,10 +621,35 @@ TEST_F(Commands, RoofOverTheWalls)
     EXPECT_NEAR(box.min.x, -150, 1e-6);
     EXPECT_NEAR(box.max.y, 5150, 1e-6);
 
-    // Drawn outline, an L is refused.
+    // Drawn outline: an L is fine, other concave shapes are refused.
     type({"TETTO", "T", "P", "0,0", "4000,0", "4000,2000", "2000,2000", "2000,4000", "0,4000", "C", ""});
-    EXPECT_EQ(shapes<Roof>().size(), 1u);
-    type({"TETTO", "0,0", "4000,0", "4000,2000", ""});
     EXPECT_EQ(shapes<Roof>().size(), 2u);
+    type({"TETTO", "0,0", "4000,0", "2000,1000", "2000,4000", "C", ""});
+    EXPECT_EQ(shapes<Roof>().size(), 2u);
+    type({"TETTO", "0,0", "4000,0", "4000,2000", ""});
+    EXPECT_EQ(shapes<Roof>().size(), 3u);
     type({"TETTO", "P", "30", "S", "500", ""});
+}
+
+TEST_F(Commands, StairUpToTheNextStory)
+{
+    // 3000 high story: 17 risers, none over 18 cm.
+    type({"SCALINATA", "L", "1100", "P", "270", "0,0", "0,1000"});
+    auto stairs = shapes<Stair>();
+    ASSERT_EQ(stairs.size(), 1u);
+    EXPECT_EQ(stairs[0].risers, 17);
+    EXPECT_DOUBLE_EQ(stairs[0].height, 3000);
+    EXPECT_DOUBLE_EQ(stairs[0].width, 1100);
+    EXPECT_DOUBLE_EQ(stairs[0].going, 270);
+    EXPECT_NEAR(stairs[0].angle, kPi / 2.0, 1e-12);
+    EXPECT_EQ(stairs[0].kind, Stair::Kind::Straight);
+    EXPECT_FALSE(engine.isActive());
+
+    type({"SN", "T", "U", "V", "D", "A", "2800", "5000,0", "6000,0"});
+    stairs = shapes<Stair>();
+    ASSERT_EQ(stairs.size(), 2u);
+    EXPECT_EQ(stairs[1].kind, Stair::Kind::U);
+    EXPECT_TRUE(stairs[1].turnRight);
+    EXPECT_EQ(stairs[1].risers, 16);
+    type({"SN", "T", "D", "V", "S", "L", "1000", "P", "280", ""});
 }

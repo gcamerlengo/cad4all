@@ -32,6 +32,7 @@ struct RenderStyle {
     QColor wall{236, 233, 226};
     QColor glass{150, 195, 225};
     QColor wood{168, 122, 78};
+    QColor roof{176, 96, 70};
     QColor edge{55, 58, 64};
     QColor ground{214, 216, 208};
 };

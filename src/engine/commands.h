@@ -38,6 +38,7 @@ std::unique_ptr<Command> makeWallEditCommand();
 std::unique_ptr<Command> makeStoryCommand();
 std::unique_ptr<Command> makeSlabCommand();
 std::unique_ptr<Command> makeRoofCommand();
+std::unique_ptr<Command> makeStairCommand();
 std::unique_ptr<Command> makeView3dCommand();
 std::unique_ptr<Command> makeZoomCommand();
 std::unique_ptr<Command> makeLayerCommand();

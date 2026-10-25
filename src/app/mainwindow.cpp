@@ -7,6 +7,7 @@
 #include "layerpanel.h"
 #include "dwgreader.h"
 #include "dxf.h"
+#include "meshexport.h"
 #include "nativeformat.h"
 #include "plot.h"
 #include "plotdialog.h"
@@ -184,6 +185,7 @@ void MainWindow::createActions()
     file->addAction(tr("&Salva"), QKeySequence::Save, this, &MainWindow::save);
     file->addAction(tr("Salva &con nome..."), QKeySequence::SaveAs, this, &MainWindow::saveAs);
     file->addAction(tr("Esporta &DXF..."), this, &MainWindow::exportDxf);
+    file->addAction(tr("Esporta &modello 3D (OBJ, STL)..."), this, &MainWindow::exportModel);
     file->addSeparator();
     file->addAction(tr("S&tampa..."), QKeySequence::Print, this, &MainWindow::plot);
     file->addSeparator();
@@ -229,6 +231,7 @@ void MainWindow::createActions()
         commandAction(tr("Finestra"), QStringLiteral("WINDOW"), icons::make(QStringLiteral("window"))),
         commandAction(tr("Solaio"), QStringLiteral("SLAB"), icons::make(QStringLiteral("slab"))),
         commandAction(tr("Tetto"), QStringLiteral("ROOF"), icons::make(QStringLiteral("roof"))),
+        commandAction(tr("Scala"), QStringLiteral("STAIR"), icons::make(QStringLiteral("stair"))),
     };
     architecture->addActions(architectureActions);
     architectureBar->addActions(architectureActions);
@@ -457,6 +460,10 @@ bool MainWindow::exportTo(const QString& path)
         PlotSettings settings;
         settings.paper = QPageSize::A3;
         saved = writePdf(path, doc_, settings, doc_.extents(), &error);
+    } else if (path.endsWith(QLatin1String(".obj"), Qt::CaseInsensitive)) {
+        saved = io::saveObj(buildingModel(doc_), path, &error);
+    } else if (path.endsWith(QLatin1String(".stl"), Qt::CaseInsensitive)) {
+        saved = io::saveStl(buildingModel(doc_), path, &error);
     } else {
         saved = isDxf(path) ? io::saveDxf(doc_, path, &error) : io::saveNative(doc_, path, &error);
     }
@@ -474,6 +481,31 @@ void MainWindow::plot()
     if (!result.isEmpty())
         commandLine_->appendMessage(result);
     commandLine_->input()->setFocus();
+}
+
+void MainWindow::exportModel()
+{
+    const QString obj = tr("Wavefront OBJ (*.obj)");
+    const QString stl = tr("STL per la stampa 3D (*.stl)");
+    QString filter = obj;
+    QString path = QFileDialog::getSaveFileName(this, tr("Esporta modello 3D"), QString(), obj + QStringLiteral(";;") + stl, &filter);
+    if (path.isEmpty())
+        return;
+    const QString ext = filter == stl ? QStringLiteral(".stl") : QStringLiteral(".obj");
+    if (!path.endsWith(ext, Qt::CaseInsensitive))
+        path += ext;
+    const Model3D model = buildingModel(doc_);
+    if (model.empty()) {
+        QMessageBox::information(this, tr("Esporta modello 3D"), tr("Il disegno non ha muri, solai, tetti o scale."));
+        return;
+    }
+    QString error;
+    const bool saved = ext == QLatin1String(".stl") ? io::saveStl(model, path, &error) : io::saveObj(model, path, &error);
+    if (!saved) {
+        QMessageBox::warning(this, tr("Esporta modello 3D"), tr("Impossibile salvare %1:\n%2").arg(path, error));
+        return;
+    }
+    commandLine_->appendMessage(tr("Esportato %1").arg(QFileInfo(path).fileName()));
 }
 
 void MainWindow::exportDxf()

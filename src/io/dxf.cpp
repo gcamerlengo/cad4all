@@ -1344,7 +1344,7 @@ QByteArray toDxf(const Document& doc)
     QByteArray blocks;
     int dimCount = 0;
     DxfWriter entities;
-    // DXF has no walls, slabs or roofs: they go out as what they draw in plan.
+    // DXF has no walls, slabs, roofs or stairs: they go out as what they draw in plan.
     const std::map<EntityId, WallFaces> walls = joinedWalls(doc);
     // Only the current story: the others would lie on top of it.
     for (const auto& [id, e] : doc.entities()) {
@@ -1357,6 +1357,11 @@ QByteArray toDxf(const Document& doc)
         }
         if (const auto* roof = std::get_if<Roof>(&e.shape)) {
             for (const Shape& s : roofPlan(*roof))
+                entities.shape(e.layer, s, dimCount, blocks);
+            continue;
+        }
+        if (const auto* stair = std::get_if<Stair>(&e.shape)) {
+            for (const Shape& s : stairPlan(*stair))
                 entities.shape(e.layer, s, dimCount, blocks);
             continue;
         }

@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <map>
 
 using namespace cad;
@@ -240,13 +241,95 @@ TEST(Building, GableRoofSlopesOnTheLongSides)
     EXPECT_GT(m.at(Model3D::Material::Wall), 2 * 4000 * 1000 / 2.0 * 0.9);
 }
 
-TEST(Building, RoofNeedsAConvexFootprint)
+TEST(Building, RoofNeedsAConvexOrRightAngledFootprint)
 {
     Roof r;
-    r.footprint = Polyline{{{0, 0}, {4000, 0}, {4000, 2000}, {2000, 2000}, {2000, 4000}, {0, 4000}}, true};
+    r.footprint = Polyline{{{0, 0}, {4000, 0}, {2000, 1000}, {2000, 4000}}, true};
     EXPECT_FALSE(roofGeometry(r));
     r.footprint.points.resize(2);
     EXPECT_FALSE(roofGeometry(r));
+}
+
+namespace {
+
+bool hasLine(const RoofGeometry& g, Vec2 a, Vec2 b)
+{
+    return std::any_of(g.lines.begin(), g.lines.end(), [&](const auto& l) {
+        return (distance(l[0], a) < 1e-6 && distance(l[1], b) < 1e-6) || (distance(l[0], b) < 1e-6 && distance(l[1], a) < 1e-6);
+    });
+}
+
+Roof lRoof(bool clockwise)
+{
+    Roof r;
+    std::vector<Vec2> pts{{0, 0}, {12000, 0}, {12000, 5000}, {5000, 5000}, {5000, 11000}, {0, 11000}};
+    if (clockwise)
+        std::reverse(pts.begin(), pts.end());
+    r.footprint = Polyline{pts, true};
+    r.pitch = kPi / 4.0;  // rises as much as it goes in
+    r.base = 0;
+    r.overhang = 0;
+    return r;
+}
+
+} // namespace
+
+TEST(Building, HipRoofOnAnLPlan)
+{
+    for (bool clockwise : {false, true}) {
+        const Roof r = lRoof(clockwise);
+        const auto g = roofGeometry(r);
+        ASSERT_TRUE(g);
+        EXPECT_EQ(g->pieces.size(), 2u);
+        // Two ridges meeting over the corner, a hip outside and a valley inside.
+        EXPECT_TRUE(hasLine(*g, {9500, 2500}, {2500, 2500}));
+        EXPECT_TRUE(hasLine(*g, {2500, 8500}, {2500, 2500}));
+        EXPECT_TRUE(hasLine(*g, {0, 0}, {5000, 5000}));
+        EXPECT_EQ(g->lines.size(), 7u);
+        EXPECT_NEAR(g->height({2500, 2500}), 2500, 1e-6);
+        EXPECT_NEAR(g->height({4000, 4000}), 1000, 1e-6);  // in the valley
+        EXPECT_NEAR(g->height({8000, 1000}), 1000, 1e-6);
+    }
+}
+
+TEST(Building, GableRoofOnAnLPlanHasGablesAtTheWingEnds)
+{
+    Roof r = lRoof(false);
+    r.gables = roofGables(r.footprint.points, RoofStyle::Gable);
+    EXPECT_EQ(r.gables, (std::vector<bool>{false, true, false, false, true, false}));
+    const auto g = roofGeometry(r);
+    ASSERT_TRUE(g);
+    // The ridges run to the gables.
+    EXPECT_TRUE(hasLine(*g, {12000, 2500}, {2500, 2500}));
+    EXPECT_TRUE(hasLine(*g, {2500, 11000}, {2500, 2500}));
+    EXPECT_NEAR(g->height({11900, 2500}), 2500, 1e-6);
+    // Reversed corners give the same gables, on their own edges.
+    std::vector<Vec2> back(r.footprint.points.rbegin(), r.footprint.points.rend());
+    EXPECT_EQ(roofGables(back, RoofStyle::Gable), (std::vector<bool>{true, false, false, true, false, false}));
+    // A rectangle is a plain gable roof.
+    EXPECT_EQ(roofGables({{0, 0}, {8000, 0}, {8000, 4000}, {0, 4000}}, RoofStyle::Gable),
+              (std::vector<bool>{false, true, false, true}));
+}
+
+TEST(Building, RoofOnAUPlanHasNoHoles)
+{
+    Roof r;
+    r.footprint = Polyline{{{0, 0}, {14000, 0}, {14000, 10000}, {10000, 10000}, {10000, 5000}, {4000, 5000}, {4000, 10000}, {0, 10000}}, true};
+    r.overhang = 0;
+    r.base = 0;
+    r.gables = roofGables(r.footprint.points, RoofStyle::Gable);
+    const auto g = roofGeometry(r);
+    ASSERT_TRUE(g);
+    EXPECT_EQ(g->pieces.size(), 3u);
+    double area = 0.0;
+    for (const RoofFace& f : g->faces) {
+        double a = 0.0;
+        for (size_t k = 0; k < f.polygon.size(); ++k)
+            a += cross(f.polygon[k], f.polygon[(k + 1) % f.polygon.size()]);
+        area += a / 2.0;
+    }
+    // The faces cover the plan once.
+    EXPECT_NEAR(area, 14000.0 * 5000 + 2 * 4000.0 * 5000, 1.0);
 }
 
 TEST(Building, FlatRoofIsOneSlab)
@@ -283,4 +366,66 @@ TEST(Building, SlabsAndStoriesIn3D)
     std::tie(lo, hi) = m.bounds();
     EXPECT_DOUBLE_EQ(hi.z, 3000.0 + 2700.0);
     EXPECT_DOUBLE_EQ(lo.z, -200.0);
+}
+
+TEST(Building, StraightStair)
+{
+    Stair s;
+    s.start = {0, 0};
+    s.angle = kPi / 2.0;  // up along Y
+    s.risers = 16;
+    s.height = 2880;
+    s.going = 300;
+    s.width = 1200;
+    const auto steps = stairSteps(s);
+    ASSERT_EQ(steps.size(), 15u);  // the last riser reaches the floor above
+    EXPECT_DOUBLE_EQ(steps.front().top, 180.0);
+    EXPECT_DOUBLE_EQ(steps.back().top, 15 * 180.0);
+    const BBox box = boundingBox(Shape{s});
+    EXPECT_NEAR(box.min.x, -600, 1e-9);
+    EXPECT_NEAR(box.max.y, 15 * 300, 1e-9);
+    const auto [lo, hi] = buildingModel([&] {
+        Document doc;
+        doc.add(s);
+        return doc;
+    }()).bounds();
+    EXPECT_NEAR(hi.z, 15 * 180.0, 1e-9);
+    EXPECT_NEAR(lo.z, 0.0, 1e-9);
+}
+
+TEST(Building, LAndUStairsTurnOnALanding)
+{
+    Stair s;
+    s.kind = Stair::Kind::L;
+    s.risers = 18;
+    s.going = 250;
+    s.width = 1000;
+    auto steps = stairSteps(s);
+    ASSERT_EQ(steps.size(), 17u);  // 8 + landing + 8
+    // The landing, halfway up, a square as wide as the stair.
+    EXPECT_DOUBLE_EQ(steps[8].top, 9 * s.height / 18);
+    BBox landing;
+    for (Vec2 p : steps[8].polygon)
+        landing.add(p);
+    EXPECT_NEAR(landing.width(), 1000, 1e-9);
+    EXPECT_NEAR(landing.height(), 1000, 1e-9);
+    // Turning left from +X goes to +Y; turning right to -Y.
+    EXPECT_GT(boundingBox(Shape{s}).max.y, 1000);
+    s.turnRight = true;
+    EXPECT_LT(boundingBox(Shape{s}).min.y, -1000);
+
+    s.kind = Stair::Kind::U;
+    s.turnRight = false;
+    steps = stairSteps(s);
+    ASSERT_EQ(steps.size(), 17u);
+    // The second flight comes back beside the first.
+    BBox last;
+    for (Vec2 p : steps.back().polygon)
+        last.add(p);
+    EXPECT_NEAR(last.center().y, 1000, 1e-9);
+    EXPECT_LT(last.max.x, 8 * 250 + 1e-9);
+    // A mirror turns it the other way.
+    const Stair m = std::get<Stair>(transformed(s, Transform::mirror({0, 0}, {1, 0})));
+    EXPECT_TRUE(m.turnRight);
+    EXPECT_NEAR(boundingBox(Shape{m}).min.y, -1500 - 0.0, 1e-6);
 }
