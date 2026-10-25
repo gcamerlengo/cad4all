@@ -7,6 +7,7 @@
 
 #include <cmath>
 #include <limits>
+#include <optional>
 
 using namespace cad;
 
@@ -14,12 +15,13 @@ namespace {
 
 const double kAuto = std::numeric_limits<double>::quiet_NaN();
 
-const Property* find(const std::vector<Property>& props, const std::string& key)
+// A copy: the lists are often temporaries.
+std::optional<Property> find(const std::vector<Property>& props, const std::string& key)
 {
     for (const Property& p : props)
         if (p.key == key)
-            return &p;
-    return nullptr;
+            return p;
+    return std::nullopt;
 }
 
 // The tool settings are shared by the whole program: every test starts
@@ -60,11 +62,11 @@ TEST_F(Properties, ToolValuesRoundTrip)
 
     EXPECT_TRUE(setToolProperty(QStringLiteral("WINDOW"), "sill", 1000));
     EXPECT_DOUBLE_EQ(toolSettings().window.sill, 1000);
-    EXPECT_EQ(find(toolProperties(QStringLiteral("DOOR")), "sill"), nullptr);
+    EXPECT_FALSE(find(toolProperties(QStringLiteral("DOOR")), "sill"));
 
     // A height left to the program shows as automatic.
-    const Property* height = find(toolProperties(QStringLiteral("STAIR")), "height");
-    ASSERT_NE(height, nullptr);
+    const auto height = find(toolProperties(QStringLiteral("STAIR")), "height");
+    ASSERT_TRUE(height);
     EXPECT_TRUE(std::isnan(height->value));
     EXPECT_FALSE(height->automatic.isEmpty());
     EXPECT_TRUE(setToolProperty(QStringLiteral("STAIR"), "height", 2800));
@@ -126,7 +128,7 @@ TEST_F(Properties, EditRoofStyle)
     // Gables that match no style: "Personalizzato", one more choice.
     Roof custom = r;
     custom.gables = {true, false, false, false};
-    const Property* style = find(shapeProperties(custom), "style");
+    const auto style = find(shapeProperties(custom), "style");
     EXPECT_DOUBLE_EQ(style->value, 4);
     EXPECT_EQ(style->choices.size(), 5);
 
