@@ -140,6 +140,8 @@ void CommandEngine::submit(const QString& rawText)
     dispatch([&](Command& c) { handled = c.keyword(upper); });
     if (handled)
         return;
+    if (wantsSelection() && selectByWord(upper))
+        return;
 
     if (const auto n = parseNumber(text.toStdString())) {
         dispatch([&](Command& c) { handled = c.number(*n); });
@@ -295,6 +297,29 @@ void CommandEngine::pruneSelection()
         emit selectionChanged();
 }
 
+bool CommandEngine::selectByWord(const QString& word)
+{
+    // At "Selezionare oggetti:", as in AutoCAD: everything, or the last object drawn.
+    std::vector<EntityId> ids;
+    if (word == QLatin1String("TUTTO") || word == QLatin1String("TU") || word == QLatin1String("ALL")) {
+        for (const auto& [id, e] : doc_.entities())
+            if (doc_.isEditable(e))
+                ids.push_back(id);
+    } else if (word == QLatin1String("ULTIMO") || word == QLatin1String("U") || word == QLatin1String("LAST")
+               || word == QLatin1String("L")) {
+        for (auto it = doc_.entities().rbegin(); it != doc_.entities().rend(); ++it)
+            if (doc_.isEditable(it->second)) {
+                ids.push_back(it->first);
+                break;
+            }
+    } else {
+        return false;
+    }
+    select(ids);
+    emit promptChanged(prompt_);
+    return true;
+}
+
 std::optional<EntityId> CommandEngine::pick(Vec2 p, double tolerance) const
 {
     std::optional<EntityId> best;
@@ -425,6 +450,8 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("CHAMFER"), {QStringLiteral("CIMA"), QStringLiteral("CHA")}, [] { return makeChamferCommand(); });
     add(QStringLiteral("ARRAY"), {QStringLiteral("SERIE"), QStringLiteral("AR")}, [] { return makeArrayCommand(); });
     add(QStringLiteral("EXPLODE"), {QStringLiteral("ESPLODI"), QStringLiteral("X")}, [] { return makeExplodeCommand(); });
+    add(QStringLiteral("BLOCK"), {QStringLiteral("BLOCCO"), QStringLiteral("B")}, [] { return makeBlockCommand(); });
+    add(QStringLiteral("INSERT"), {QStringLiteral("INSERISCI"), QStringLiteral("I")}, [] { return makeInsertCommand(); });
     add(QStringLiteral("JOIN"), {QStringLiteral("UNISCI"), QStringLiteral("J")}, [] { return makeJoinCommand(); });
     add(QStringLiteral("STRETCH"), {QStringLiteral("STIRA"), QStringLiteral("S")}, [] { return makeStretchCommand(); });
     add(QStringLiteral("TEXT"), {QStringLiteral("TESTO"), QStringLiteral("DTEXT"), QStringLiteral("DT")}, [] { return makeTextCommand(); });

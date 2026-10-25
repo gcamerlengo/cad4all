@@ -62,7 +62,9 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | CIMA / CHAMFER | CHA | Distanza, Angolo, Polilinea (tutti gli angoli) |
 | STIRA / STRETCH | S | finestra interseca, poi punto base e secondo punto |
 | SERIE / ARRAY | AR | Rettangolare (righe, colonne, distanze) o POlare (centro, numero, angolo, ruotare Sì/No) |
-| ESPLODI / EXPLODE | X | polilinee in linee e archi, quote in linee, testo e frecce |
+| ESPLODI / EXPLODE | X | polilinee in linee e archi, quote in linee, testo e frecce, blocchi nei loro oggetti (un livello) |
+| BLOCCO / BLOCK | B | nome (? per l'elenco), punto base, oggetti: diventano un blocco e al loro posto resta un riferimento; con un nome già usato chiede se ridefinirlo, e tutti i riferimenti si aggiornano |
+| INSERISCI / INSERT | I | nome del blocco (Invio = l'ultimo), poi Scala e Rotazione o il punto di inserimento |
 | UNISCI / JOIN | J | linee, archi e polilinee con le estremità in comune diventano una polilinea |
 | TESTO / TEXT | DT | Giustifica (Sinistra/Centro/Destra); Spazio scrive uno spazio, Invio va a capo, Invio a vuoto termina |
 | MODIFICATESTO / TEXTEDIT | ED | cambia un testo o il testo di una quota (`<>` = valore misurato) |
@@ -86,6 +88,10 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | STAMPA / PLOT | | apre la finestra di stampa (anche Ctrl+P) |
 | ANNULLA / UNDO | U | (anche Ctrl+Z) |
 | RIPRISTINA / REDO | | (anche Ctrl+Y) |
+
+Blocchi: gli oggetti del blocco sul layer 0 prendono il layer del riferimento, quelli con colore, tipo di linea o spessore DaBlocco prendono quelli del riferimento, come in AutoCAD. Nella Info Box un blocco selezionato mostra scala X e Y e rotazione; nel profilo ArchiCAD lo strumento Oggetto inserisce un blocco. Muri, solai, tetti e scale dentro un blocco compaiono anche nel 3D.
+
+Selezione: a "Selezionare oggetti:" si può scrivere TUTTO (TU) per tutti gli oggetti modificabili o ULTIMO (U) per l'ultimo disegnato, anche negli script.
 
 Maniglie: con nessun comando attivo gli oggetti selezionati mostrano dei quadratini blu; un clic su uno (o un trascinamento) lo sposta nel punto scelto, con snap, orto e coordinate scritte.
 
@@ -125,9 +131,9 @@ Per provare uno script: `CAD4All --script docs/esempi/pianta.scr` oppure `docs/e
 File > Apri legge i DWG di AutoCAD dalla versione R14 alla 2018 e successive grazie a [LibreDWG](https://www.gnu.org/software/libredwg/) (GPL 3), con gli stessi oggetti del DXF. Il DWG non viene mai sovrascritto: Salva chiede dove salvare il disegno in `.c4a` o `.dxf`.
 
 
-File > Apri legge i DXF di qualsiasi versione salvati da AutoCAD o da altri CAD: linee, cerchi, archi, polilinee (anche con archi), testi e testi multilinea, quote, tratteggi (anche con motivi che CAD4All non ha), ellissi e spline (convertite in polilinee), solidi, direttrici e blocchi (esplosi, con i loro attributi), con i layer e i loro colori. Quello che non viene ancora letto (per esempio i solidi 3D) è elencato sulla riga di comando dopo l'apertura.
+File > Apri legge i DXF di qualsiasi versione salvati da AutoCAD o da altri CAD: linee, cerchi, archi, polilinee (anche con archi), testi e testi multilinea, quote, tratteggi (anche con motivi che CAD4All non ha), ellissi e spline (convertite in polilinee), solidi, direttrici e blocchi (che restano blocchi; gli attributi diventano testi e i blocchi anonimi sono esplosi), con i layer e i loro colori. Quello che non viene ancora letto (per esempio i solidi 3D) è elencato sulla riga di comando dopo l'apertura.
 
-File > Salva con estensione `.dxf` o File > Esporta DXF scrivono un DXF R12, che si apre in ogni CAD; le quote restano quote, i tratteggi diventano blocchi di linee come in AutoCAD R12 (si vedono uguali ma non si modificano più come tratteggi). Da riga di comando: `CAD4All --script disegno.scr --export disegno.dxf`, oppure `CAD4All disegno.dwg --export disegno.dxf` per convertire un DWG.
+File > Salva con estensione `.dxf` o File > Esporta DXF scrivono un DXF R12, che si apre in ogni CAD; le quote restano quote, i blocchi restano blocchi, i tratteggi diventano blocchi di linee come in AutoCAD R12 (si vedono uguali ma non si modificano più come tratteggi). Da riga di comando: `CAD4All --script disegno.scr --export disegno.dxf`, oppure `CAD4All disegno.dwg --export disegno.dxf` per convertire un DWG.
 
 ![Polilinee con archi, raccordi e cime](docs/immagini/polilinee.png)
 

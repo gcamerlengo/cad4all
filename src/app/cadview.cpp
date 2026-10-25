@@ -279,33 +279,38 @@ void CadView::paintEvent(QPaintEvent*)
             if (const auto* w = std::get_if<Wall>(&e.shape))
                 dp.drawWall(*w, walls.at(id));
             else
-                dp.drawShape(e.shape);
+                doc.forEachPart(e, [&](const Entity& part) { dp.drawShape(part.shape); });
         }
     }
     for (const auto& [id, e] : doc.entities()) {
         if (!doc.isVisible(e) || !drawnBox(e.shape).intersects(visible))
             continue;
-        QPen pen(toQColor(doc.colorOf(e)), 0);
-        if (lineweights_) {
-            // About 96 pixels per inch, as AutoCAD shows them: 0.25 mm is one pixel.
-            const int weight = doc.lineweightOf(e);
-            const double mm = (weight >= 0 ? weight : kDefaultLineweight) / 100.0;
-            const double pixels = std::max(1.0, std::round(mm * 96.0 / 25.4));
-            if (pixels > 1.0)
-                pen.setWidthF(pixels);
-            pen.setCosmetic(true);
-        }
-        if (usesLinetype(e.shape))
-            applyLinetype(pen, doc.linetypeOf(e), doc.linetypeScale(), scale_);
-        if (selection.count(id)) {
-            pen = QPen(kSelected, 1.5, Qt::DashLine);
-            pen.setCosmetic(true);
-        }
-        p.setPen(pen);
-        if (const auto* w = std::get_if<Wall>(&e.shape))
-            dp.drawWall(*w, walls.at(id));
-        else
-            dp.drawShape(e.shape);
+        const bool selected = selection.count(id) > 0;
+        doc.forEachPart(e, [&](const Entity& part) {
+            if (&part != &e && !doc.isLayerVisible(part))
+                return;
+            QPen pen(toQColor(doc.colorOf(part)), 0);
+            if (lineweights_) {
+                // About 96 pixels per inch, as AutoCAD shows them: 0.25 mm is one pixel.
+                const int weight = doc.lineweightOf(part);
+                const double mm = (weight >= 0 ? weight : kDefaultLineweight) / 100.0;
+                const double pixels = std::max(1.0, std::round(mm * 96.0 / 25.4));
+                if (pixels > 1.0)
+                    pen.setWidthF(pixels);
+                pen.setCosmetic(true);
+            }
+            if (usesLinetype(part.shape))
+                applyLinetype(pen, doc.linetypeOf(part), doc.linetypeScale(), scale_);
+            if (selected) {
+                pen = QPen(kSelected, 1.5, Qt::DashLine);
+                pen.setCosmetic(true);
+            }
+            p.setPen(pen);
+            if (const auto* w = std::get_if<Wall>(&part.shape); w && &part == &e)
+                dp.drawWall(*w, walls.at(id));
+            else
+                dp.drawShape(part.shape);
+        });
     }
 
     if (mouseInside_) {

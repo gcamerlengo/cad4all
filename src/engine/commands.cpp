@@ -4050,6 +4050,26 @@ EntityId addLike(Document& doc, const Entity& like, Shape shape)
     return doc.add(std::move(e));
 }
 
+// The objects of a block reference, one level down, each with its own look:
+// those on layer 0 go to the layer of the reference and BYBLOCK takes the
+// colour, linetype and lineweight of the reference.
+void explodeInsert(Document& doc, const Entity& ref, const Insert& insert)
+{
+    const Transform t = insertTransform(insert);
+    for (const BlockItem& item : insert.block->items) {
+        Entity e = ref;
+        e.id = 0;
+        e.shape = transformed(item.shape, t);
+        e.layer = item.layer == "0" ? ref.layer : item.layer;
+        e.color = item.colorByBlock ? ref.color : item.color;
+        e.linetype = linetypeKey(item.linetype) == kByBlock ? ref.linetype : item.linetype;
+        e.lineweight = item.lineweight == kLineweightByBlock ? ref.lineweight : item.lineweight;
+        if (!doc.linetype(e.linetype))
+            e.linetype = kByLayer;
+        doc.add(std::move(e));
+    }
+}
+
 class ExplodeCommand : public SelectionCommand {
 protected:
     void afterSelection() override
@@ -4061,12 +4081,18 @@ protected:
             const Entity* e = doc.entity(id);
             if (!e)
                 continue;
-            const std::vector<Shape> parts = explodeShape(e->shape);
+            const Entity original = *e;
+            if (const auto* ref = std::get_if<Insert>(&original.shape); ref && ref->block) {
+                doc.remove(id);
+                explodeInsert(doc, original, *ref);
+                ++exploded;
+                continue;
+            }
+            const std::vector<Shape> parts = explodeShape(original.shape);
             if (parts.empty()) {
                 ++kept;
                 continue;
             }
-            const Entity original = *e;
             doc.remove(id);
             for (const Shape& part : parts)
                 addLike(doc, original, part);
@@ -4443,7 +4469,8 @@ QString shapeKind(const Shape& shape)
             else if constexpr (std::is_same_v<T, Wall>) return t("MURO");
             else if constexpr (std::is_same_v<T, Slab>) return t("SOLAIO");
             else if constexpr (std::is_same_v<T, Roof>) return t("TETTO");
-            else return t("SCALINATA");
+            else if constexpr (std::is_same_v<T, Stair>) return t("SCALINATA");
+            else return t("BLOCCO");
         },
         shape);
 }
@@ -4496,8 +4523,286 @@ private:
             return t("da %1 a %2, lunghezza %3, spessore %4, altezza %5, %6 aperture")
                 .arg(xy(w->start), xy(w->end), fmt(distance(w->start, w->end)), fmt(w->thickness), fmt(w->height))
                 .arg(w->openings.size());
+        if (const auto* ref = std::get_if<Insert>(&shape))
+            return t("\"%1\" in %2, scala X %3 Y %4, rotazione %5°")
+                .arg(ref->block ? QString::fromStdString(ref->block->name) : QString(), xy(ref->position), fmt(ref->scaleX),
+                     fmt(ref->scaleY), fmt(radToDeg(ref->rotation)));
         return {};
     }
+};
+
+// ---------------------------------------------------------------- blocks
+
+QString blockList(const Document& doc)
+{
+    if (doc.blocks().empty())
+        return t("Il disegno non contiene blocchi.");
+    QStringList names;
+    for (const auto& [key, b] : doc.blocks())
+        names << QString::fromStdString(b->name);
+    return t("Blocchi: %1").arg(names.join(QStringLiteral(", ")));
+}
+
+// AutoCAD refuses these characters in names.
+bool validBlockName(const QString& name)
+{
+    static const QString kInvalid = QStringLiteral("<>/\\\":;?*|,=`");
+    if (name.isEmpty() || name.size() > 255 || name.startsWith(QLatin1Char('*')))
+        return false;
+    return std::none_of(name.begin(), name.end(), [](QChar c) { return kInvalid.contains(c); });
+}
+
+// The block last made or inserted: INSERT offers it first.
+std::string gLastBlock;
+
+// BLOCK (-BLOCK in AutoCAD): name, base point and objects. The objects become
+// the block and are replaced by a reference to it, as with "Converti in blocco".
+class BlockCommand : public Command {
+public:
+    void start() override
+    {
+        if (!engine->selection().empty())
+            preselected_.assign(engine->selection().begin(), engine->selection().end());
+        engine->setPrompt(t("Specificare nome del blocco o [?]:"));
+    }
+
+    bool wantsText() const override { return step_ == Step::Name; }
+    bool wantsSelection() const override { return step_ == Step::Objects; }
+
+    void text(const QString& raw) override
+    {
+        const QString name = raw.trimmed();
+        if (name == QLatin1String("?")) {
+            engine->message(blockList(engine->document()));
+            return;
+        }
+        if (!validBlockName(name)) {
+            engine->message(t("Nome non valido: \"%1\".").arg(name));
+            return;
+        }
+        name_ = name;
+        if (engine->document().block(name.toStdString())) {
+            step_ = Step::Redefine;
+            engine->setPrompt(t("Il blocco \"%1\" esiste già. Ridefinirlo? [Sì/No] <No>:").arg(name));
+            return;
+        }
+        toBase();
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (step_ != Step::Redefine)
+            return false;
+        if (isAny(w, {"S", "SI", "SÌ", "Y", "YES"})) {
+            toBase();
+            return true;
+        }
+        if (isAny(w, {"N", "NO"})) {
+            engine->finish();
+            return true;
+        }
+        return false;
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (step_ != Step::Base)
+            return false;
+        base_ = p;
+        if (!preselected_.empty()) {
+            make(preselected_);
+            return true;
+        }
+        engine->clearSelection();
+        step_ = Step::Objects;
+        engine->setPrompt(t("Selezionare oggetti:"));
+        return true;
+    }
+
+    void enter() override
+    {
+        if (step_ == Step::Objects && !engine->selection().empty()) {
+            make({engine->selection().begin(), engine->selection().end()});
+            return;
+        }
+        if (step_ == Step::Objects)
+            engine->message(t("Nessun oggetto selezionato: blocco non creato."));
+        engine->finish();
+    }
+
+private:
+    enum class Step { Name, Redefine, Base, Objects };
+
+    void toBase()
+    {
+        step_ = Step::Base;
+        engine->setPrompt(t("Specificare punto base di inserimento:"));
+    }
+
+    void make(const std::vector<EntityId>& ids)
+    {
+        Document& doc = engine->document();
+        std::vector<BlockItem> items;
+        for (EntityId id : ids) {
+            const Entity* e = doc.entity(id);
+            if (!e)
+                continue;
+            BlockItem item;
+            item.shape = e->shape;
+            item.layer = e->layer;
+            item.color = e->color;
+            item.linetype = e->linetype;
+            item.lineweight = e->lineweight;
+            items.push_back(std::move(item));
+        }
+        const std::string name = name_.toStdString();
+        const auto block = makeBlock(name, base_, std::move(items));
+        if (!doc.defineBlock(block)) {
+            engine->message(t("Un blocco non può contenere se stesso."));
+            engine->finish();
+            return;
+        }
+        for (EntityId id : ids)
+            doc.remove(id);
+        Insert ref;
+        ref.block = block;
+        ref.position = base_;
+        doc.add(ref);
+        gLastBlock = name;
+        engine->message(QCoreApplication::translate("Command", "Blocco \"%1\" creato con %n oggetti.", nullptr,
+                                                    static_cast<int>(block->items.size()))
+                            .arg(name_));
+        engine->clearSelection();
+        engine->finish();
+    }
+
+    Step step_ = Step::Name;
+    QString name_;
+    Vec2 base_;
+    std::vector<EntityId> preselected_;
+};
+
+// INSERT (-INSERT in AutoCAD): a reference to a block at the point picked,
+// with the scale and rotation set before it.
+class InsertCommand : public Command {
+public:
+    void start() override
+    {
+        const Document& doc = engine->document();
+        if (doc.blocks().empty()) {
+            engine->message(t("Il disegno non contiene blocchi: crearli con BLOCCO."));
+            engine->finish();
+            return;
+        }
+        if (!doc.block(gLastBlock))
+            gLastBlock = doc.blocks().begin()->second->name;
+        engine->setPrompt(t("Specificare nome del blocco o [?] <%1>:").arg(QString::fromStdString(gLastBlock)));
+    }
+
+    bool wantsText() const override { return step_ == Step::Name; }
+
+    void text(const QString& raw) override
+    {
+        const QString name = raw.trimmed();
+        if (name == QLatin1String("?")) {
+            engine->message(blockList(engine->document()));
+            return;
+        }
+        choose(name.toStdString());
+    }
+
+    void enter() override
+    {
+        if (step_ == Step::Name)
+            choose(gLastBlock);
+        else if (step_ == Step::Point)
+            engine->finish();
+        else
+            toPoint();
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (step_ != Step::Point)
+            return false;
+        if (isAny(w, {"S", "SCALA", "SCALE"})) {
+            step_ = Step::Scale;
+            engine->setPrompt(t("Specificare fattore di scala <%1>:").arg(fmt(scale_)));
+            return true;
+        }
+        if (isAny(w, {"R", "ROTAZIONE", "ROTATE"})) {
+            step_ = Step::Rotation;
+            engine->setPrompt(t("Specificare angolo di rotazione <%1>:").arg(fmt(rotation_)));
+            return true;
+        }
+        return false;
+    }
+
+    bool number(double v) override
+    {
+        if (step_ == Step::Scale) {
+            if (std::abs(v) < kEps)
+                return false;
+            scale_ = v;
+        } else if (step_ == Step::Rotation) {
+            rotation_ = v;
+        } else {
+            return false;
+        }
+        toPoint();
+        return true;
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (step_ != Step::Point)
+            return false;
+        engine->document().add(placed(p));
+        engine->finish();
+        return true;
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (step_ == Step::Point)
+            out.push_back(placed(cursor));
+    }
+
+private:
+    enum class Step { Name, Point, Scale, Rotation };
+
+    void choose(const std::string& name)
+    {
+        block_ = engine->document().block(name);
+        if (!block_) {
+            engine->message(t("Il blocco \"%1\" non esiste.").arg(QString::fromStdString(name)));
+            return;
+        }
+        gLastBlock = block_->name;
+        toPoint();
+    }
+
+    void toPoint()
+    {
+        step_ = Step::Point;
+        engine->setPrompt(t("Specificare punto di inserimento o [Scala/Rotazione]:"));
+    }
+
+    Insert placed(Vec2 p) const
+    {
+        Insert ref;
+        ref.block = block_;
+        ref.position = p;
+        ref.scaleX = scale_;
+        ref.scaleY = scale_;
+        ref.rotation = degToRad(rotation_);
+        return ref;
+    }
+
+    Step step_ = Step::Name;
+    std::shared_ptr<const Block> block_;
+    double scale_ = 1.0;
+    double rotation_ = 0.0;  // degrees
 };
 
 } // namespace
@@ -4553,5 +4858,7 @@ std::unique_ptr<Command> makeLeaderCommand() { return std::make_unique<LeaderCom
 std::unique_ptr<Command> makeDistanceCommand() { return std::make_unique<DistanceCommand>(); }
 std::unique_ptr<Command> makeAreaCommand() { return std::make_unique<AreaCommand>(); }
 std::unique_ptr<Command> makeListCommand() { return std::make_unique<ListCommand>(); }
+std::unique_ptr<Command> makeBlockCommand() { return std::make_unique<BlockCommand>(); }
+std::unique_ptr<Command> makeInsertCommand() { return std::make_unique<InsertCommand>(); }
 
 } // namespace cad

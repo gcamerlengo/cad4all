@@ -15,6 +15,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <set>
 #include <variant>
 
 namespace cad::io {
@@ -117,7 +118,7 @@ QStringList mtextLines(QString s)
     return lines;
 }
 
-struct Block {
+struct BlockRecords {
     Vec2 base;
     std::vector<Record> records;
 };
@@ -304,27 +305,31 @@ private:
     }
 
     // Colour (62, or 420 for a true colour), linetype (6) and lineweight
-    // (370) of an entity; BYBLOCK takes those of the block reference.
-    EntityStyle recordStyle(const Record& r) const
+    // (370) of an entity. BYBLOCK takes those of the reference around an
+    // exploded block, and stays BYBLOCK in a block definition.
+    EntityStyle recordStyle(const Record& r)
     {
         EntityStyle style;
+        const bool keepByBlock = target_ && !exploding_;
+        colorByBlock_ = false;
         const int aci = r.integer(62, 256);
         if (r.find(420)) {
             const unsigned rgb = static_cast<unsigned>(r.integer(420));
             style.color = Color{static_cast<std::uint8_t>(rgb >> 16), static_cast<std::uint8_t>(rgb >> 8), static_cast<std::uint8_t>(rgb)};
         } else if (aci == 0) {
             style.color = blockStyle_.color;
+            colorByBlock_ = keepByBlock;
         } else if (aci != 256) {
             style.color = aciToColor(std::abs(aci));
         }
         const std::string linetype = linetypeKey(r.str(6, QString::fromStdString(kByLayer)).toStdString());
-        if (linetype == "BYBLOCK")
-            style.linetype = blockStyle_.linetype;
+        if (linetype == kByBlock)
+            style.linetype = keepByBlock ? kByBlock : blockStyle_.linetype;
         else if (linetype != kByLayer && doc_.linetype(linetype))
             style.linetype = linetype;
         const int weight = r.integer(370, kLineweightByLayer);
         if (weight == kLineweightByBlock)
-            style.lineweight = blockStyle_.lineweight;
+            style.lineweight = keepByBlock ? kLineweightByBlock : blockStyle_.lineweight;
         else if (weight >= 0 || weight == kLineweightDefault)
             style.lineweight = weight;
         return style;
@@ -332,7 +337,7 @@ private:
 
     void readBlocks(const std::vector<Record>& records)
     {
-        Block* block = nullptr;
+        BlockRecords* block = nullptr;
         for (const Record& r : records) {
             if (r.type == QLatin1String("BLOCK")) {
                 block = &blocks_[r.str(2)];
@@ -354,9 +359,22 @@ private:
     // around it.
     EntityStyle style_;
     EntityStyle blockStyle_;
+    // Converting the objects of a block that is exploded into its reference.
+    bool exploding_ = false;
 
     void add(const std::string& layer, const Shape& shape, const Transform& xf)
     {
+        if (target_) {
+            BlockItem item;
+            item.shape = transformed(shape, xf);
+            item.layer = layer.empty() ? std::string("0") : layer;
+            item.color = colorByBlock_ ? std::nullopt : style_.color;
+            item.colorByBlock = colorByBlock_;
+            item.linetype = style_.linetype;
+            item.lineweight = style_.lineweight;
+            target_->push_back(std::move(item));
+            return;
+        }
         Entity e;
         e.layer = layer.empty() ? std::string("0") : layer;
         e.shape = transformed(shape, xf);
@@ -422,14 +440,46 @@ private:
         }
     }
 
+    // The block named `name` made from its records, the first time it is used.
+    std::shared_ptr<const Block> definition(const QString& name, int depth)
+    {
+        if (const auto it = defined_.find(name); it != defined_.end())
+            return it->second;
+        const auto it = blocks_.find(name);
+        if (it == blocks_.end() || depth > 16 || defining_.count(name))
+            return nullptr;
+        defining_.insert(name);
+        std::vector<BlockItem> items;
+        auto* const outerTarget = target_;
+        const bool outerExploding = exploding_;
+        const EntityStyle outerStyle = style_;
+        target_ = &items;
+        exploding_ = false;
+        convertList(it->second.records, Transform{}, std::string(), depth + 1, false);
+        target_ = outerTarget;
+        exploding_ = outerExploding;
+        style_ = outerStyle;
+        defining_.erase(name);
+        auto block = makeBlock(name.toStdString(), it->second.base, std::move(items));
+        doc_.defineBlock(block);
+        defined_[name] = block;
+        return block;
+    }
+
     void insert(const Record& r, const Transform& xf, const std::string& layer, int depth)
     {
-        const auto it = blocks_.find(r.str(2));
+        const QString name = r.str(2);
+        const auto it = blocks_.find(name);
         if (it == blocks_.end() || depth > 16) {
             skip(QStringLiteral("INSERT"));
             return;
         }
-        const Block& block = it->second;
+        // Named blocks stay blocks; anonymous ones (*U...) are exploded.
+        if (!name.startsWith(QLatin1Char('*')) && !exploding_) {
+            insertReference(r, xf, layer, depth);
+            return;
+        }
+        const BlockRecords& block = it->second;
         // What the block's BYBLOCK entities take, for this reference.
         const EntityStyle outer = blockStyle_;
         blockStyle_ = style_;
@@ -452,10 +502,50 @@ private:
                 const Vec2 cell = Transform::rotation({0, 0}, rot).applyVector({col * colStep, row * rowStep});
                 const Transform place = Transform::translation(r.point(10) + cell) * Transform::rotation({0, 0}, rot) * scale
                                       * Transform::translation(block.base * -1.0);
+                const bool outerExploding = exploding_;
+                exploding_ = true;
                 convertList(block.records, xf * ocs * place, layer, depth + 1, false);
+                exploding_ = outerExploding;
             }
         }
         blockStyle_ = outer;
+    }
+
+    // A reference to a named block, or one per cell of a MINSERT.
+    void insertReference(const Record& r, const Transform& xf, const std::string& layer, int depth)
+    {
+        const auto block = definition(r.str(2), depth);
+        if (!block) {
+            skip(QStringLiteral("INSERT"));
+            return;
+        }
+        const EntityStyle style = style_;
+        const double sx = r.num(41, 1.0);
+        const double sy = r.num(42, 1.0);
+        const double rot = degToRad(r.num(50));
+        const int columns = std::max(1, r.integer(70, 1));
+        const int rows = std::max(1, r.integer(71, 1));
+        const double colStep = r.num(44);
+        const double rowStep = r.num(45);
+        Transform ocs;
+        if (r.num(230, 1.0) < 0.0)
+            ocs = Transform::mirror({0.0, 0.0}, {0.0, 1.0});
+        if (std::abs(sx) < 1e-12 || std::abs(sy) < 1e-12) {
+            skip(QStringLiteral("INSERT"));
+            return;
+        }
+        for (int row = 0; row < rows; ++row) {
+            for (int col = 0; col < columns; ++col) {
+                Transform scale;
+                scale.a = sx;
+                scale.d = sy;
+                const Vec2 cell = Transform::rotation({0, 0}, rot).applyVector({col * colStep, row * rowStep});
+                const Transform place = Transform::translation(r.point(10) + cell) * Transform::rotation({0, 0}, rot) * scale
+                                      * Transform::translation(block->base * -1.0);
+                style_ = style;
+                add(layer, placedInsert(block, xf * ocs * place), Transform{});
+            }
+        }
     }
 
     void text(const Record& r, const Transform& xf, const std::string& layer)
@@ -994,7 +1084,15 @@ private:
     }
 
     Document& doc_;
-    std::map<QString, Block> blocks_;
+    std::map<QString, BlockRecords> blocks_;
+    // Named blocks already made, and those being made (to stop a block
+    // that contains itself).
+    std::map<QString, std::shared_ptr<const Block>> defined_;
+    std::set<QString> defining_;
+    // Where the objects go while a block is made; null for the drawing.
+    std::vector<BlockItem>* target_ = nullptr;
+    // In a block, BYBLOCK stays BYBLOCK; this says so for the colour.
+    bool colorByBlock_ = false;
     std::map<QString, DimStyle> dimStyles_;
     std::map<QString, int> skipped_;
     int imported_ = 0;
@@ -1097,8 +1195,31 @@ public:
         group(8, layerName(name));
         if (linetypeKey(style_.linetype) != kByLayer)
             group(6, encode(style_.linetype));
-        if (style_.color)
+        if (colorByBlock_)
+            group(62, 0);
+        else if (style_.color)
             group(62, colorToAci(*style_.color));
+    }
+
+    // An object as DXF has it: walls, slabs, roofs and stairs go out as what
+    // they draw in plan. `faces` are those of a wall joined to others.
+    void object(const std::string& layer, const Shape& s, const WallFaces* faces, int& dimCount, QByteArray& blocks)
+    {
+        if (const auto* slab = std::get_if<Slab>(&s)) {
+            for (const Polyline& loop : slab->loops)
+                shape(layer, loop, dimCount, blocks);
+        } else if (const auto* roof = std::get_if<Roof>(&s)) {
+            for (const Shape& part : roofPlan(*roof))
+                shape(layer, part, dimCount, blocks);
+        } else if (const auto* stair = std::get_if<Stair>(&s)) {
+            for (const Shape& part : stairPlan(*stair))
+                shape(layer, part, dimCount, blocks);
+        } else if (const auto* wall = std::get_if<Wall>(&s)) {
+            for (const Shape& part : faces ? wallPlan(*wall, *faces) : wallPlan(*wall))
+                shape(layer, part, dimCount, blocks);
+        } else {
+            shape(layer, s, dimCount, blocks);
+        }
     }
 
     void shape(const std::string& layer, const Shape& s, int& dimCount, QByteArray& blocks);
@@ -1106,6 +1227,7 @@ public:
 
     int hatchCount_ = 0;
     EntityStyle style_;
+    bool colorByBlock_ = false;
 
     static QString layerName(const std::string& name) { return encode(name); }
 
@@ -1147,6 +1269,19 @@ void DxfWriter::shape(const std::string& layer, const Shape& s, int& dimCount, Q
         text(layer, *t);
     } else if (const auto* h = std::get_if<Hatch>(&s)) {
         hatch(layer, *h, blocks);
+    } else if (const auto* ref = std::get_if<Insert>(&s)) {
+        if (!ref->block)
+            return;
+        group(0, "INSERT");
+        this->layer(layer);
+        group(2, encode(ref->block->name));
+        point(10, ref->position);
+        if (ref->scaleX != 1.0)
+            group(41, ref->scaleX);
+        if (ref->scaleY != 1.0)
+            group(42, ref->scaleY);
+        if (std::abs(ref->rotation) > 1e-12)
+            group(50, radToDeg(normalizeAngle(ref->rotation)));
     } else if (const auto* d = std::get_if<Dimension>(&s)) {
         // The drawn geometry goes into an anonymous block, as AutoCAD does.
         const QString name = QStringLiteral("*D%1").arg(++dimCount);
@@ -1365,27 +1500,29 @@ QByteArray toDxf(const Document& doc)
         if (e.story != doc.currentStory())
             continue;
         entities.style_ = styleOf(e);
-        if (const auto* slab = std::get_if<Slab>(&e.shape)) {
-            for (const Polyline& loop : slab->loops)
-                entities.shape(e.layer, loop, dimCount, blocks);
-            continue;
+        const auto faces = walls.find(id);
+        entities.object(e.layer, e.shape, faces == walls.end() ? nullptr : &faces->second, dimCount, blocks);
+    }
+    // The blocks of the drawing, objects in block coordinates.
+    int hatchCount = entities.hatchCount_;
+    for (const auto& [key, b] : doc.blocks()) {
+        DxfWriter block;
+        block.hatchCount_ = hatchCount;
+        block.group(0, "BLOCK");
+        block.group(8, "0");
+        block.group(2, DxfWriter::encode(b->name));
+        block.group(70, 0);
+        block.point(10, b->base);
+        block.group(3, DxfWriter::encode(b->name));
+        for (const BlockItem& item : b->items) {
+            block.style_ = {item.color, item.linetype, item.lineweight};
+            block.colorByBlock_ = item.colorByBlock;
+            block.object(item.layer, item.shape, nullptr, dimCount, blocks);
         }
-        if (const auto* roof = std::get_if<Roof>(&e.shape)) {
-            for (const Shape& s : roofPlan(*roof))
-                entities.shape(e.layer, s, dimCount, blocks);
-            continue;
-        }
-        if (const auto* stair = std::get_if<Stair>(&e.shape)) {
-            for (const Shape& s : stairPlan(*stair))
-                entities.shape(e.layer, s, dimCount, blocks);
-            continue;
-        }
-        if (const auto* wall = std::get_if<Wall>(&e.shape)) {
-            for (const Shape& s : wallPlan(*wall, walls.at(id)))
-                entities.shape(e.layer, s, dimCount, blocks);
-            continue;
-        }
-        entities.shape(e.layer, e.shape, dimCount, blocks);
+        block.group(0, "ENDBLK");
+        block.group(8, "0");
+        blocks += block.out_;
+        hatchCount = block.hatchCount_;
     }
 
     w.group(0, "SECTION");

@@ -1314,14 +1314,19 @@ Model3D buildingModel(const Document& doc)
         for (const auto& [id, e] : doc.entities()) {
             if (e.story != story.id || !doc.isLayerVisible(e))
                 continue;
-            if (const auto* w = std::get_if<Wall>(&e.shape))
-                walls.push_back(*w);
-            else if (const auto* sl = std::get_if<Slab>(&e.shape))
-                builder.slab(*sl);
-            else if (const auto* r = std::get_if<Roof>(&e.shape))
-                builder.roof(*r);
-            else if (const auto* st = std::get_if<Stair>(&e.shape))
-                builder.stair(*st);
+            // Building elements in blocks are built too.
+            doc.forEachPart(e, [&](const Entity& p) {
+                if (!doc.isLayerVisible(p))
+                    return;
+                if (const auto* w = std::get_if<Wall>(&p.shape))
+                    walls.push_back(*w);
+                else if (const auto* sl = std::get_if<Slab>(&p.shape))
+                    builder.slab(*sl);
+                else if (const auto* r = std::get_if<Roof>(&p.shape))
+                    builder.roof(*r);
+                else if (const auto* st = std::get_if<Stair>(&p.shape))
+                    builder.stair(*st);
+            });
         }
         const std::vector<WallFaces> faces = joinWalls(walls);
         for (size_t i = 0; i < walls.size(); ++i)

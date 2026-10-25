@@ -818,3 +818,14 @@ TEST_F(Commands, DistAreaAndListReport)
     type({"LISTA"});
     EXPECT_TRUE(messages.join(QLatin1Char('\n')).contains(QStringLiteral("CERCHIO  Layer: 0")));
 }
+
+TEST_F(Commands, SelectAllOrLastAtTheSelectionPrompt)
+{
+    type({"LINEA", "0,0", "10,0", "", "CERCHIO", "0,0", "5"});
+    type({"SPOSTA", "U", "", "0,0", "0,10"});
+    EXPECT_EQ(shapes<Circle>()[0].center, (Vec2{0, 10}));
+    EXPECT_EQ(shapes<Line>()[0].a, (Vec2{0, 0}));
+    type({"SPOSTA", "TUTTO", "", "0,0", "5,0"});
+    EXPECT_EQ(shapes<Circle>()[0].center, (Vec2{5, 10}));
+    EXPECT_EQ(shapes<Line>()[0].a, (Vec2{5, 0}));
+}

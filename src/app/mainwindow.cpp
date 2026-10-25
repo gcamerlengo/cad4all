@@ -32,6 +32,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFontDatabase>
+#include <QInputDialog>
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -410,6 +411,11 @@ void MainWindow::createActions()
     commandAction(tr("Serie"), QStringLiteral("ARRAY"), icons::make(QStringLiteral("array")));
     commandAction(tr("Esplodi"), QStringLiteral("EXPLODE"), icons::make(QStringLiteral("explode")));
     commandAction(tr("Unisci"), QStringLiteral("JOIN"), icons::make(QStringLiteral("join")));
+    commandAction(tr("Crea blocco"), QStringLiteral("BLOCK"), icons::make(QStringLiteral("block")));
+    QAction* insert = commandAction(tr("Inserisci blocco"), QStringLiteral("INSERT"), icons::make(QStringLiteral("insertBlock")));
+    insert->setIconText(tr("Inserisci"));
+    disconnect(insert, &QAction::triggered, this, nullptr);
+    connect(insert, &QAction::triggered, this, &MainWindow::insertBlock);
     commandAction(tr("Direttrice"), QStringLiteral("LEADER"), icons::make(QStringLiteral("leader")));
     commandAction(tr("Distanza"), QStringLiteral("DIST"), icons::make(QStringLiteral("measure")));
     commandAction(tr("Area"), QStringLiteral("AREA"));
@@ -461,6 +467,8 @@ void MainWindow::createActions()
     QMenu* draw = menuBar()->addMenu(tr("&Disegna"));
     draw->addActions(drawActions);
     draw->addAction(command(QStringLiteral("HATCHEDIT")));
+    draw->addSeparator();
+    draw->addActions(actions({"BLOCK", "INSERT"}));
 
     QMenu* architecture = menuBar()->addMenu(tr("A&rchitettura"));
     architecture->addActions(architectureActions);
@@ -621,6 +629,9 @@ void MainWindow::createRibbon()
               "ARRAY", "EXPLODE", "JOIN"});
     p = ribbon_->addPanel(home, tr("Annotazione"));
     large(p, {"TEXT", "DIMLINEAR"});
+    p = ribbon_->addPanel(home, tr("Blocco"));
+    large(p, {"INSERT"});
+    small(p, {"BLOCK"});
     p = ribbon_->addPanel(home, tr("Layer"));
     large(p, {"layers"});
     auto* style = new StyleControls(engine_, p);
@@ -703,6 +714,8 @@ void MainWindow::createToolbox()
     toolbox_->addTool(tr("Solaio"), QStringLiteral("SLAB"), icons::make(QStringLiteral("slab")));
     toolbox_->addTool(tr("Tetto"), QStringLiteral("ROOF"), icons::make(QStringLiteral("roof")));
     toolbox_->addTool(tr("Scala"), QStringLiteral("STAIR"), icons::make(QStringLiteral("stair")));
+    // ArchiCAD's Object tool places library parts; here they are the blocks.
+    toolbox_->addTool(tr("Oggetto"), QStringLiteral("INSERT"), icons::make(QStringLiteral("insertBlock")));
     toolbox_->addSection(tr("Documentazione"));
     toolbox_->addTool(tr("Quota"), QStringLiteral("DIMLINEAR"), icons::make(QStringLiteral("dimLinear")));
     toolbox_->addTool(tr("Testo"), QStringLiteral("TEXT"), icons::make(QStringLiteral("text")));
@@ -723,6 +736,24 @@ void MainWindow::createToolbox()
     addDockWidget(Qt::LeftDockWidgetArea, toolboxDock_);
     toolboxDock_->hide();
     named_.value(QStringLiteral("panels"))->menu()->addAction(toolboxDock_->toggleViewAction());
+}
+
+void MainWindow::insertBlock()
+{
+    QStringList names;
+    for (const auto& [key, block] : doc_.blocks())
+        names << QString::fromStdString(block->name);
+    if (!names.isEmpty()) {
+        bool ok = false;
+        const QString name = QInputDialog::getItem(this, tr("Inserisci blocco"), tr("Blocco:"), names, 0, false, &ok);
+        if (!ok)
+            return;
+        engine_.run(QStringLiteral("INSERT"));
+        engine_.submit(name);
+    } else {
+        engine_.run(QStringLiteral("INSERT"));
+    }
+    commandLine_->input()->setFocus();
 }
 
 void MainWindow::createStatusBar()

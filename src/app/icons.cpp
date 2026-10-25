@@ -367,6 +367,23 @@ QIcon make(const QString& name)
             p.drawLine(QPointF(10, 10), QPointF(14, 14));
             p.drawLine(QPointF(14, 10), QPointF(10, 14));
         };
+    } else if (name == QLatin1String("block")) {
+        // A group of objects with its base point.
+        painter = [](QPainter& p) {
+            p.drawRect(QRectF(3, 3, 13, 13));
+            p.drawEllipse(QPointF(9.5, 9.5), 3.5, 3.5);
+            accentPen(p);
+            p.drawLine(QPointF(17, 20), QPointF(23, 20));
+            p.drawLine(QPointF(20, 17), QPointF(20, 23));
+        };
+    } else if (name == QLatin1String("insertBlock")) {
+        painter = [](QPainter& p) {
+            p.drawRect(QRectF(10, 3, 11, 11));
+            p.drawEllipse(QPointF(15.5, 8.5), 3, 3);
+            accentPen(p);
+            p.drawLine(QPointF(3, 21), QPointF(10, 14));
+            p.drawPolyline(QPolygonF({{5, 14}, {10, 14}, {10, 19}}));
+        };
     } else if (name == QLatin1String("join")) {
         painter = [](QPainter& p) {
             p.drawLine(QPointF(3, 17), QPointF(11, 9));

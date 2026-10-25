@@ -131,6 +131,8 @@ private:
     void dispatch(const std::function<void(Command&)>& call);
     void endCommand();
     void pruneSelection();
+    // TUTTO and ULTIMO at a selection prompt.
+    bool selectByWord(const QString& word);
 
     Document& doc_;
     std::map<QString, Registration> registry_;  // upper-case name or alias -> command

@@ -21,6 +21,7 @@ void Document::reset()
     stories_.clear();
     nextStory_ = 1;
     currentStory_ = addStory({0, "Piano terra", 0.0, 3000.0});
+    blocks_.clear();
     entities_.clear();
     nextId_ = 1;
     clearHistory();
@@ -158,6 +159,116 @@ int Document::lineweightOf(const Entity& e) const
         return e.lineweight;
     const Layer* l = layer(e.layer);
     return l ? l->lineweight : kLineweightDefault;
+}
+
+std::shared_ptr<const Block> Document::block(const std::string& name) const
+{
+    auto it = blocks_.find(linetypeKey(name));
+    return it == blocks_.end() ? nullptr : it->second;
+}
+
+namespace {
+
+// The shape with references to `from` (at any depth) turned into references
+// to `to`, or nothing if it has none. `rebuilt` keeps the blocks already
+// made again, so a block used twice is rebuilt once.
+std::optional<Shape> rebound(const Shape& shape, const Block* from, const std::shared_ptr<const Block>& to,
+                             std::map<const Block*, std::shared_ptr<const Block>>& rebuilt)
+{
+    const auto* ref = std::get_if<Insert>(&shape);
+    if (!ref || !referencesBlock(shape, from))
+        return std::nullopt;
+    Insert r = *ref;
+    if (ref->block.get() == from) {
+        r.block = to;
+        return r;
+    }
+    auto& done = rebuilt[ref->block.get()];
+    if (!done) {
+        std::vector<BlockItem> items = ref->block->items;
+        for (BlockItem& item : items)
+            if (auto s = rebound(item.shape, from, to, rebuilt))
+                item.shape = std::move(*s);
+        done = makeBlock(ref->block->name, ref->block->base, std::move(items));
+    }
+    r.block = done;
+    return r;
+}
+
+} // namespace
+
+bool Document::defineBlock(std::shared_ptr<const Block> block)
+{
+    if (!block || block->name.empty())
+        return false;
+    const std::string key = linetypeKey(block->name);
+    const std::shared_ptr<const Block> old = this->block(key);
+    for (const BlockItem& item : block->items)
+        if (referencesBlock(item.shape, block.get()) || (old && referencesBlock(item.shape, old.get())))
+            return false;
+    beginTransaction("");
+    record(Change(key, old, block));
+    if (old) {
+        // Blocks that contain the old one get a copy with the new one.
+        std::map<const Block*, std::shared_ptr<const Block>> rebuilt;
+        for (const auto& [name, b] : std::map(blocks_)) {
+            if (name == key)
+                continue;
+            bool uses = false;
+            for (const BlockItem& item : b->items)
+                uses = uses || referencesBlock(item.shape, old.get());
+            if (!uses)
+                continue;
+            auto& copy = rebuilt[b.get()];
+            if (!copy) {
+                std::vector<BlockItem> items = b->items;
+                for (BlockItem& item : items)
+                    if (auto s = rebound(item.shape, old.get(), block, rebuilt))
+                        item.shape = std::move(*s);
+                copy = makeBlock(b->name, b->base, std::move(items));
+            }
+            record(Change(name, b, copy));
+        }
+        for (const auto& [id, e] : std::map(entities_))
+            if (auto s = rebound(e.shape, old.get(), block, rebuilt))
+                replace(id, std::move(*s));
+    }
+    commitTransaction();
+    return true;
+}
+
+void Document::forEachPart(const Entity& e, const std::function<void(const Entity&)>& f) const
+{
+    forEachPart(e, e.shape, f);
+}
+
+void Document::forEachPart(const Entity& e, const Shape& shape, const std::function<void(const Entity&)>& f) const
+{
+    const auto* ref = std::get_if<Insert>(&shape);
+    if (!ref) {
+        if (&shape == &e.shape) {
+            f(e);
+            return;
+        }
+        Entity part = e;
+        part.shape = shape;
+        f(part);
+        return;
+    }
+    if (!ref->block)
+        return;
+    const Transform t = insertTransform(*ref);
+    for (const BlockItem& item : ref->block->items) {
+        Entity part;
+        part.id = e.id;
+        part.story = e.story;
+        part.layer = item.layer == "0" ? e.layer : item.layer;
+        part.color = item.colorByBlock ? std::optional(colorOf(e)) : item.color;
+        part.linetype = linetypeKey(item.linetype) == kByBlock ? linetypeOf(e).name : item.linetype;
+        part.lineweight = item.lineweight == kLineweightByBlock ? lineweightOf(e) : item.lineweight;
+        part.shape = transformed(item.shape, t);
+        forEachPart(part, part.shape, f);
+    }
 }
 
 const Story* Document::story(StoryId id) const
@@ -351,7 +462,7 @@ std::optional<std::string> Document::undo()
     Transaction t = std::move(undo_.back());
     undo_.pop_back();
     for (auto it = t.changes.rbegin(); it != t.changes.rend(); ++it)
-        applyState(it->id, it->before);
+        apply(*it, false);
     std::string label = t.label;
     redo_.push_back(std::move(t));
     modified_ = true;
@@ -366,7 +477,7 @@ std::optional<std::string> Document::redo()
     Transaction t = std::move(redo_.back());
     redo_.pop_back();
     for (const Change& c : t.changes)
-        applyState(c.id, c.after);
+        apply(c, true);
     std::string label = t.label;
     undo_.push_back(std::move(t));
     modified_ = true;
@@ -384,7 +495,7 @@ void Document::clearHistory()
 
 void Document::record(Change change)
 {
-    applyState(change.id, change.after);
+    apply(change, true);
     if (open_) {
         open_->changes.push_back(std::move(change));
     } else {
@@ -395,12 +506,21 @@ void Document::record(Change change)
     touch();
 }
 
-void Document::applyState(EntityId id, const std::optional<Entity>& state)
+void Document::apply(const Change& change, bool forward)
 {
+    if (!change.block.empty()) {
+        const auto& state = forward ? change.blockAfter : change.blockBefore;
+        if (state)
+            blocks_[change.block] = state;
+        else
+            blocks_.erase(change.block);
+        return;
+    }
+    const auto& state = forward ? change.after : change.before;
     if (state)
-        entities_[id] = *state;
+        entities_[change.id] = *state;
     else
-        entities_.erase(id);
+        entities_.erase(change.id);
 }
 
 void Document::touch()
