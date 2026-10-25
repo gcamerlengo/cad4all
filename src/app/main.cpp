@@ -5,8 +5,33 @@
 
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QFileOpenEvent>
 #include <QIcon>
 #include <QTimer>
+
+namespace {
+
+// macOS opens a drawing double-clicked in Finder with an event, not with
+// an argument.
+class FileOpener : public QObject {
+public:
+    explicit FileOpener(MainWindow& window) : window_(window) {}
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override
+    {
+        if (event->type() == QEvent::FileOpen) {
+            window_.openFile(static_cast<QFileOpenEvent*>(event)->file());
+            return true;
+        }
+        return QObject::eventFilter(watched, event);
+    }
+
+private:
+    MainWindow& window_;
+};
+
+} // namespace
 
 int main(int argc, char* argv[])
 {
@@ -39,6 +64,8 @@ int main(int argc, char* argv[])
     parser.process(app);
 
     MainWindow window;
+    FileOpener opener(window);
+    app.installEventFilter(&opener);
     if (parser.isSet(profileOption) && !window.setProfile(parser.value(profileOption)))
         parser.showHelp(1);
     if (parser.isSet(layoutOption) && !window.setViewLayout(parser.value(layoutOption)))

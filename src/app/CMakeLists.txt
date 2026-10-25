@@ -56,6 +56,7 @@ set_target_properties(cad4all PROPERTIES
     MACOSX_BUNDLE_BUNDLE_NAME CAD4All
     MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
+    MACOSX_BUNDLE_INFO_PLIST ${PROJECT_SOURCE_DIR}/packaging/macos/Info.plist.in
     MACOSX_BUNDLE_ICON_FILE cad4all.icns
     MACOSX_BUNDLE_COPYRIGHT "Copyright © ${CAD4ALL_YEARS} ${CAD4ALL_AUTHOR}"
 )
@@ -65,3 +66,20 @@ install(TARGETS cad4all
     BUNDLE DESTINATION .
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+# Linux desktops: the menu entry, the icon in every size and the .c4a type.
+if(UNIX AND NOT APPLE)
+    set(packaging ${PROJECT_SOURCE_DIR}/packaging/linux)
+    install(FILES ${packaging}/cad4all.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+    install(FILES ${packaging}/cad4all-mime.xml DESTINATION ${CMAKE_INSTALL_DATADIR}/mime/packages RENAME cad4all.xml)
+    foreach(size 16 24 32 48 64 128 256 512)
+        install(FILES resources/cad4all-${size}.png
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/${size}x${size}/apps RENAME cad4all.png)
+    endforeach()
+    install(FILES resources/cad4all.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
+endif()
+
+# The Windows installer script, compiled by Inno Setup after windeployqt.
+if(WIN32)
+    configure_file(${PROJECT_SOURCE_DIR}/packaging/windows/cad4all.iss.in ${PROJECT_BINARY_DIR}/packaging/cad4all.iss @ONLY)
+endif()

@@ -1,0 +1,65 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Inno Setup script for the Windows installer, configured by CMake into the
+; build folder. The CI compiles it with the folder windeployqt filled:
+;   iscc /DSourceDir=<dist> /DOutputDir=<out> build\packaging\cad4all.iss
+
+#ifndef SourceDir
+  #define SourceDir "dist"
+#endif
+#ifndef OutputDir
+  #define OutputDir "."
+#endif
+
+[Setup]
+AppId={{5B0E3C2A-8D1F-4E7B-9C64-CAD4A11C0DE5}
+AppName=CAD4All
+AppVersion=@PROJECT_VERSION@
+AppVerName=CAD4All @PROJECT_VERSION@
+AppPublisher=@CAD4ALL_AUTHOR@
+AppPublisherURL=@PROJECT_HOMEPAGE_URL@
+AppSupportURL=@PROJECT_HOMEPAGE_URL@
+AppContact=@CAD4ALL_EMAIL@
+AppCopyright=Copyright (C) @CAD4ALL_YEARS@ @CAD4ALL_AUTHOR@
+VersionInfoVersion=@PROJECT_VERSION@
+DefaultDirName={autopf}\CAD4All
+DefaultGroupName=CAD4All
+DisableProgramGroupPage=yes
+LicenseFile={#SourceDir}\LICENSE.txt
+SetupIconFile=@PROJECT_SOURCE_DIR@\src\app\resources\cad4all.ico
+UninstallDisplayIcon={app}\CAD4All.exe
+OutputDir={#OutputDir}
+OutputBaseFilename=CAD4All-@PROJECT_VERSION@-Windows-setup
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+; Installs for the current user without asking for administrator rights,
+; or for everyone if the user chooses so.
+PrivilegesRequired=lowest
+PrivilegesRequiredOverridesAllowed=dialog
+ChangesAssociations=yes
+Compression=lzma2/max
+SolidCompression=yes
+WizardStyle=modern
+
+[Languages]
+Name: "italian"; MessagesFile: "compiler:Languages\Italian.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+Name: "association"; Description: "Apri i disegni .c4a con CAD4All"; GroupDescription: "File:"
+
+[Files]
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Icons]
+Name: "{autoprograms}\CAD4All"; Filename: "{app}\CAD4All.exe"
+Name: "{autodesktop}\CAD4All"; Filename: "{app}\CAD4All.exe"; Tasks: desktopicon
+
+[Registry]
+Root: HKA; Subkey: "Software\Classes\.c4a"; ValueType: string; ValueName: ""; ValueData: "CAD4All.Disegno"; Flags: uninsdeletevalue; Tasks: association
+Root: HKA; Subkey: "Software\Classes\CAD4All.Disegno"; ValueType: string; ValueName: ""; ValueData: "Disegno CAD4All"; Flags: uninsdeletekey; Tasks: association
+Root: HKA; Subkey: "Software\Classes\CAD4All.Disegno\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\CAD4All.exe,0"; Tasks: association
+Root: HKA; Subkey: "Software\Classes\CAD4All.Disegno\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\CAD4All.exe"" ""%1"""; Tasks: association
+
+[Run]
+Filename: "{app}\CAD4All.exe"; Description: "{cm:LaunchProgram,CAD4All}"; Flags: nowait postinstall skipifsilent

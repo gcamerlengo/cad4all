@@ -1,10 +1,13 @@
-# Builds and tests CAD4All on Linux, Windows and macOS, and keeps the
-# Windows and macOS packages as downloadable artifacts.
+# Builds and tests CAD4All on Linux, Windows and macOS and makes the
+# installers: setup .exe for Windows, .dmg for macOS, AppImage for Linux.
+# They stay as downloadable artifacts; a tag such as v0.1.0 also publishes
+# them as a GitHub release.
 name: Build
 
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -45,16 +48,34 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
 
+      - name: Version
+        shell: bash
+        run: echo "VERSION=$(sed -n 's/^ *VERSION \([0-9.]*\)$/\1/p' CMakeLists.txt | head -1)" >> "$GITHUB_ENV"
+
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
+          New-Item -ItemType Directory -Force dist, installer | Out-Null
           # The output folder depends on the Qt version's project defaults.
           $exe = Get-ChildItem build -Recurse -Filter CAD4All.exe | Where-Object { $_.FullName -match 'Release' } | Select-Object -First 1
           Copy-Item $exe.FullName dist/
           windeployqt --release --no-translations dist/CAD4All.exe
+          # The Visual C++ runtime next to the program, so it starts on a
+          # computer that never installed it.
+          foreach ($dll in 'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'concrt140.dll') {
+            $path = Join-Path $env:SystemRoot "System32\$dll"
+            if (Test-Path $path) { Copy-Item $path dist/ }
+          }
           Copy-Item LICENSE dist/LICENSE.txt
+          $iscc = Get-Command iscc -ErrorAction SilentlyContinue
+          if (-not $iscc) {
+            $default = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+            if (-not (Test-Path $default)) { choco install innosetup -y --no-progress }
+            $iscc = $default
+          }
+          & $iscc "/DSourceDir=$PWD\dist" "/DOutputDir=$PWD\installer" build\packaging\cad4all.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Package (macOS)
         if: runner.os == 'macOS'
@@ -66,12 +87,12 @@ jobs:
           codesign --force --deep --sign - build/src/app/CAD4All.app
           codesign --verify --deep --strict build/src/app/CAD4All.app
           # Disk image with the app and a shortcut to Applications.
-          mkdir -p dmg dist
+          mkdir -p dmg installer
           cp -R build/src/app/CAD4All.app dmg/
           ln -s /Applications dmg/Applications
           # hdiutil sometimes fails with "Resource busy" on hosted runners: retry.
           for attempt in 1 2 3 4 5; do
-            hdiutil create -volname CAD4All -srcfolder dmg -ov -format UDZO dist/CAD4All.dmg && break
+            hdiutil create -volname CAD4All -srcfolder dmg -ov -format UDZO "installer/CAD4All-$VERSION-macOS.dmg" && break
             if [ "$attempt" = 5 ]; then exit 1; fi
             sleep $((attempt * 5))
           done
@@ -79,12 +100,54 @@ jobs:
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
-          mkdir -p dist
-          cp build/src/app/CAD4All LICENSE dist/
+          DESTDIR="$PWD/AppDir" cmake --install build --prefix /usr
+          base=https://github.com/linuxdeploy
+          curl -fsSLo linuxdeploy "$base/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+          curl -fsSLo linuxdeploy-plugin-qt "$base/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage"
+          chmod +x linuxdeploy linuxdeploy-plugin-qt
+          # The runners have no FUSE for AppImages: the tools unpack themselves.
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export QMAKE="$QT_ROOT_DIR/bin/qmake"
+          export LDAI_OUTPUT="CAD4All-$VERSION-Linux-x86_64.AppImage"
+          ./linuxdeploy --appdir AppDir --plugin qt --output appimage \
+            --desktop-file AppDir/usr/share/applications/cad4all.desktop
+          mkdir -p installer
+          mv "$LDAI_OUTPUT" installer/
+          # It starts: the version is printed without a display.
+          QT_QPA_PLATFORM=offscreen "installer/$LDAI_OUTPUT" --version
 
-      - name: Upload package
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: CAD4All-${{ matrix.name }}
+          path: installer
+          retention-days: 14
+
+      - name: Upload portable folder (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: portatile-Windows
           path: dist
           retention-days: 14
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: CAD4All-*
+          path: installers
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "CAD4All ${GITHUB_REF_NAME#v}" \
+            --notes "Installatori di CAD4All ${GITHUB_REF_NAME#v} per Windows, macOS e Linux." \
+            installers/*-setup.exe installers/*.dmg installers/*.AppImage
