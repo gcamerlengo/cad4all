@@ -15,6 +15,9 @@ void Document::reset()
     layers_.clear();
     layers_.push_back(Layer::named("0"));
     currentLayer_ = "0";
+    linetypes_ = standardLinetypes();
+    linetypeScale_ = 1.0;
+    currentStyle_ = {};
     stories_.clear();
     nextStory_ = 1;
     currentStory_ = addStory({0, "Piano terra", 0.0, 3000.0});
@@ -79,6 +82,82 @@ bool Document::isEditable(const Entity& e) const
 {
     const Layer* l = layer(e.layer);
     return isVisible(e) && (!l || !l->locked);
+}
+
+EntityStyle styleOf(const Entity& e)
+{
+    return {e.color, e.linetype, e.lineweight};
+}
+
+void applyStyle(Entity& e, const EntityStyle& style)
+{
+    e.color = style.color;
+    e.linetype = style.linetype;
+    e.lineweight = style.lineweight;
+}
+
+const Linetype* Document::linetype(const std::string& name) const
+{
+    const std::string key = linetypeKey(name);
+    auto it = std::find_if(linetypes_.begin(), linetypes_.end(), [&](const Linetype& t) { return t.name == key; });
+    return it == linetypes_.end() ? nullptr : &*it;
+}
+
+bool Document::addLinetype(Linetype type)
+{
+    type.name = linetypeKey(type.name);
+    if (type.name.empty() || type.name == kByLayer || linetype(type.name))
+        return false;
+    linetypes_.push_back(std::move(type));
+    modified_ = true;
+    touch();
+    return true;
+}
+
+void Document::setLinetypeScale(double scale)
+{
+    if (scale <= 0.0 || scale == linetypeScale_)
+        return;
+    linetypeScale_ = scale;
+    modified_ = true;
+    touch();
+}
+
+void Document::setCurrentStyle(const EntityStyle& style)
+{
+    currentStyle_ = style;
+    if (linetypeKey(currentStyle_.linetype) == kByLayer || !linetype(currentStyle_.linetype))
+        currentStyle_.linetype = kByLayer;
+    else
+        currentStyle_.linetype = linetypeKey(currentStyle_.linetype);
+    touch();
+}
+
+Color Document::colorOf(const Entity& e) const
+{
+    if (e.color)
+        return *e.color;
+    const Layer* l = layer(e.layer);
+    return l ? l->color : Color{};
+}
+
+const Linetype& Document::linetypeOf(const Entity& e) const
+{
+    std::string name = e.linetype;
+    if (linetypeKey(name) == kByLayer) {
+        const Layer* l = layer(e.layer);
+        name = l ? l->linetype : kContinuous;
+    }
+    const Linetype* t = linetype(name);
+    return t ? *t : standardLinetypes().front();
+}
+
+int Document::lineweightOf(const Entity& e) const
+{
+    if (e.lineweight >= 0 || e.lineweight == kLineweightDefault)
+        return e.lineweight;
+    const Layer* l = layer(e.layer);
+    return l ? l->lineweight : kLineweightDefault;
 }
 
 const Story* Document::story(StoryId id) const
@@ -184,6 +263,7 @@ EntityId Document::add(Shape shape)
     Entity e;
     e.layer = currentLayer_;
     e.shape = std::move(shape);
+    applyStyle(e, currentStyle_);
     return add(std::move(e));
 }
 
@@ -217,6 +297,22 @@ bool Document::replace(EntityId id, Shape shape)
         return false;
     Entity updated = *e;
     updated.shape = std::move(shape);
+    record({id, *e, std::move(updated)});
+    return true;
+}
+
+bool Document::restyle(EntityId id, const std::string& layerName, const EntityStyle& style)
+{
+    const Entity* e = entity(id);
+    if (!e)
+        return false;
+    Entity updated = *e;
+    updated.layer = layerName.empty() ? e->layer : layerName;
+    applyStyle(updated, style);
+    if (styleOf(updated) == styleOf(*e) && updated.layer == e->layer)
+        return true;
+    if (!layer(updated.layer))
+        addLayer(Layer::named(updated.layer));
     record({id, *e, std::move(updated)});
     return true;
 }

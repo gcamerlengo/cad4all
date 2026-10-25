@@ -127,6 +127,7 @@ private:
     QToolButton* osnapButton_;
     QToolButton* orthoButton_;
     QToolButton* gridButton_;
+    QToolButton* lineweightButton_;
     // Automatic saves, every few minutes while the drawing has changes.
     cad::io::RecoverySession recovery_;
     QTimer* autosaveTimer_;

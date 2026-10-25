@@ -44,6 +44,27 @@ Color colorFromString(const QString& s)
     return {static_cast<std::uint8_t>(v >> 16), static_cast<std::uint8_t>(v >> 8), static_cast<std::uint8_t>(v)};
 }
 
+// Only what is not BYLAYER is written.
+void writeStyle(QJsonObject& o, const EntityStyle& style)
+{
+    if (style.color)
+        o[QStringLiteral("color")] = colorToString(*style.color);
+    if (linetypeKey(style.linetype) != kByLayer)
+        o[QStringLiteral("linetype")] = QString::fromStdString(style.linetype);
+    if (style.lineweight != kLineweightByLayer)
+        o[QStringLiteral("lineweight")] = style.lineweight;
+}
+
+EntityStyle readStyle(const QJsonObject& o)
+{
+    EntityStyle style;
+    if (o.contains(QStringLiteral("color")))
+        style.color = colorFromString(o.value(QStringLiteral("color")).toString());
+    style.linetype = linetypeKey(o.value(QStringLiteral("linetype")).toString(QString::fromStdString(kByLayer)).toStdString());
+    style.lineweight = o.value(QStringLiteral("lineweight")).toInt(kLineweightByLayer);
+    return style;
+}
+
 const char* alignName(Text::Align a)
 {
     switch (a) {
@@ -392,6 +413,8 @@ QByteArray toNativeJson(const Document& doc)
         o[QStringLiteral("color")] = colorToString(l.color);
         o[QStringLiteral("visible")] = l.visible;
         o[QStringLiteral("locked")] = l.locked;
+        o[QStringLiteral("linetype")] = QString::fromStdString(l.linetype);
+        o[QStringLiteral("lineweight")] = l.lineweight;
         layers.append(o);
     }
 
@@ -410,14 +433,35 @@ QByteArray toNativeJson(const Document& doc)
         QJsonObject o = shapeToJson(e.shape);
         o[QStringLiteral("layer")] = QString::fromStdString(e.layer);
         o[QStringLiteral("story")] = e.story;
+        writeStyle(o, styleOf(e));
         entities.append(o);
     }
+
+    // The standard linetypes are in every drawing; only the others are kept.
+    QJsonArray linetypes;
+    for (const Linetype& t : doc.linetypes()) {
+        if (isStandardLinetype(t.name))
+            continue;
+        QJsonObject o;
+        o[QStringLiteral("name")] = QString::fromStdString(t.name);
+        o[QStringLiteral("description")] = QString::fromStdString(t.description);
+        QJsonArray pattern;
+        for (double d : t.pattern)
+            pattern.append(d);
+        o[QStringLiteral("pattern")] = pattern;
+        linetypes.append(o);
+    }
+    QJsonObject current;
+    writeStyle(current, doc.currentStyle());
 
     QJsonObject root;
     root[QStringLiteral("format")] = QStringLiteral("cad4all");
     root[QStringLiteral("version")] = kNativeFormatVersion;
     root[QStringLiteral("currentLayer")] = QString::fromStdString(doc.currentLayer());
     root[QStringLiteral("layers")] = layers;
+    root[QStringLiteral("linetypes")] = linetypes;
+    root[QStringLiteral("linetypeScale")] = doc.linetypeScale();
+    root[QStringLiteral("currentStyle")] = current;
     root[QStringLiteral("stories")] = stories;
     root[QStringLiteral("currentStory")] = doc.currentStory();
     root[QStringLiteral("entities")] = entities;
@@ -443,6 +487,16 @@ bool fromNativeJson(const QByteArray& data, Document& doc, QString* error)
     }
 
     Document loaded;
+    for (const QJsonValue& v : root.value(QStringLiteral("linetypes")).toArray()) {
+        const QJsonObject o = v.toObject();
+        Linetype t;
+        t.name = o.value(QStringLiteral("name")).toString().toStdString();
+        t.description = o.value(QStringLiteral("description")).toString().toStdString();
+        for (const QJsonValue& d : o.value(QStringLiteral("pattern")).toArray())
+            t.pattern.push_back(d.toDouble());
+        loaded.addLinetype(t);
+    }
+    loaded.setLinetypeScale(root.value(QStringLiteral("linetypeScale")).toDouble(1.0));
     for (const QJsonValue& v : root.value(QStringLiteral("layers")).toArray()) {
         const QJsonObject o = v.toObject();
         Layer l;
@@ -450,6 +504,8 @@ bool fromNativeJson(const QByteArray& data, Document& doc, QString* error)
         l.color = colorFromString(o.value(QStringLiteral("color")).toString());
         l.visible = o.value(QStringLiteral("visible")).toBool(true);
         l.locked = o.value(QStringLiteral("locked")).toBool(false);
+        l.linetype = linetypeKey(o.value(QStringLiteral("linetype")).toString(QString::fromStdString(kContinuous)).toStdString());
+        l.lineweight = o.value(QStringLiteral("lineweight")).toInt(kLineweightDefault);
         if (loaded.layer(l.name))
             loaded.updateLayer(l.name, l);
         else
@@ -490,6 +546,7 @@ bool fromNativeJson(const QByteArray& data, Document& doc, QString* error)
         e.layer = o.value(QStringLiteral("layer")).toString(QStringLiteral("0")).toStdString();
         e.shape = *shape;
         e.story = o.value(QStringLiteral("story")).toInt(1);
+        applyStyle(e, readStyle(o));
         if (!loaded.story(e.story))
             e.story = loaded.stories().front().id;
         loaded.add(std::move(e));
@@ -499,6 +556,7 @@ bool fromNativeJson(const QByteArray& data, Document& doc, QString* error)
     if (!loaded.setCurrentStory(root.value(QStringLiteral("currentStory")).toInt(1)))
         loaded.setCurrentStory(loaded.stories().front().id);
     loaded.setCurrentLayer(root.value(QStringLiteral("currentLayer")).toString(QStringLiteral("0")).toStdString());
+    loaded.setCurrentStyle(readStyle(root.value(QStringLiteral("currentStyle")).toObject()));
     loaded.clearHistory();
     loaded.setModified(false);
 

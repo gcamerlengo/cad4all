@@ -24,6 +24,7 @@ add_executable(cad4all_tests
     meshexport_test.cpp
     properties_test.cpp
     recovery_test.cpp
+    style_test.cpp
 )
 target_link_libraries(cad4all_tests PRIVATE cad4all_core cad4all_io cad4all_engine GTest::gtest_main)
 if(CAD4ALL_WITH_DWG)
@@ -41,8 +42,8 @@ if(CAD4ALL_BUILD_APP)
     set(app_dir ${PROJECT_SOURCE_DIR}/src/app)
     add_executable(cad4all_ui_tests
         ui_test.cpp
-        ${app_dir}/infobox.cpp ${app_dir}/toolbox.cpp ${app_dir}/navigator.cpp ${app_dir}/icons.cpp
-        ${app_dir}/infobox.h ${app_dir}/toolbox.h ${app_dir}/navigator.h
+        ${app_dir}/infobox.cpp ${app_dir}/toolbox.cpp ${app_dir}/navigator.cpp ${app_dir}/icons.cpp ${app_dir}/stylecontrols.cpp
+        ${app_dir}/infobox.h ${app_dir}/toolbox.h ${app_dir}/navigator.h ${app_dir}/stylecontrols.h
     )
     target_include_directories(cad4all_ui_tests PRIVATE ${app_dir})
     set_target_properties(cad4all_ui_tests PROPERTIES AUTOMOC ON)

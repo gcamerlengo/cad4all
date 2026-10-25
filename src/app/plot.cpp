@@ -76,9 +76,12 @@ void paintPlot(QPainter& p, const Document& doc, const PlotSettings& settings, c
     for (const auto& [id, e] : doc.entities()) {
         if (!doc.isVisible(e) || !drawnBox(e.shape).intersects(sheet))
             continue;
-        const Layer* layer = doc.layer(e.layer);
-        QPen pen(plotColor(settings, layer ? layer->color : Color{255, 255, 255}), width, Qt::SolidLine, Qt::RoundCap,
-                 Qt::RoundJoin);
+        // Objects with a lineweight print with it, the others with the width of the plot settings.
+        const int weight = doc.lineweightOf(e);
+        const double penWidth = weight >= 0 ? std::max(weight / 100.0 * devicePerMm, 0.5) : width;
+        QPen pen(plotColor(settings, doc.colorOf(e)), penWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+        if (usesLinetype(e.shape))
+            applyLinetype(pen, doc.linetypeOf(e), doc.linetypeScale(), scale);
         p.setPen(pen);
         p.setBrush(Qt::NoBrush);
         if (const auto* w = std::get_if<Wall>(&e.shape))

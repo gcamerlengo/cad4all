@@ -89,6 +89,12 @@ void CadView::setGridVisible(bool on)
     update();
 }
 
+void CadView::setLineweightsVisible(bool on)
+{
+    lineweights_ = on;
+    update();
+}
+
 void CadView::zoomExtents()
 {
     const BBox box = engine_.document().extents();
@@ -259,8 +265,18 @@ void CadView::paintEvent(QPaintEvent*)
     for (const auto& [id, e] : doc.entities()) {
         if (!doc.isVisible(e) || !drawnBox(e.shape).intersects(visible))
             continue;
-        const Layer* layer = doc.layer(e.layer);
-        QPen pen(layer ? toQColor(layer->color) : Qt::white, 0);
+        QPen pen(toQColor(doc.colorOf(e)), 0);
+        if (lineweights_) {
+            // About 96 pixels per inch, as AutoCAD shows them: 0.25 mm is one pixel.
+            const int weight = doc.lineweightOf(e);
+            const double mm = (weight >= 0 ? weight : kDefaultLineweight) / 100.0;
+            const double pixels = std::max(1.0, std::round(mm * 96.0 / 25.4));
+            if (pixels > 1.0)
+                pen.setWidthF(pixels);
+            pen.setCosmetic(true);
+        }
+        if (usesLinetype(e.shape))
+            applyLinetype(pen, doc.linetypeOf(e), doc.linetypeScale(), scale_);
         if (selection.count(id)) {
             pen = QPen(kSelected, 1.5, Qt::DashLine);
             pen.setCosmetic(true);

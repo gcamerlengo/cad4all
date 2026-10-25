@@ -653,3 +653,63 @@ TEST_F(Commands, StairUpToTheNextStory)
     EXPECT_EQ(stairs[1].risers, 16);
     type({"SN", "T", "D", "V", "S", "L", "1000", "P", "280", ""});
 }
+
+TEST_F(Commands, CurrentColorLinetypeAndLineweight)
+{
+    type({"COLORE", "rosso", "TIPOLINEA", "nascosta"});
+    // An unknown linetype keeps the command asking.
+    EXPECT_TRUE(engine.isActive());
+    type({"hidden", "SPESSLINEA", "0.5", "L", "0,0", "10,0", ""});
+    const Entity& e = doc.entities().begin()->second;
+    EXPECT_EQ(e.color, std::optional<Color>(aciToColor(1)));
+    EXPECT_EQ(e.linetype, "HIDDEN");
+    EXPECT_EQ(e.lineweight, 50);
+
+    type({"COL", "DaLayer", "SCALATL", "25"});
+    EXPECT_FALSE(doc.currentStyle().color.has_value());
+    EXPECT_DOUBLE_EQ(doc.linetypeScale(), 25.0);
+}
+
+TEST_F(Commands, ChangePropertiesOfSelection)
+{
+    doc.addLayer(Layer::named("Assi"));
+    type({"L", "0,0", "10,0", "", "CERCHIO", "0,0", "5"});
+    std::vector<EntityId> ids;
+    for (const auto& [id, e] : doc.entities())
+        ids.push_back(id);
+    engine.select(ids);
+    type({"CAMBIAPROP", "C", "3", "LA", "assi", "TI", "CENTER", "SP", "0.7", ""});
+    EXPECT_FALSE(engine.isActive());
+    for (const auto& [id, e] : doc.entities()) {
+        EXPECT_EQ(e.layer, "Assi");
+        EXPECT_EQ(e.color, std::optional<Color>(aciToColor(3)));
+        EXPECT_EQ(e.linetype, "CENTER");
+        EXPECT_EQ(e.lineweight, 70);
+    }
+    // One undo step for the whole command.
+    type({"U"});
+    for (const auto& [id, e] : doc.entities())
+        EXPECT_EQ(styleOf(e), EntityStyle{});
+}
+
+TEST_F(Commands, MatchPropertiesCopiesLayerAndStyle)
+{
+    doc.addLayer(Layer::named("Assi"));
+    doc.setCurrentLayer("Assi");
+    doc.setCurrentStyle({aciToColor(2), "DASHED", 35});
+    type({"L", "0,0", "10,0", ""});
+    doc.setCurrentLayer("0");
+    doc.setCurrentStyle({});
+    type({"L", "0,5", "10,5", ""});
+    const EntityId source = doc.entities().begin()->first;
+    const EntityId target = doc.entities().rbegin()->first;
+
+    engine.setPickTolerance(0.5);
+    type({"CORRISPPROP"});
+    engine.pickPoint({5, 0});
+    engine.select({target});
+    type({""});
+    EXPECT_FALSE(engine.isActive());
+    EXPECT_EQ(doc.entity(target)->layer, "Assi");
+    EXPECT_EQ(styleOf(*doc.entity(target)), styleOf(*doc.entity(source)));
+}

@@ -6,7 +6,9 @@
 #include <QFontMetricsF>
 #include <QPainterPath>
 
+#include <algorithm>
 #include <cmath>
+#include <vector>
 
 using namespace cad;
 
@@ -23,6 +25,44 @@ BBox drawnBox(const Shape& shape)
     if (const auto* w = std::get_if<Wall>(&shape))
         return box.inflated(4.0 * w->thickness);
     return box;
+}
+
+bool usesLinetype(const Shape& shape)
+{
+    return std::holds_alternative<Line>(shape) || std::holds_alternative<Circle>(shape) || std::holds_alternative<Arc>(shape)
+        || std::holds_alternative<Polyline>(shape);
+}
+
+void applyLinetype(QPen& pen, const Linetype& type, double lengthScale, double deviceScale)
+{
+    pen.setStyle(Qt::SolidLine);
+    if (type.pattern.empty())
+        return;
+    // Qt measures dashes in pen widths; a hairline is one device unit wide.
+    const double width = pen.widthF() > 0.0 ? pen.widthF() : 1.0;
+    const double unit = lengthScale * deviceScale;
+    if (type.patternLength() * unit < 4.0 * width)
+        return;
+    // Qt wants dash, gap, dash, gap...: equal neighbours merge, a dot is one width long.
+    std::vector<double> pattern;
+    for (double d : type.pattern) {
+        const bool isDash = d >= 0.0;
+        const double length = isDash ? std::max(d * unit / width, 1.0) : -d * unit / width;
+        const bool wantDash = pattern.size() % 2 == 0;
+        if (isDash == wantDash) {
+            pattern.push_back(length);
+        } else if (pattern.empty()) {
+            pattern.push_back(0.0);
+            pattern.push_back(length);
+        } else {
+            pattern.back() += length;
+        }
+    }
+    if (pattern.size() % 2 != 0)
+        pattern.push_back(0.0);
+    QList<qreal> dashes(pattern.begin(), pattern.end());
+    pen.setCapStyle(Qt::FlatCap);
+    pen.setDashPattern(dashes);
 }
 
 DrawingPainter::DrawingPainter(QPainter& painter, Vec2 center, double scale, QPointF deviceCenter)

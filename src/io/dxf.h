@@ -24,8 +24,8 @@ QByteArray toDxf(const Document& doc);
 bool loadDxf(Document& doc, const QString& path, QString* message = nullptr);
 bool saveDxf(const Document& doc, const QString& path, QString* error = nullptr);
 
-// AutoCAD Color Index: the RGB of index 1..255, and the index nearest to a colour.
-Color aciToColor(int index);
-int colorToAci(Color color);
+// AutoCAD Color Index, now in the core (style.h).
+using cad::aciToColor;
+using cad::colorToAci;
 
 } // namespace cad::io

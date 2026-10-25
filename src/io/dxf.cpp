@@ -21,29 +21,6 @@ namespace cad::io {
 
 namespace {
 
-// ------------------------------------------------------------------ colours
-
-// HSV to RGB, all in [0, 1] (hue in turns).
-Color hsv(double h, double s, double v)
-{
-    const double i = std::floor(h * 6.0);
-    const double f = h * 6.0 - i;
-    const double p = v * (1.0 - s);
-    const double q = v * (1.0 - f * s);
-    const double t = v * (1.0 - (1.0 - f) * s);
-    double r = v, g = t, b = p;
-    switch (static_cast<int>(i) % 6) {
-    case 0: r = v; g = t; b = p; break;
-    case 1: r = q; g = v; b = p; break;
-    case 2: r = p; g = v; b = t; break;
-    case 3: r = p; g = q; b = v; break;
-    case 4: r = t; g = p; b = v; break;
-    case 5: r = v; g = p; b = q; break;
-    }
-    auto byte = [](double x) { return static_cast<std::uint8_t>(std::lround(std::clamp(x, 0.0, 1.0) * 255.0)); };
-    return {byte(r), byte(g), byte(b)};
-}
-
 // ------------------------------------------------------------------ reading
 
 struct Group {
@@ -229,6 +206,7 @@ public:
         }
 
         readHeader(sections[QStringLiteral("HEADER")]);
+        readLinetypes(sections[QStringLiteral("TABLES")]);
         readLayers(sections[QStringLiteral("TABLES")]);
         readDimStyles(sections[QStringLiteral("TABLES")]);
         readBlocks(sections[QStringLiteral("BLOCKS")]);
@@ -251,7 +229,9 @@ private:
                     name = g.value;
                     continue;
                 }
-                if (name == QLatin1String("$DIMSCALE") && g.code == 40)
+                if (name == QLatin1String("$LTSCALE") && g.code == 40)
+                    doc_.setLinetypeScale(toDouble(g.value));
+                else if (name == QLatin1String("$DIMSCALE") && g.code == 40)
                     dimScale_ = toDouble(g.value) > 0.0 ? toDouble(g.value) : 1.0;
                 else if (name == QLatin1String("$DIMTXT") && g.code == 40)
                     dimText_ = toDouble(g.value);
@@ -295,11 +275,59 @@ private:
             // A negative colour means the layer is off; frozen layers are hidden too.
             l.visible = color >= 0 && !(flags & 1);
             l.locked = flags & 4;
+            const std::string linetype = linetypeKey(r.str(6, QString::fromStdString(kContinuous)).toStdString());
+            l.linetype = doc_.linetype(linetype) ? linetype : kContinuous;
+            const int weight = r.integer(370, kLineweightDefault);
+            l.lineweight = weight >= 0 ? weight : kLineweightDefault;
             if (doc_.layer(l.name))
                 doc_.updateLayer(l.name, l);
             else
                 doc_.addLayer(l);
         }
+    }
+
+    void readLinetypes(const std::vector<Record>& records)
+    {
+        for (const Record& r : records) {
+            if (r.type != QLatin1String("LTYPE"))
+                continue;
+            Linetype t;
+            t.name = r.str(2).toStdString();
+            t.description = r.str(3).toStdString();
+            for (const Group& g : r.groups)
+                if (g.code == 49)
+                    t.pattern.push_back(toDouble(g.value));
+            if (linetypeKey(t.name) == "BYBLOCK" || isStandardLinetype(t.name))
+                continue;
+            doc_.addLinetype(t);
+        }
+    }
+
+    // Colour (62, or 420 for a true colour), linetype (6) and lineweight
+    // (370) of an entity; BYBLOCK takes those of the block reference.
+    EntityStyle recordStyle(const Record& r) const
+    {
+        EntityStyle style;
+        const int aci = r.integer(62, 256);
+        if (r.find(420)) {
+            const unsigned rgb = static_cast<unsigned>(r.integer(420));
+            style.color = Color{static_cast<std::uint8_t>(rgb >> 16), static_cast<std::uint8_t>(rgb >> 8), static_cast<std::uint8_t>(rgb)};
+        } else if (aci == 0) {
+            style.color = blockStyle_.color;
+        } else if (aci != 256) {
+            style.color = aciToColor(std::abs(aci));
+        }
+        const std::string linetype = linetypeKey(r.str(6, QString::fromStdString(kByLayer)).toStdString());
+        if (linetype == "BYBLOCK")
+            style.linetype = blockStyle_.linetype;
+        else if (linetype != kByLayer && doc_.linetype(linetype))
+            style.linetype = linetype;
+        const int weight = r.integer(370, kLineweightByLayer);
+        if (weight == kLineweightByBlock)
+            style.lineweight = blockStyle_.lineweight;
+        else if (weight >= 0 || weight == kLineweightDefault)
+            style.lineweight = weight;
+        return style;
     }
 
     void readBlocks(const std::vector<Record>& records)
@@ -322,11 +350,17 @@ private:
 
     void skip(const QString& type) { ++skipped_[type]; }
 
+    // The style of the record being converted, and of the block reference
+    // around it.
+    EntityStyle style_;
+    EntityStyle blockStyle_;
+
     void add(const std::string& layer, const Shape& shape, const Transform& xf)
     {
         Entity e;
         e.layer = layer.empty() ? std::string("0") : layer;
         e.shape = transformed(shape, xf);
+        applyStyle(e, style_);
         doc_.add(std::move(e));
         ++imported_;
     }
@@ -342,6 +376,7 @@ private:
             std::string layer = r.str(8, QStringLiteral("0")).toStdString();
             if (!insertLayer.empty() && layer == "0")
                 layer = insertLayer;
+            style_ = recordStyle(r);
             // Planar entities with a downward normal are mirrored in X.
             Transform ocs;
             if (r.num(230, 1.0) < 0.0)
@@ -374,8 +409,10 @@ private:
                 insert(r, xf, layer, depth);
                 // Attributes follow the reference up to SEQEND.
                 size_t j = i + 1;
-                for (; j < records.size() && records[j].type == QLatin1String("ATTRIB"); ++j)
+                for (; j < records.size() && records[j].type == QLatin1String("ATTRIB"); ++j) {
+                    style_ = recordStyle(records[j]);
                     text(records[j], full, layer);
+                }
                 if (j < records.size() && records[j].type == QLatin1String("SEQEND") && j > i + 1)
                     ++j;
                 i = j - 1;
@@ -393,6 +430,9 @@ private:
             return;
         }
         const Block& block = it->second;
+        // What the block's BYBLOCK entities take, for this reference.
+        const EntityStyle outer = blockStyle_;
+        blockStyle_ = style_;
         const double sx = r.num(41, 1.0);
         const double sy = r.num(42, 1.0);
         const double rot = degToRad(r.num(50));
@@ -415,6 +455,7 @@ private:
                 convertList(block.records, xf * ocs * place, layer, depth + 1, false);
             }
         }
+        blockStyle_ = outer;
     }
 
     void text(const Record& r, const Transform& xf, const std::string& layer)
@@ -1020,7 +1061,7 @@ public:
     void line(const std::string& layer, Vec2 a, Vec2 b)
     {
         group(0, "LINE");
-        group(8, layerName(layer));
+        this->layer(layer);
         point(10, a);
         point(11, b);
     }
@@ -1028,7 +1069,7 @@ public:
     void text(const std::string& layer, const Text& t)
     {
         group(0, "TEXT");
-        group(8, layerName(layer));
+        this->layer(layer);
         point(10, t.position);
         group(40, t.height);
         group(1, encode(t.content));
@@ -1043,17 +1084,28 @@ public:
     void solid(const std::string& layer, const std::array<Vec2, 3>& tri)
     {
         group(0, "SOLID");
-        group(8, layerName(layer));
+        this->layer(layer);
         point(10, tri[0]);
         point(11, tri[1]);
         point(12, tri[2]);
         point(13, tri[2]);
     }
 
+    // The layer of an entity, then its own colour and linetype (R12 has no lineweights).
+    void layer(const std::string& name)
+    {
+        group(8, layerName(name));
+        if (linetypeKey(style_.linetype) != kByLayer)
+            group(6, encode(style_.linetype));
+        if (style_.color)
+            group(62, colorToAci(*style_.color));
+    }
+
     void shape(const std::string& layer, const Shape& s, int& dimCount, QByteArray& blocks);
     void hatch(const std::string& layer, const Hatch& h, QByteArray& blocks);
 
     int hatchCount_ = 0;
+    EntityStyle style_;
 
     static QString layerName(const std::string& name) { return encode(name); }
 
@@ -1066,31 +1118,31 @@ void DxfWriter::shape(const std::string& layer, const Shape& s, int& dimCount, Q
         line(layer, l->a, l->b);
     } else if (const auto* c = std::get_if<Circle>(&s)) {
         group(0, "CIRCLE");
-        group(8, layerName(layer));
+        this->layer(layer);
         point(10, c->center);
         group(40, c->radius);
     } else if (const auto* a = std::get_if<Arc>(&s)) {
         group(0, "ARC");
-        group(8, layerName(layer));
+        this->layer(layer);
         point(10, a->center);
         group(40, a->radius);
         group(50, radToDeg(normalizeAngle(a->startAngle)));
         group(51, radToDeg(normalizeAngle(a->endAngle)));
     } else if (const auto* pl = std::get_if<Polyline>(&s)) {
         group(0, "POLYLINE");
-        group(8, layerName(layer));
+        this->layer(layer);
         group(66, 1);
         point(10, {0.0, 0.0});
         group(70, pl->closed ? 1 : 0);
         for (size_t i = 0; i < pl->points.size(); ++i) {
             group(0, "VERTEX");
-            group(8, layerName(layer));
+            this->layer(layer);
             point(10, pl->points[i]);
             if (std::abs(pl->bulge(i)) > 1e-12)
                 group(42, pl->bulge(i));
         }
         group(0, "SEQEND");
-        group(8, layerName(layer));
+        this->layer(layer);
     } else if (const auto* t = std::get_if<Text>(&s)) {
         text(layer, *t);
     } else if (const auto* h = std::get_if<Hatch>(&s)) {
@@ -1116,7 +1168,7 @@ void DxfWriter::shape(const std::string& layer, const Shape& s, int& dimCount, Q
         blocks += block.out_;
 
         group(0, "DIMENSION");
-        group(8, layerName(layer));
+        this->layer(layer);
         group(2, name);
         group(3, "STANDARD");
         switch (d->kind) {
@@ -1200,56 +1252,12 @@ void DxfWriter::hatch(const std::string& layer, const Hatch& h, QByteArray& bloc
     blocks += block.out_;
 
     group(0, "INSERT");
-    group(8, layerName(layer));
+    this->layer(layer);
     group(2, name);
     point(10, {0.0, 0.0});
 }
 
 } // namespace
-
-Color aciToColor(int index)
-{
-    switch (index) {
-    case 1: return {255, 0, 0};
-    case 2: return {255, 255, 0};
-    case 3: return {0, 255, 0};
-    case 4: return {0, 255, 255};
-    case 5: return {0, 0, 255};
-    case 6: return {255, 0, 255};
-    case 7: return {255, 255, 255};
-    case 8: return {128, 128, 128};
-    case 9: return {192, 192, 192};
-    default: break;
-    }
-    if (index >= 250 && index <= 255) {
-        static const std::uint8_t grays[] = {51, 80, 105, 130, 190, 255};
-        const std::uint8_t g = grays[index - 250];
-        return {g, g, g};
-    }
-    if (index < 10 || index > 249)
-        return {255, 255, 255};
-    // 10..249: 24 hues of 15 degrees, each in five shades, full and pale.
-    const int hue = (index - 10) / 10;
-    const int shade = index % 10;
-    static const double values[] = {1.0, 0.65, 0.5, 0.3, 0.15};
-    return hsv(hue / 24.0, shade % 2 == 0 ? 1.0 : 0.5, values[shade / 2]);
-}
-
-int colorToAci(Color color)
-{
-    int best = 7;
-    int bestDist = std::numeric_limits<int>::max();
-    for (int i = 1; i <= 255; ++i) {
-        const Color c = aciToColor(i);
-        const int dr = c.r - color.r, dg = c.g - color.g, db = c.b - color.b;
-        const int d = dr * dr + dg * dg + db * db;
-        if (d < bestDist) {
-            bestDist = d;
-            best = i;
-        }
-    }
-    return best;
-}
 
 bool fromDxf(const QByteArray& data, Document& doc, QString* message)
 {
@@ -1291,20 +1299,26 @@ QByteArray toDxf(const Document& doc)
     w.point(10, ext.valid() ? ext.min : Vec2{0, 0});
     w.group(9, "$EXTMAX");
     w.point(10, ext.valid() ? ext.max : Vec2{0, 0});
+    w.group(9, "$LTSCALE");
+    w.group(40, doc.linetypeScale());
     w.group(0, "ENDSEC");
 
     w.group(0, "SECTION");
     w.group(2, "TABLES");
     w.group(0, "TABLE");
     w.group(2, "LTYPE");
-    w.group(70, 1);
-    w.group(0, "LTYPE");
-    w.group(2, "CONTINUOUS");
-    w.group(70, 0);
-    w.group(3, "Solid line");
-    w.group(72, 65);
-    w.group(73, 0);
-    w.group(40, 0.0);
+    w.group(70, static_cast<int>(doc.linetypes().size()));
+    for (const Linetype& t : doc.linetypes()) {
+        w.group(0, "LTYPE");
+        w.group(2, DxfWriter::encode(t.name));
+        w.group(70, 0);
+        w.group(3, DxfWriter::encode(t.description));
+        w.group(72, 65);
+        w.group(73, static_cast<int>(t.pattern.size()));
+        w.group(40, t.patternLength());
+        for (double d : t.pattern)
+            w.group(49, d);
+    }
     w.group(0, "ENDTAB");
     w.group(0, "TABLE");
     w.group(2, "LAYER");
@@ -1315,7 +1329,7 @@ QByteArray toDxf(const Document& doc)
         w.group(70, l.locked ? 4 : 0);
         const int aci = colorToAci(l.color);
         w.group(62, l.visible ? aci : -aci);
-        w.group(6, "CONTINUOUS");
+        w.group(6, DxfWriter::encode(l.linetype));
     }
     w.group(0, "ENDTAB");
     w.group(0, "TABLE");
@@ -1350,6 +1364,7 @@ QByteArray toDxf(const Document& doc)
     for (const auto& [id, e] : doc.entities()) {
         if (e.story != doc.currentStory())
             continue;
+        entities.style_ = styleOf(e);
         if (const auto* slab = std::get_if<Slab>(&e.shape)) {
             for (const Polyline& loop : slab->loops)
                 entities.shape(e.layer, loop, dimCount, blocks);
