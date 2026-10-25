@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QSaveFile>
 
+#include <set>
 #include <variant>
 
 namespace cad::io {
@@ -258,13 +259,34 @@ QJsonObject shapeToJson(const Shape& shape)
         o[QStringLiteral("height")] = st->height;
         o[QStringLiteral("risers")] = st->risers;
         o[QStringLiteral("going")] = st->going;
+    } else if (const auto* ref = std::get_if<Insert>(&shape)) {
+        o[QStringLiteral("type")] = QStringLiteral("insert");
+        o[QStringLiteral("block")] = ref->block ? QString::fromStdString(ref->block->name) : QString();
+        o[QStringLiteral("position")] = toJson(ref->position);
+        if (ref->scaleX != 1.0)
+            o[QStringLiteral("scaleX")] = ref->scaleX;
+        if (ref->scaleY != 1.0)
+            o[QStringLiteral("scaleY")] = ref->scaleY;
+        if (ref->rotation != 0.0)
+            o[QStringLiteral("rotation")] = ref->rotation;
     }
     return o;
 }
 
-std::optional<Shape> shapeFromJson(const QJsonObject& o)
+// References find their block in `doc`, which already has it.
+std::optional<Shape> shapeFromJson(const QJsonObject& o, const Document& doc)
 {
     const QString type = o.value(QStringLiteral("type")).toString();
+    if (type == QLatin1String("insert")) {
+        Insert ref;
+        ref.block = doc.block(o.value(QStringLiteral("block")).toString().toStdString());
+        ref.scaleX = o.value(QStringLiteral("scaleX")).toDouble(1.0);
+        ref.scaleY = o.value(QStringLiteral("scaleY")).toDouble(1.0);
+        ref.rotation = o.value(QStringLiteral("rotation")).toDouble();
+        if (ref.block && fromJson(o[QStringLiteral("position")], ref.position) && ref.scaleX != 0.0 && ref.scaleY != 0.0)
+            return ref;
+        return std::nullopt;
+    }
     if (type == QLatin1String("line")) {
         Line l;
         if (fromJson(o[QStringLiteral("a")], l.a) && fromJson(o[QStringLiteral("b")], l.b))
@@ -402,6 +424,29 @@ void setError(QString* error, const QString& message)
         *error = message;
 }
 
+// Blocks used by `block` come before it, so a file can be read in order.
+void writeBlock(const Block& block, QJsonArray& out, std::set<const Block*>& written)
+{
+    if (!written.insert(&block).second)
+        return;
+    QJsonArray items;
+    for (const BlockItem& item : block.items) {
+        if (const auto* ref = std::get_if<Insert>(&item.shape); ref && ref->block)
+            writeBlock(*ref->block, out, written);
+        QJsonObject o = shapeToJson(item.shape);
+        o[QStringLiteral("layer")] = QString::fromStdString(item.layer);
+        writeStyle(o, {item.color, item.linetype, item.lineweight});
+        if (item.colorByBlock)
+            o[QStringLiteral("colorByBlock")] = true;
+        items.append(o);
+    }
+    QJsonObject o;
+    o[QStringLiteral("name")] = QString::fromStdString(block.name);
+    o[QStringLiteral("base")] = toJson(block.base);
+    o[QStringLiteral("items")] = items;
+    out.append(o);
+}
+
 } // namespace
 
 QByteArray toNativeJson(const Document& doc)
@@ -427,6 +472,11 @@ QByteArray toNativeJson(const Document& doc)
         o[QStringLiteral("height")] = st.height;
         stories.append(o);
     }
+
+    QJsonArray blocks;
+    std::set<const Block*> written;
+    for (const auto& [key, b] : doc.blocks())
+        writeBlock(*b, blocks, written);
 
     QJsonArray entities;
     for (const auto& [id, e] : doc.entities()) {
@@ -464,6 +514,7 @@ QByteArray toNativeJson(const Document& doc)
     root[QStringLiteral("currentStyle")] = current;
     root[QStringLiteral("stories")] = stories;
     root[QStringLiteral("currentStory")] = doc.currentStory();
+    root[QStringLiteral("blocks")] = blocks;
     root[QStringLiteral("entities")] = entities;
     return QJsonDocument(root).toJson(QJsonDocument::Indented);
 }
@@ -535,9 +586,35 @@ bool fromNativeJson(const QByteArray& data, Document& doc, QString* error)
     }
 
     int skipped = 0;
+    for (const QJsonValue& v : root.value(QStringLiteral("blocks")).toArray()) {
+        const QJsonObject o = v.toObject();
+        std::vector<BlockItem> items;
+        for (const QJsonValue& iv : o.value(QStringLiteral("items")).toArray()) {
+            const QJsonObject io = iv.toObject();
+            const auto shape = shapeFromJson(io, loaded);
+            if (!shape) {
+                ++skipped;
+                continue;
+            }
+            BlockItem item;
+            item.shape = *shape;
+            item.layer = io.value(QStringLiteral("layer")).toString(QStringLiteral("0")).toStdString();
+            const EntityStyle style = readStyle(io);
+            item.color = style.color;
+            item.colorByBlock = io.value(QStringLiteral("colorByBlock")).toBool();
+            item.linetype = style.linetype;
+            item.lineweight = style.lineweight;
+            if (!loaded.layer(item.layer))
+                loaded.addLayer(Layer::named(item.layer));
+            items.push_back(std::move(item));
+        }
+        Vec2 base;
+        fromJson(o.value(QStringLiteral("base")), base);
+        loaded.defineBlock(makeBlock(o.value(QStringLiteral("name")).toString().toStdString(), base, std::move(items)));
+    }
     for (const QJsonValue& v : root.value(QStringLiteral("entities")).toArray()) {
         const QJsonObject o = v.toObject();
-        const auto shape = shapeFromJson(o);
+        const auto shape = shapeFromJson(o, loaded);
         if (!shape) {
             ++skipped;
             continue;

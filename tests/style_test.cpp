@@ -157,8 +157,16 @@ TEST(Style, DxfReadsColoursLinetypesAndLineweights)
     EXPECT_EQ(styleOf(lines[0]), EntityStyle{});
     EXPECT_EQ(styleOf(lines[1]), (EntityStyle{aciToColor(3), "BORDO", 50}));
     EXPECT_EQ(lines[2].color, (std::optional<Color>{Color{0x12, 0x34, 0x56}}));
-    // BYBLOCK takes what the reference has.
-    EXPECT_EQ(styleOf(lines[3]), (EntityStyle{aciToColor(5), "HIDDEN", 70}));
+    // The block keeps BYBLOCK, which shows what the reference has.
+    const BlockItem& item = doc.block("B")->items.front();
+    EXPECT_TRUE(item.colorByBlock);
+    EXPECT_EQ(item.linetype, "BYBLOCK");
+    EXPECT_EQ(item.lineweight, kLineweightByBlock);
+    doc.forEachPart(lines[3], [&](const Entity& part) {
+        EXPECT_EQ(doc.colorOf(part), aciToColor(5));
+        EXPECT_EQ(doc.linetypeOf(part).name, "HIDDEN");
+        EXPECT_EQ(doc.lineweightOf(part), 70);
+    });
 }
 
 TEST(Style, DxfWritesColoursAndLinetypes)

@@ -74,7 +74,7 @@ TEST(Dxf, ReadsLayersAndBasicEntities)
     EXPECT_EQ(shapes<Text>(doc)[0].second.content, "Diametro \xC3\x98" "20");
 }
 
-TEST(Dxf, ExplodesBlockReferences)
+TEST(Dxf, KeepsBlockReferences)
 {
     const QByteArray data = dxf("0 SECTION|2 BLOCKS|"
                                 "0 BLOCK|8 0|2 PORTA|70 0|10 1|20 0|"
@@ -86,15 +86,85 @@ TEST(Dxf, ExplodesBlockReferences)
                                 "0 ENDSEC|0 EOF");
     Document doc;
     ASSERT_TRUE(io::fromDxf(data, doc));
-    const auto lines = shapes<Line>(doc);
-    ASSERT_EQ(lines.size(), 2u);
+    ASSERT_NE(doc.block("PORTA"), nullptr);
+    EXPECT_EQ(doc.block("PORTA")->items.size(), 2u);
+    const auto refs = shapes<Insert>(doc);
+    ASSERT_EQ(refs.size(), 1u);
+    EXPECT_EQ(refs[0].first, "Porte");
+    EXPECT_EQ(refs[0].second.block, doc.block("PORTA"));
+    EXPECT_NEAR(refs[0].second.rotation, kPi / 2, 1e-12);
+    EXPECT_DOUBLE_EQ(refs[0].second.scaleX, 2.0);
+
     // Base point (1, 0) goes to (10, 10); scale 2 and 90 degrees turn +X into +Y.
-    EXPECT_EQ(lines[0].first, "Porte");  // layer 0 takes the reference's layer
-    EXPECT_NEAR(lines[0].second.a.x, 10, 1e-9);
-    EXPECT_NEAR(lines[0].second.b.x, 10, 1e-9);
-    EXPECT_NEAR(lines[0].second.b.y, 12, 1e-9);
-    EXPECT_EQ(lines[1].first, "Arredi");
-    EXPECT_NEAR(lines[1].second.b.x, 8, 1e-9);
+    std::vector<Entity> parts;
+    doc.forEachPart(doc.entities().begin()->second, [&](const Entity& p) { parts.push_back(p); });
+    ASSERT_EQ(parts.size(), 2u);
+    EXPECT_EQ(parts[0].layer, "Porte");  // layer 0 takes the reference's layer
+    const Line first = std::get<Line>(parts[0].shape);
+    EXPECT_NEAR(first.a.x, 10, 1e-9);
+    EXPECT_NEAR(first.b.x, 10, 1e-9);
+    EXPECT_NEAR(first.b.y, 12, 1e-9);
+    EXPECT_EQ(parts[1].layer, "Arredi");
+    EXPECT_NEAR(std::get<Line>(parts[1].shape).b.x, 8, 1e-9);
+}
+
+TEST(Dxf, ExplodesAnonymousBlocksAndArrays)
+{
+    const QByteArray data = dxf("0 SECTION|2 BLOCKS|"
+                                "0 BLOCK|8 0|2 *U1|70 1|10 0|20 0|"
+                                "0 LINE|8 0|10 0|20 0|11 1|21 0|"
+                                "0 ENDBLK|"
+                                "0 BLOCK|8 0|2 P|70 0|10 0|20 0|"
+                                "0 CIRCLE|8 0|10 0|20 0|40 1|"
+                                "0 ENDBLK|0 ENDSEC|"
+                                "0 SECTION|2 ENTITIES|"
+                                "0 INSERT|8 0|2 *U1|10 5|20 5|"
+                                "0 INSERT|8 0|2 P|10 0|20 0|70 3|71 2|44 10|45 20|"
+                                "0 ENDSEC|0 EOF");
+    Document doc;
+    ASSERT_TRUE(io::fromDxf(data, doc));
+    EXPECT_EQ(doc.block("*U1"), nullptr);
+    ASSERT_EQ(shapes<Line>(doc).size(), 1u);
+    EXPECT_EQ(shapes<Line>(doc)[0].second.a, (Vec2{5, 5}));
+    // A MINSERT of 3 columns and 2 rows: one reference per cell.
+    const auto refs = shapes<Insert>(doc);
+    ASSERT_EQ(refs.size(), 6u);
+    EXPECT_EQ(refs.back().second.position, (Vec2{20, 20}));
+}
+
+TEST(Dxf, BlocksRoundTrip)
+{
+    Document doc;
+    doc.addLayer(Layer::named("Arredi"));
+    BlockItem line;
+    line.shape = Line{{0, 0}, {10, 0}};
+    BlockItem circle;
+    circle.shape = Circle{{5, 5}, 2};
+    circle.layer = "Arredi";
+    circle.colorByBlock = true;
+    const auto table = makeBlock("Tavolo", {5, 0}, {line, circle});
+    doc.defineBlock(table);
+    BlockItem nested;
+    nested.shape = Insert{table, {0, 0}};
+    doc.defineBlock(makeBlock("Sala", {0, 0}, {nested}));
+    Insert ref{doc.block("Sala"), {100, 50}, 2.0, 2.0, kPi / 2};
+    doc.add(ref);
+
+    Document back;
+    ASSERT_TRUE(io::fromDxf(io::toDxf(doc), back));
+    ASSERT_NE(back.block("TAVOLO"), nullptr);
+    ASSERT_NE(back.block("Sala"), nullptr);
+    EXPECT_EQ(back.block("Tavolo")->base, (Vec2{5, 0}));
+    const BlockItem& c = back.block("Tavolo")->items[1];
+    EXPECT_EQ(c.layer, "Arredi");
+    EXPECT_TRUE(c.colorByBlock);
+    const auto refs = shapes<Insert>(back);
+    ASSERT_EQ(refs.size(), 1u);
+    EXPECT_EQ(refs[0].second.position, (Vec2{100, 50}));
+    EXPECT_DOUBLE_EQ(refs[0].second.scaleY, 2.0);
+    EXPECT_NEAR(refs[0].second.rotation, kPi / 2, 1e-12);
+    const auto& inner = std::get<Insert>(refs[0].second.block->items[0].shape);
+    EXPECT_EQ(inner.block, back.block("Tavolo"));
 }
 
 TEST(Dxf, ReadsMtextAndDimensions)

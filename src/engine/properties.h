@@ -45,7 +45,7 @@ inline constexpr double kMaxRiser = 180.0;
 int stairRisers(double height);
 
 struct Property {
-    enum class Type { Length, Angle, Choice };
+    enum class Type { Length, Angle, Factor, Choice };
 
     std::string key;
     QString label;
@@ -54,6 +54,7 @@ struct Property {
     QStringList choices;
     QString automatic;  // not empty: the value can be left to the program, shown with this text
     double minimum = 0.0;
+    double maximum = 1e7;
 };
 
 // The tools that have settings, by command name (WALL, DOOR, ...).

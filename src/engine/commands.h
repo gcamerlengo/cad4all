@@ -60,6 +60,8 @@ std::unique_ptr<Command> makeLeaderCommand();
 std::unique_ptr<Command> makeDistanceCommand();
 std::unique_ptr<Command> makeAreaCommand();
 std::unique_ptr<Command> makeListCommand();
+std::unique_ptr<Command> makeBlockCommand();
+std::unique_ptr<Command> makeInsertCommand();
 // Drags the grips at `grip` of the selected objects (started by the view).
 std::unique_ptr<Command> makeGripCommand(Vec2 grip);
 

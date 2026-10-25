@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "editing.h"
 
+#include "block.h"
 #include "building.h"
 
 #include <algorithm>
@@ -995,6 +996,8 @@ std::vector<Vec2> gripPoints(const Shape& shape)
         return {d->p1, d->p2, d->location};
     if (const auto* w = std::get_if<Wall>(&shape))
         return {w->start, w->end, (w->start + w->end) * 0.5};
+    if (const auto* ref = std::get_if<Insert>(&shape))
+        return {ref->position};
     return {};
 }
 
@@ -1083,6 +1086,11 @@ std::optional<Shape> moveGrip(const Shape& shape, size_t index, Vec2 to)
         }
         return r;
     }
+    if (const auto* ref = std::get_if<Insert>(&shape)) {
+        Insert r = *ref;
+        r.position = to;
+        return r;
+    }
     return std::nullopt;
 }
 
@@ -1151,6 +1159,12 @@ std::vector<Shape> explodeShape(const Shape& shape)
             out.push_back(h);
         }
         out.push_back(g.label);
+    } else if (const auto* ref = std::get_if<Insert>(&shape)) {
+        if (ref->block) {
+            const Transform t = insertTransform(*ref);
+            for (const BlockItem& item : ref->block->items)
+                out.push_back(transformed(item.shape, t));
+        }
     }
     return out;
 }

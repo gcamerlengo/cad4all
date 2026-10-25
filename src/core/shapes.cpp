@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "shapes.h"
 
+#include "block.h"
 #include "building.h"
 #include "hatch.h"
 
@@ -113,6 +114,12 @@ std::vector<Piece> pieces(const Shape& shape)
                    },
                    [&](const Stair& st) {
                        for (const Shape& s : stairPlan(st)) {
+                           const auto sub = pieces(s);
+                           out.insert(out.end(), sub.begin(), sub.end());
+                       }
+                   },
+                   [&](const Insert& ref) {
+                       for (const Shape& s : insertGeometry(ref)) {
                            const auto sub = pieces(s);
                            out.insert(out.end(), sub.begin(), sub.end());
                        }
@@ -530,6 +537,14 @@ BBox boundingBox(const Shape& shape)
                        for (const Shape& s : stairPlan(st))
                            box.add(boundingBox(s));
                    },
+                   [&](const Insert& ref) {
+                       if (!ref.block || !ref.block->extents.valid())
+                           return;
+                       const Transform t = insertTransform(ref);
+                       const BBox& e = ref.block->extents;
+                       for (Vec2 c : {e.min, Vec2{e.max.x, e.min.y}, e.max, Vec2{e.min.x, e.max.y}})
+                           box.add(t.apply(c));
+                   },
                },
                shape);
     return box;
@@ -539,6 +554,18 @@ Vec2 nearestPoint(const Shape& shape, Vec2 p)
 {
     if (const auto* t = std::get_if<Text>(&shape))
         return t->position;
+    if (const auto* ref = std::get_if<Insert>(&shape)) {
+        Vec2 best = ref->position;
+        double bestDist = std::numeric_limits<double>::infinity();
+        for (const Shape& part : insertGeometry(*ref)) {
+            const Vec2 q = nearestPoint(part, p);
+            if (distance(p, q) < bestDist) {
+                bestDist = distance(p, q);
+                best = q;
+            }
+        }
+        return best;
+    }
     if (const auto* h = std::get_if<Hatch>(&shape)) {
         Vec2 best = p;
         double bestDist = std::numeric_limits<double>::infinity();
@@ -569,6 +596,13 @@ double distanceTo(const Shape& shape, Vec2 p)
     // Text is picked anywhere inside its box, a dimension also by its label.
     if (const auto* t = std::get_if<Text>(&shape))
         return distanceToText(*t, p);
+    // A block reference is picked on any of its objects.
+    if (const auto* ref = std::get_if<Insert>(&shape)) {
+        double best = std::numeric_limits<double>::infinity();
+        for (const Shape& part : insertGeometry(*ref))
+            best = std::min(best, distanceTo(part, p));
+        return best;
+    }
     const double d = distance(p, nearestPoint(shape, p));
     if (const auto* h = std::get_if<Hatch>(&shape)) {
         // Picked on its outline, on a pattern line, or anywhere in a solid fill.
@@ -720,6 +754,7 @@ Shape transformed(const Shape& shape, const Transform& t)
                                   r.turnRight = !stair.turnRight;
                               return r;
                           },
+                          [&](const Insert& ref) -> Shape { return placedInsert(ref.block, t * insertTransform(ref)); },
                       },
                       shape);
 }
@@ -790,6 +825,11 @@ void collectSnapPoints(const Shape& shape, unsigned mask, std::vector<SnapPoint>
                            for (Vec2 p : step.polygon)
                                add(p, SnapEndpoint);
                    },
+                   [&](const Insert& ref) {
+                       add(ref.position, SnapInsertion);
+                       for (const Shape& part : insertGeometry(ref))
+                           collectSnapPoints(part, mask, out);
+                   },
                },
                shape);
 }
@@ -828,6 +868,10 @@ bool crossesBox(const Shape& shape, const BBox& box)
     if (const auto* h = std::get_if<Hatch>(&shape)) {
         return std::any_of(h->loops.begin(), h->loops.end(), [&](const Polyline& l) { return crossesBox(l, box); })
             || insideHatch(*h, box.center());
+    }
+    if (const auto* ref = std::get_if<Insert>(&shape)) {
+        const auto parts = insertGeometry(*ref);
+        return std::any_of(parts.begin(), parts.end(), [&](const Shape& s) { return crossesBox(s, box); });
     }
     if (const auto* w = std::get_if<Wall>(&shape)) {
         const auto plan = wallPlan(*w);

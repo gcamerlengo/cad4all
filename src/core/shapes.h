@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cmath>
+#include <memory>
 #include <optional>
 #include <string>
 #include <variant>
@@ -190,7 +191,21 @@ struct Stair {
     double going = 280.0;
 };
 
-using Shape = std::variant<Line, Circle, Arc, Polyline, Text, Dimension, Hatch, Wall, Slab, Roof, Stair>;
+struct Block;
+
+// Reference to a block (AutoCAD's INSERT): the objects of the block, taken
+// from its base point to `position`, scaled and rotated. Every reference
+// shares the definition; redefining a block gives them the new one (see
+// block.h and Document::defineBlock).
+struct Insert {
+    std::shared_ptr<const Block> block;
+    Vec2 position;
+    double scaleX = 1.0;
+    double scaleY = 1.0;
+    double rotation = 0.0;  // radians, counter-clockwise
+};
+
+using Shape = std::variant<Line, Circle, Arc, Polyline, Text, Dimension, Hatch, Wall, Slab, Roof, Stair, Insert>;
 
 // Arc of a polyline segment from `from` to `to`: always counter-clockwise, so
 // a negative bulge gives an arc from `to` to `from`.

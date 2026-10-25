@@ -76,18 +76,22 @@ void paintPlot(QPainter& p, const Document& doc, const PlotSettings& settings, c
     for (const auto& [id, e] : doc.entities()) {
         if (!doc.isVisible(e) || !drawnBox(e.shape).intersects(sheet))
             continue;
-        // Objects with a lineweight print with it, the others with the width of the plot settings.
-        const int weight = doc.lineweightOf(e);
-        const double penWidth = weight >= 0 ? std::max(weight / 100.0 * devicePerMm, 0.5) : width;
-        QPen pen(plotColor(settings, doc.colorOf(e)), penWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-        if (usesLinetype(e.shape))
-            applyLinetype(pen, doc.linetypeOf(e), doc.linetypeScale(), scale);
-        p.setPen(pen);
-        p.setBrush(Qt::NoBrush);
-        if (const auto* w = std::get_if<Wall>(&e.shape))
-            dp.drawWall(*w, walls.at(id));
-        else
-            dp.drawShape(e.shape);
+        doc.forEachPart(e, [&](const Entity& part) {
+            if (&part != &e && !doc.isLayerVisible(part))
+                return;
+            // Objects with a lineweight print with it, the others with the width of the plot settings.
+            const int weight = doc.lineweightOf(part);
+            const double penWidth = weight >= 0 ? std::max(weight / 100.0 * devicePerMm, 0.5) : width;
+            QPen pen(plotColor(settings, doc.colorOf(part)), penWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+            if (usesLinetype(part.shape))
+                applyLinetype(pen, doc.linetypeOf(part), doc.linetypeScale(), scale);
+            p.setPen(pen);
+            p.setBrush(Qt::NoBrush);
+            if (const auto* w = std::get_if<Wall>(&part.shape); w && &part == &e)
+                dp.drawWall(*w, walls.at(id));
+            else
+                dp.drawShape(part.shape);
+        });
     }
     p.restore();
 }

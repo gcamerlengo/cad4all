@@ -98,7 +98,7 @@ Shape stretchShape(const Shape& shape, const BBox& window, Vec2 offset);
 // Grips, AutoCAD's squares on a selected object: line ends and midpoint,
 // circle centre and quadrants, arc centre, ends and midpoint, polyline
 // vertices and segment midpoints, text insertion, dimension points, wall ends
-// and midpoint. Other shapes have none.
+// and midpoint, block insertion point. Other shapes have none.
 std::vector<Vec2> gripPoints(const Shape& shape);
 // The shape with grip `index` dragged to `to`: an end or vertex moves alone,
 // a midpoint or centre moves the whole line, segment or circle, a quadrant
@@ -114,7 +114,8 @@ std::optional<double> shapeArea(const Shape& shape);
 double polylineArea(const Polyline& pl);
 
 // EXPLODE: a polyline into its lines and arcs, a dimension into lines, text
-// and solid arrowheads. Empty for shapes that cannot be exploded.
+// and solid arrowheads, a block reference into its objects (one level: nested
+// references stay). Empty for shapes that cannot be exploded.
 std::vector<Shape> explodeShape(const Shape& shape);
 
 // JOIN: lines, arcs and open polylines that meet end to end (within

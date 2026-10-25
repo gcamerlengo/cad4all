@@ -136,9 +136,13 @@ void InfoBox::rebuild()
             spin->setKeyboardTracking(false);
             spin->setFocusPolicy(Qt::ClickFocus);
             if (p.type == Property::Type::Angle) {
-                spin->setRange(p.minimum, 89.0);
+                spin->setRange(p.minimum, p.maximum);
                 spin->setDecimals(1);
                 spin->setSuffix(QStringLiteral("°"));
+            } else if (p.type == Property::Type::Factor) {
+                spin->setRange(p.minimum, p.maximum);
+                spin->setDecimals(3);
+                spin->setSingleStep(0.1);
             } else {
                 spin->setRange(p.minimum, 1e7);
                 spin->setDecimals(0);

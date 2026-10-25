@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <limits>
+#include <tuple>
 
 namespace cad {
 
@@ -46,6 +47,7 @@ Property pitch(double degrees)
 {
     Property p = length("pitch", t("Pendenza"), degrees, 0.0);
     p.type = Property::Type::Angle;
+    p.maximum = 89.0;
     return p;
 }
 
@@ -215,6 +217,8 @@ QString shapeTitle(const Shape& shape)
         return t("Tetto");
     if (std::holds_alternative<Stair>(shape))
         return t("Scala");
+    if (const auto* ref = std::get_if<Insert>(&shape))
+        return ref->block ? t("Blocco %1").arg(QString::fromStdString(ref->block->name)) : t("Blocco");
     return {};
 }
 
@@ -244,6 +248,18 @@ std::vector<Property> shapeProperties(const Shape& shape)
         out.push_back(length("width", t("Larghezza"), st->width));
         out.push_back(length("going", t("Pedata"), st->going));
         out.push_back(length("height", t("Altezza"), st->height));
+    } else if (const auto* ref = std::get_if<Insert>(&shape)) {
+        // A negative scale mirrors the block.
+        for (const auto& [key, label, value] : {std::tuple{"scaleX", t("Scala X"), ref->scaleX}, std::tuple{"scaleY", t("Scala Y"), ref->scaleY}}) {
+            Property p = length(key, label, value, -1e4);
+            p.type = Property::Type::Factor;
+            p.maximum = 1e4;
+            out.push_back(p);
+        }
+        Property rotation = length("rotation", t("Rotazione"), radToDeg(normalizeAngle(ref->rotation)), 0.0);
+        rotation.type = Property::Type::Angle;
+        rotation.maximum = 360.0;
+        out.push_back(rotation);
     }
     return out;
 }
@@ -308,6 +324,18 @@ std::optional<Shape> withProperty(const Shape& shape, const std::string& key, do
             r.height = v;
             r.risers = stairRisers(v);
         } else
+            return std::nullopt;
+        return r;
+    }
+    if (const auto* ref = std::get_if<Insert>(&shape)) {
+        Insert r = *ref;
+        if (key == "scaleX" && std::abs(v) > 1e-9)
+            r.scaleX = v;
+        else if (key == "scaleY" && std::abs(v) > 1e-9)
+            r.scaleY = v;
+        else if (key == "rotation")
+            r.rotation = degToRad(v);
+        else
             return std::nullopt;
         return r;
     }

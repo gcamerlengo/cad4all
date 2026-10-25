@@ -91,6 +91,8 @@ private:
     // The automatic copy is no longer needed: the drawing was saved, opened or closed.
     void clearAutosave();
     void reportProblem();
+    // INSERT with the block chosen from a list.
+    void insertBlock();
     void about();
     void showLicence();
 

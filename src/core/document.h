@@ -2,10 +2,13 @@
 // The drawing: layers, building stories, entities and the undo history.
 #pragma once
 
+#include "block.h"
 #include "shapes.h"
 #include "style.h"
 
 #include <cstdint>
+#include <functional>
+#include <memory>
 #include <map>
 #include <optional>
 #include <string>
@@ -122,6 +125,20 @@ public:
     const Linetype& linetypeOf(const Entity& e) const;
     int lineweightOf(const Entity& e) const;
 
+    // Blocks, by name whatever the case.
+    const std::map<std::string, std::shared_ptr<const Block>>& blocks() const { return blocks_; }
+    std::shared_ptr<const Block> block(const std::string& name) const;
+    // Adds a block, or redefines the one with the same name: every reference
+    // to it, in the drawing and in other blocks, then shows the new objects.
+    // Recorded for undo like the entities. False for an empty name or a
+    // block that would contain itself.
+    bool defineBlock(std::shared_ptr<const Block> block);
+
+    // Calls `f` with what the entity draws: the entity itself, or each object
+    // of a block reference placed in the drawing (nested blocks too), with
+    // the layer and style it shows with (layer 0 and BYBLOCK resolved).
+    void forEachPart(const Entity& e, const std::function<void(const Entity&)>& f) const;
+
     // Entities, kept in creation order (which is also the drawing order).
     const std::map<EntityId, Entity>& entities() const { return entities_; }
     const Entity* entity(EntityId id) const;
@@ -151,10 +168,23 @@ public:
     std::uint64_t revision() const { return revision_; }
 
 private:
+    // Of an entity, or of a block definition when `block` is set.
     struct Change {
+        Change(EntityId entity, std::optional<Entity> from, std::optional<Entity> to)
+            : id(entity), before(std::move(from)), after(std::move(to))
+        {
+        }
+        Change(std::string name, std::shared_ptr<const Block> from, std::shared_ptr<const Block> to)
+            : block(std::move(name)), blockBefore(std::move(from)), blockAfter(std::move(to))
+        {
+        }
+
         EntityId id = 0;
         std::optional<Entity> before;
         std::optional<Entity> after;
+        std::string block;
+        std::shared_ptr<const Block> blockBefore;
+        std::shared_ptr<const Block> blockAfter;
     };
     struct Transaction {
         std::string label;
@@ -162,7 +192,8 @@ private:
     };
 
     void record(Change change);
-    void applyState(EntityId id, const std::optional<Entity>& state);
+    void apply(const Change& change, bool forward);
+    void forEachPart(const Entity& e, const Shape& shape, const std::function<void(const Entity&)>& f) const;
     void touch();
 
     std::vector<Layer> layers_;
@@ -173,6 +204,7 @@ private:
     std::vector<Linetype> linetypes_;
     double linetypeScale_ = 1.0;
     EntityStyle currentStyle_;
+    std::map<std::string, std::shared_ptr<const Block>> blocks_;
     std::map<EntityId, Entity> entities_;
     EntityId nextId_ = 1;
 
