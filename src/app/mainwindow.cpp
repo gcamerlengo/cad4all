@@ -43,7 +43,6 @@
 #include <QSysInfo>
 #include <QTimer>
 #include <QUrl>
-#include <QUrlQuery>
 #include <QTabWidget>
 #include <QToolBar>
 #include <QToolButton>
@@ -956,17 +955,22 @@ void MainWindow::offerRecovery()
     }
 }
 
-// Opens a new GitHub issue with the version and the system filled in.
+// Opens an email to the author with the version and the system filled in.
 void MainWindow::reportProblem()
 {
-    QUrl url(QStringLiteral(CAD4ALL_HOMEPAGE "/issues/new"));
-    QUrlQuery query;
-    query.addQueryItem(QStringLiteral("template"), QStringLiteral("segnalazione.yml"));
-    query.addQueryItem(QStringLiteral("versione"),
-                       QStringLiteral("CAD4All %1 su %2 (%3)")
-                           .arg(QApplication::applicationVersion(), QSysInfo::prettyProductName(), QSysInfo::currentCpuArchitecture()));
-    url.setQuery(query);
-    QDesktopServices::openUrl(url);
+    const QString subject = tr("CAD4All %1: segnalazione").arg(QApplication::applicationVersion());
+    const QString body = tr("Versione: CAD4All %1 su %2 (%3)\n\n"
+                            "Cosa è successo (e cosa si aspettava):\n\n\n"
+                            "Come ripeterlo (i comandi usati, in ordine):\n\n\n"
+                            "Quanto blocca il lavoro (si chiude / non riesco / scomodo / dettaglio):\n\n\n"
+                            "Alleghi il disegno (.c4a, .dxf, .dwg) e uno screenshot, se possibile.\n")
+                             .arg(QApplication::applicationVersion(), QSysInfo::prettyProductName(), QSysInfo::currentCpuArchitecture());
+    const QByteArray mail = "mailto:" CAD4ALL_EMAIL "?subject=" + QUrl::toPercentEncoding(subject)
+                            + "&body=" + QUrl::toPercentEncoding(body);
+    if (!QDesktopServices::openUrl(QUrl::fromEncoded(mail)))
+        QMessageBox::information(this, tr("Segnala un problema"),
+                                 tr("Scriva a %1 indicando la versione (%2), che cosa è successo e come ripeterlo.")
+                                     .arg(QStringLiteral(CAD4ALL_EMAIL), QApplication::applicationVersion()));
 }
 
 void MainWindow::runScriptDialog()

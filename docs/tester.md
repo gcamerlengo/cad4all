@@ -4,7 +4,7 @@ Grazie per provare CAD4All. È una versione di prova: alcuni comandi di AutoCAD 
 
 ## Installare
 
-Scarichi l'installatore per il suo sistema dalla pagina [Releases](https://github.com/gcamerlengo/cad4all/releases) (sezione *Assets* dell'ultima versione).
+Riceverà l'installatore per il suo sistema (o il link per scaricarlo) insieme a questa guida.
 
 Gli installatori non sono ancora firmati digitalmente, quindi il sistema mostra un avviso la prima volta. È normale.
 
@@ -34,12 +34,12 @@ Ogni 5 minuti, se il disegno ha modifiche, CAD4All ne salva una copia di sicurez
 
 ## Segnalare un problema o un suggerimento
 
-Da CAD4All: *Aiuto > Segnala un problema...* apre la pagina della segnalazione con la versione e il sistema già scritti. Serve un account GitHub (gratuito).
+Da CAD4All: *Aiuto > Segnala un problema...* apre una nuova email a g.camerlengo@gmail.com con la versione e il sistema già scritti. Se il programma di posta non si apre, scriva a quell'indirizzo con le stesse informazioni.
 
-Nella segnalazione indichi:
+Nella email indichi:
 
 - che cosa ha fatto (i comandi, in ordine) e che cosa è successo;
-- il disegno, se possibile (trascinandolo nella pagina, anche in `.zip`);
-- uno screenshot.
+- quanto blocca il lavoro: il programma si chiude, non riesce a fare quello che serve, è scomodo, è un dettaglio;
+- in allegato il disegno, se possibile (anche in `.zip`), e uno screenshot.
 
-Per un comando che manca scelga *Suggerisci una funzione*. Se non usa GitHub, scriva a g.camerlengo@gmail.com con le stesse informazioni.
+Per un comando che manca, scriva come si chiama in AutoCAD o ArchiCAD e quanto lo usa.
