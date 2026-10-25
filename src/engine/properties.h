@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The parameters of the architectural tools and objects, as a list of
-// properties the windows can show and edit (ArchiCAD's Info Box): the
+// properties the windows can show and edit (the Info Box): the
 // defaults of WALL, DOOR, WINDOW, SLAB, ROOF and STAIR, and the values of a
 // selected wall, slab, roof or stair.
 #pragma once

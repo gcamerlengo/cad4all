@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// ArchiCAD-style Navigator: the stories of the building, from the top, and
+// Navigator of the parametric interface: the stories of the building, from the top, and
 // the views of the model. A double click opens one.
 #pragma once
 

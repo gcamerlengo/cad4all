@@ -170,10 +170,13 @@ void PlotDialog::updatePreview()
     const QRectF paint = layout.paintRect(QPageLayout::Millimeter);
 
     const double k = std::min((preview_->width() - 10) / page.width(), (preview_->height() - 10) / page.height());
-    QPixmap pm(preview_->size());
+    const double dpr = preview_->devicePixelRatioF();
+    QPixmap pm(preview_->size() * dpr);
+    pm.setDevicePixelRatio(dpr);
     pm.fill(palette().color(QPalette::Window));
     QPainter p(&pm);
-    const QRectF sheet((pm.width() - page.width() * k) / 2.0, (pm.height() - page.height() * k) / 2.0, page.width() * k,
+    const QSizeF size = preview_->size();
+    const QRectF sheet((size.width() - page.width() * k) / 2.0, (size.height() - page.height() * k) / 2.0, page.width() * k,
                        page.height() * k);
     p.fillRect(sheet.translated(2, 2), QColor(0, 0, 0, 60));
     p.fillRect(sheet, Qt::white);

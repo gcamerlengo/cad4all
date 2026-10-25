@@ -38,7 +38,15 @@ public:
 
     QPixmap pixmap(const QSize& size, QIcon::Mode mode, QIcon::State state) override
     {
-        QPixmap pm(size);
+        return scaledPixmap(size, mode, state, 1.0);
+    }
+
+    // On high density screens (Retina) the icon is drawn with all the
+    // screen's pixels, not drawn small and enlarged.
+    QPixmap scaledPixmap(const QSize& size, QIcon::Mode mode, QIcon::State state, qreal scale) override
+    {
+        QPixmap pm(size * scale);
+        pm.setDevicePixelRatio(scale);
         pm.fill(Qt::transparent);
         QPainter p(&pm);
         paint(&p, QRect(QPoint(0, 0), size), mode, state);

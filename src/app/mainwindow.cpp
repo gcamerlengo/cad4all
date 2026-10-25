@@ -179,7 +179,8 @@ MainWindow::MainWindow()
 
     const QSettings settings;
     const QString profile = settings.value(QStringLiteral("interfaccia/profilo"), QStringLiteral("autocad")).toString();
-    setProfile(profile == QLatin1String("archicad") ? Profile::ArchiCad : Profile::AutoCad);
+    // "archicad" is what versions up to 0.2.1 saved for the parametric profile.
+    setProfile(profile == QLatin1String("parametrico") || profile == QLatin1String("archicad") ? Profile::Parametric : Profile::AutoCad);
     setViewLayout(settings.value(QStringLiteral("interfaccia/viste")).toString());
 
     // Like AutoCAD's SAVETIME, in minutes; 0 turns it off.
@@ -289,28 +290,28 @@ void MainWindow::showPlan()
 void MainWindow::setProfile(Profile profile, bool remember)
 {
     profile_ = profile;
-    const bool archicad = profile == Profile::ArchiCad;
-    ribbonBar_->setVisible(!archicad);
+    const bool parametric = profile == Profile::Parametric;
+    ribbonBar_->setVisible(!parametric);
     for (QToolBar* bar : classicBars_)
-        bar->setVisible(archicad && bar->property("archicad").toBool());
-    toolboxDock_->setVisible(archicad);
-    infoDock_->setVisible(archicad);
-    navigatorDock_->setVisible(archicad);
-    layerDock_->setVisible(!archicad);
-    profiles_->actions().at(archicad ? 1 : 0)->setChecked(true);
+        bar->setVisible(parametric && bar->property("parametric").toBool());
+    toolboxDock_->setVisible(parametric);
+    infoDock_->setVisible(parametric);
+    navigatorDock_->setVisible(parametric);
+    layerDock_->setVisible(!parametric);
+    profiles_->actions().at(parametric ? 1 : 0)->setChecked(true);
     if (remember) {
-        QSettings().setValue(QStringLiteral("interfaccia/profilo"), archicad ? QStringLiteral("archicad") : QStringLiteral("autocad"));
+        QSettings().setValue(QStringLiteral("interfaccia/profilo"), parametric ? QStringLiteral("parametrico") : QStringLiteral("autocad"));
         // Each profile comes with its usual place for the 3D view.
-        setViewLayout(archicad ? ViewLayout::SideBySide : ViewLayout::Docked, true);
+        setViewLayout(parametric ? ViewLayout::SideBySide : ViewLayout::Docked, true);
     }
 }
 
 bool MainWindow::setProfile(const QString& name)
 {
     const QString n = name.toLower();
-    if (n != QLatin1String("autocad") && n != QLatin1String("archicad"))
+    if (n != QLatin1String("autocad") && n != QLatin1String("parametrico"))
         return false;
-    setProfile(n == QLatin1String("archicad") ? Profile::ArchiCad : Profile::AutoCad);
+    setProfile(n == QLatin1String("parametrico") ? Profile::Parametric : Profile::AutoCad);
     setViewLayout(QString());
     return true;
 }
@@ -328,7 +329,7 @@ bool MainWindow::setViewLayout(const QString& name)
         return false;
     // No name: the usual one for the profile.
     if (i < 0)
-        setViewLayout(profile_ == Profile::ArchiCad ? ViewLayout::SideBySide : ViewLayout::Docked);
+        setViewLayout(profile_ == Profile::Parametric ? ViewLayout::SideBySide : ViewLayout::Docked);
     else
         setViewLayout(static_cast<ViewLayout>(i));
     return true;
@@ -515,13 +516,13 @@ void MainWindow::createActions()
     annotate->addSeparator();
     annotate->addActions(actions({"TEXTEDIT", "DIMSCALE", "LEADER"}));
 
-    // Classic toolbars: the ArchiCAD profile shows some of them, the others
-    // are there for whoever wants them.
-    auto toolBar = [this](const QString& title, const char* name, const QList<QAction*>& list, bool archicad) {
+    // Classic toolbars: the parametric profile shows some of them, the
+    // others are there for whoever wants them.
+    auto toolBar = [this](const QString& title, const char* name, const QList<QAction*>& list, bool parametric) {
         QToolBar* bar = addToolBar(title);
         bar->setObjectName(QString::fromLatin1(name));
         bar->addActions(list);
-        bar->setProperty("archicad", archicad);
+        bar->setProperty("parametric", parametric);
         classicBars_.push_back(bar);
         return bar;
     };
@@ -532,7 +533,7 @@ void MainWindow::createActions()
     architectureBar->addAction(command(QStringLiteral("STORY")));
     architectureBar->addWidget(makeStoryCombo(architectureBar));
     architectureBar->addAction(named_.value(QStringLiteral("view3d")));
-    // ArchiCAD has its tools in the Toolbox: on top only the stories and the 3D.
+    // The parametric profile has its tools in the Toolbox: on top only the stories and the 3D.
     QToolBar* storyBar = toolBar(tr("Piani"), "storyToolBar", actions({"STORY"}), true);
     storyBar->addWidget(makeStoryCombo(storyBar));
     storyBar->addActions(actions({"plan", "view3d"}));
@@ -580,7 +581,7 @@ void MainWindow::createActions()
     QMenu* profileMenu = viewMenu->addMenu(tr("&Interfaccia"));
     profiles_ = new QActionGroup(this);
     for (const auto& [text, profile] : {std::pair{tr("Come &AutoCAD: ribbon"), Profile::AutoCad},
-                                        std::pair{tr("Come A&rchiCAD: strumenti, Info Box e navigatore"), Profile::ArchiCad}}) {
+                                        std::pair{tr("&Parametrico: strumenti, Info Box e navigatore"), Profile::Parametric}}) {
         QAction* a = profileMenu->addAction(text);
         a->setCheckable(true);
         profiles_->addAction(a);
@@ -740,7 +741,7 @@ void MainWindow::createToolbox()
     toolbox_->addTool(tr("Solaio"), QStringLiteral("SLAB"), icons::make(QStringLiteral("slab")));
     toolbox_->addTool(tr("Tetto"), QStringLiteral("ROOF"), icons::make(QStringLiteral("roof")));
     toolbox_->addTool(tr("Scala"), QStringLiteral("STAIR"), icons::make(QStringLiteral("stair")));
-    // ArchiCAD's Object tool places library parts; here they are the blocks.
+    // The Object tool places the blocks, the library parts of the drawing.
     toolbox_->addTool(tr("Oggetto"), QStringLiteral("INSERT"), icons::make(QStringLiteral("insertBlock")));
     toolbox_->addSection(tr("Documentazione"));
     toolbox_->addTool(tr("Sezione"), QStringLiteral("SECTION"), icons::make(QStringLiteral("section")));

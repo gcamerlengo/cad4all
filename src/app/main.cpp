@@ -57,7 +57,7 @@ int main(int argc, char* argv[])
     parser.addOption(screenshotOption);
     const QCommandLineOption screenshot3dOption(QStringLiteral("screenshot3d"), QStringLiteral("Salva un'immagine della vista 3D (dopo lo script)."), QStringLiteral("png"));
     parser.addOption(screenshot3dOption);
-    const QCommandLineOption profileOption(QStringLiteral("profilo"), QStringLiteral("Interfaccia: autocad (ribbon) o archicad (strumenti, Info Box, navigatore)."), QStringLiteral("nome"));
+    const QCommandLineOption profileOption(QStringLiteral("profilo"), QStringLiteral("Interfaccia: autocad (ribbon) o parametrico (strumenti, Info Box, navigatore)."), QStringLiteral("nome"));
     parser.addOption(profileOption);
     const QCommandLineOption layoutOption(QStringLiteral("viste"), QStringLiteral("Vista 3D: pannello, affiancate o schede."), QStringLiteral("nome"));
     parser.addOption(layoutOption);

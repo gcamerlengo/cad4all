@@ -33,9 +33,9 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
-    // The arrangement of the window: AutoCAD's ribbon, or ArchiCAD's
-    // Toolbox, Info Box and Navigator.
-    enum class Profile { AutoCad, ArchiCad };
+    // The arrangement of the window: AutoCAD's ribbon, or the parametric
+    // one with the Toolbox, Info Box and Navigator.
+    enum class Profile { AutoCad, Parametric };
     // Where the 3D view is: in a panel at the side, next to the plan, or
     // in a tab of its own.
     enum class ViewLayout { Docked, SideBySide, Tabs };
@@ -45,7 +45,7 @@ public:
     // Arranges the window; `remember` keeps the choice for the next start.
     void setProfile(Profile profile, bool remember = false);
     void setViewLayout(ViewLayout layout, bool remember = false);
-    // By name, for the command line: "autocad", "archicad"; "pannello", "affiancate", "schede".
+    // By name, for the command line: "autocad", "parametrico"; "pannello", "affiancate", "schede".
     bool setProfile(const QString& name);
     bool setViewLayout(const QString& name);
 

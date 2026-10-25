@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// ArchiCAD-style Toolbox: one button per tool, grouped in sections; the
+// Toolbox of the parametric interface: one button per tool, grouped in sections; the
 // button of the running command stays pressed, the arrow when none runs.
 #pragma once
 
