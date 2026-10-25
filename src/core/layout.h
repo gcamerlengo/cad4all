@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Sheets for printing (AutoCAD's layouts, ArchiCAD's layouts in the Book):
+// Sheets for printing (AutoCAD's layouts):
 // a paper size, viewports that show part of the drawing at a scale, and a
 // title block. Sheet coordinates are millimetres from the bottom left.
 #pragma once

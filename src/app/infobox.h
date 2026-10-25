@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// ArchiCAD-style Info Box: a strip with the parameters of the current
+// Info Box of the parametric interface: a strip with the parameters of the current
 // architectural tool, or of the selected wall, slab, roof or stair, which
 // can be changed right there. Changes to an object are one undo step.
 #pragma once

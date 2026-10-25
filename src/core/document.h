@@ -37,7 +37,7 @@ struct Layer {
 
 using StoryId = int;
 
-// A floor of the building (ArchiCAD's story). Every entity belongs to one;
+// A floor of the building (a story). Every entity belongs to one;
 // the plan shows the current story, the 3D view all of them, each raised to
 // its elevation.
 struct Story {

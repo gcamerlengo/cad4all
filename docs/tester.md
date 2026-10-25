@@ -1,6 +1,6 @@
 # Guida per chi prova CAD4All
 
-Grazie per provare CAD4All. È una versione di prova: alcuni comandi di AutoCAD e ArchiCAD mancano ancora e qualcosa può non funzionare. Le sue segnalazioni decidono che cosa viene fatto prima.
+Grazie per provare CAD4All. È una versione di prova: alcuni comandi mancano ancora e qualcosa può non funzionare. Le sue segnalazioni decidono che cosa viene fatto prima.
 
 ## Installare
 
@@ -15,7 +15,7 @@ Gli installatori non sono ancora firmati digitalmente, quindi il sistema mostra 
 ## Primi passi
 
 - In basso c'è la riga di comando, come in AutoCAD: si scrive il comando (in italiano o in inglese, per esempio `LINEA` o `L`) e si preme Invio. `?` elenca tutti i comandi.
-- *Visualizza > Interfaccia* passa dall'interfaccia simile ad AutoCAD (barra multifunzione) a quella simile ad ArchiCAD (Strumenti, Info Box, Navigatore).
+- *Visualizza > Interfaccia* passa dall'interfaccia simile ad AutoCAD (barra multifunzione) a quella parametrica (Strumenti, Info Box, Navigatore).
 - Muri, porte, finestre, solai, tetti e scale sono nel menu *Architettura*; la vista 3D si aggiorna mentre si disegna.
 - Si possono aprire disegni DWG e DXF esistenti e salvare in `.c4a` (formato di CAD4All) o DXF. Il DWG per ora si apre soltanto.
 
@@ -23,7 +23,7 @@ Gli installatori non sono ancora firmati digitalmente, quindi il sistema mostra 
 
 Lo usi per un lavoro vero, anche piccolo: un rilievo, una pianta, una modifica a un DWG di un cliente. Ci interessa soprattutto:
 
-1. che cosa le manca per finire il lavoro senza tornare ad AutoCAD o ArchiCAD;
+1. che cosa le manca per finire il lavoro senza tornare al programma che usa di solito;
 2. i DWG e DXF che non si aprono o si aprono male;
 3. i comandi che si comportano in modo diverso da come si aspetta;
 4. qualsiasi chiusura improvvisa del programma.
@@ -42,4 +42,4 @@ Nella email indichi:
 - quanto blocca il lavoro: il programma si chiude, non riesce a fare quello che serve, è scomodo, è un dettaglio;
 - in allegato il disegno, se possibile (anche in `.zip`), e uno screenshot.
 
-Per un comando che manca, scriva come si chiama in AutoCAD o ArchiCAD e quanto lo usa.
+Per un comando che manca, scriva come si chiama nel programma che usa di solito e quanto lo usa.

@@ -19,7 +19,9 @@ constexpr int kOtherColor = 1;  // item data of "Altro colore..."
 
 QIcon swatch(const QColor& color)
 {
-    QPixmap pm(14, 14);
+    // Twice the size, so it stays sharp on high density screens.
+    QPixmap pm(28, 28);
+    pm.setDevicePixelRatio(2.0);
     pm.fill(Qt::transparent);
     QPainter p(&pm);
     p.setPen(Qt::gray);

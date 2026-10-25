@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The ArchiCAD-style panels, driven as a user would, without a display.
+// The panels of the parametric interface, driven as a user would, without a display.
 #include "commandengine.h"
 #include "infobox.h"
 #include "navigator.h"

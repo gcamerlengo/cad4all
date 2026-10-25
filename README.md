@@ -5,7 +5,7 @@
 
 # CAD4All
 
-CAD 2D e 3D parametrico per tecnici, open source. Il disegno 2D funziona come AutoCAD (comandi, alias, riga di comando, snap); il 3D parametrico è in stile ArchiCAD: si disegnano in pianta muri, porte e finestre e la vista 3D accanto si aggiorna mentre si disegna.
+CAD 2D e 3D parametrico per tecnici, open source. Il disegno 2D funziona come AutoCAD (comandi, alias, riga di comando, snap); nel 3D parametrico si disegnano in pianta muri, porte e finestre e la vista 3D accanto si aggiorna mentre si disegna.
 
 ![CAD4All 0.1](docs/immagini/cad4all-0.1.png)
 
@@ -20,7 +20,7 @@ Versione 0.1. Funziona già:
 - **Precisione:** coordinate assolute e relative (`10,20`, `@5,0`, `@10<45`), inserimento diretto della distanza, snap ad oggetto (fine, punto medio, centro, quadrante, intersezione, inserimento), orto.
 - **Selezione:** clic, finestra (da sinistra a destra) e interseca (da destra a sinistra), Maiusc+clic per togliere.
 - **Organizzazione:** layer con colore, tipo di linea, spessore, visibilità e blocco; colore, tipo di linea (continua, tratteggiata, nascosta, asse, tratto punto, fantasma, punti e quelli dei DXF/DWG) e spessore anche per singolo oggetto, dalla barra Proprietà o con CAMBIAPROP; corrispondenza proprietà; spessori visibili a schermo con il pulsante SPESSORI e in stampa.
-- **Interfaccia:** ribbon come AutoCAD, oppure strumenti, Info Box e navigatore come ArchiCAD, con pianta e 3D in un pannello, affiancate o a schede.
+- **Interfaccia:** ribbon come AutoCAD, oppure l'interfaccia parametrica con strumenti, Info Box e navigatore, con pianta e 3D in un pannello, affiancate o a schede.
 - **File:** formato nativo `.c4a` (JSON leggibile), apertura dei DWG di AutoCAD, apertura e salvataggio DXF, stampa su stampante e in PDF in scala, esportazione del modello 3D in OBJ e STL, annulla e ripristina illimitati, script di comandi `.scr`.
 
 In arrivo: firma digitale degli installatori; tetti su piante con angoli diversi dal retto.
@@ -93,7 +93,7 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | ANNULLA / UNDO | U | (anche Ctrl+Z) |
 | RIPRISTINA / REDO | | (anche Ctrl+Y) |
 
-Blocchi: gli oggetti del blocco sul layer 0 prendono il layer del riferimento, quelli con colore, tipo di linea o spessore DaBlocco prendono quelli del riferimento, come in AutoCAD. Nella Info Box un blocco selezionato mostra scala X e Y e rotazione; nel profilo ArchiCAD lo strumento Oggetto inserisce un blocco. Muri, solai, tetti e scale dentro un blocco compaiono anche nel 3D.
+Blocchi: gli oggetti del blocco sul layer 0 prendono il layer del riferimento, quelli con colore, tipo di linea o spessore DaBlocco prendono quelli del riferimento, come in AutoCAD. Nella Info Box un blocco selezionato mostra scala X e Y e rotazione; nell'interfaccia parametrica lo strumento Oggetto inserisce un blocco. Muri, solai, tetti e scale dentro un blocco compaiono anche nel 3D.
 
 Selezione: a "Selezionare oggetti:" si può scrivere TUTTO (TU) per tutti gli oggetti modificabili o ULTIMO (U) per l'ultimo disegnato, anche negli script.
 
@@ -111,7 +111,7 @@ Gli installatori si scaricano dalla pagina Releases del progetto, oppure dagli a
 
 Gli installatori non sono ancora firmati: alla prima apertura Windows mostra "PC protetto da Windows" (Ulteriori informazioni > Esegui comunque) e macOS chiede di confermare l'apertura in Impostazioni di Sistema > Privacy e sicurezza > Apri comunque. Chi prova il programma trova i passi e il modo di segnalare i problemi nella [guida per i tester](docs/tester.md). Con i certificati di Apple e Microsoft questi avvisi spariscono.
 
-Per pubblicare una versione: su GitHub, Releases > Draft a new release, tag nuovo `v0.2.1` (o la versione scritta in `CMakeLists.txt`), Publish release. In una ventina di minuti GitHub Actions aggiunge i tre installatori alla release. Funziona anche con `git push origin v0.2.1`.
+Per pubblicare una versione: su GitHub, Releases > Draft a new release, tag nuovo `v0.2.2` (o la versione scritta in `CMakeLists.txt`), Publish release. In una ventina di minuti GitHub Actions aggiunge i tre installatori alla release. Funziona anche con `git push origin v0.2.2`.
 
 ## Compilare
 
@@ -173,18 +173,18 @@ L'esempio [casa-due-piani.scr](docs/esempi/casa-due-piani.scr) disegna una casa 
 
 ![Scale dritta, a L e a U](docs/immagini/scale-3d.png)
 
-## Interfaccia come AutoCAD o come ArchiCAD
+## Interfaccia come AutoCAD o parametrica
 
 Visualizza > Interfaccia sceglie tra due disposizioni della finestra, ricordate alla riapertura:
 
 - **Come AutoCAD:** ribbon con le schede Base, Architettura, Annota, Vista e Output, pannelli con i titoli e pulsanti grandi e piccoli; layer a destra e vista 3D in un pannello che si apre da solo con il primo muro.
-- **Come ArchiCAD:** a sinistra la casella **Strumenti** (Freccia, Muro, Porta, Finestra, Solaio, Tetto, Scala, Quota, Testo, Tratteggio e gli oggetti 2D), con lo strumento in uso evidenziato; in alto l'**Info Box** con i parametri dello strumento (spessore e altezza del muro, tipo e pendenza del tetto, pedata della scala...) che si cambiano lì e valgono per i nuovi oggetti; a destra il **Navigatore** con i piani e le viste; pianta e 3D affiancate.
+- **Parametrico:** a sinistra la casella **Strumenti** (Freccia, Muro, Porta, Finestra, Solaio, Tetto, Scala, Quota, Testo, Tratteggio e gli oggetti 2D), con lo strumento in uso evidenziato; in alto l'**Info Box** con i parametri dello strumento (spessore e altezza del muro, tipo e pendenza del tetto, pedata della scala...) che si cambiano lì e valgono per i nuovi oggetti; a destra il **Navigatore** con i piani e le viste; pianta e 3D affiancate.
 
-Selezionando un solo muro, solaio, tetto o scala l'Info Box mostra i suoi valori: cambiandoli l'oggetto si aggiorna in pianta e in 3D, con un solo passo di annullamento. Visualizza > Vista 3D mette il 3D in un pannello, affiancato alla pianta o in una scheda accanto. La riga di comando resta in entrambe. Da riga di comando: `--profilo autocad|archicad` e `--viste pannello|affiancate|schede`.
+Selezionando un solo muro, solaio, tetto o scala l'Info Box mostra i suoi valori: cambiandoli l'oggetto si aggiorna in pianta e in 3D, con un solo passo di annullamento. Visualizza > Vista 3D mette il 3D in un pannello, affiancato alla pianta o in una scheda accanto. La riga di comando resta in entrambe. Da riga di comando: `--profilo autocad|parametrico` e `--viste pannello|affiancate|schede`.
 
 ![Interfaccia come AutoCAD, con il ribbon](docs/immagini/interfaccia-autocad.png)
 
-![Interfaccia come ArchiCAD: strumenti, Info Box, navigatore, pianta e 3D affiancate](docs/immagini/interfaccia-archicad.png)
+![Interfaccia parametrica: strumenti, Info Box, navigatore, pianta e 3D affiancate](docs/immagini/interfaccia-parametrica.png)
 
 ## Sezioni e prospetti
 
