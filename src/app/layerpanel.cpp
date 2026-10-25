@@ -21,9 +21,10 @@ LayerPanel::LayerPanel(CommandEngine& engine, QWidget* parent)
     tree_->setHeaderLabels({tr("Nome"), tr("Visibile"), tr("Bloccato"), tr("Colore"), tr("Tipo di linea"), tr("Spessore")});
     tree_->setRootIsDecorated(false);
     tree_->setFocusPolicy(Qt::NoFocus);
-    tree_->header()->setSectionResizeMode(NameColumn, QHeaderView::Stretch);
-    for (int c : {VisibleColumn, LockedColumn, ColorColumn, LinetypeColumn, LineweightColumn})
-        tree_->header()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
+    // Every column as wide as its contents, so no name is cut; a narrow
+    // panel scrolls sideways.
+    tree_->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    tree_->header()->setStretchLastSection(true);
     tree_->setToolTip(tr("Doppio clic sul nome per rendere corrente il layer, sul colore, sul tipo di linea o sullo spessore per cambiarli."));
 
     auto* add = new QPushButton(tr("Nuovo layer"), this);

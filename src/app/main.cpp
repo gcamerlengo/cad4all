@@ -61,6 +61,8 @@ int main(int argc, char* argv[])
     parser.addOption(profileOption);
     const QCommandLineOption layoutOption(QStringLiteral("viste"), QStringLiteral("Vista 3D: pannello, affiancate o schede."), QStringLiteral("nome"));
     parser.addOption(layoutOption);
+    const QCommandLineOption sizeOption(QStringLiteral("dimensioni"), QStringLiteral("Larghezza e altezza della finestra, per esempio 1000x700."), QStringLiteral("LxA"));
+    parser.addOption(sizeOption);
     parser.process(app);
 
     MainWindow window;
@@ -70,6 +72,12 @@ int main(int argc, char* argv[])
         parser.showHelp(1);
     if (parser.isSet(layoutOption) && !window.setViewLayout(parser.value(layoutOption)))
         parser.showHelp(1);
+    if (parser.isSet(sizeOption)) {
+        const QStringList size = parser.value(sizeOption).split(QLatin1Char('x'));
+        if (size.size() != 2 || size[0].toInt() <= 0 || size[1].toInt() <= 0)
+            parser.showHelp(1);
+        window.resize(size[0].toInt(), size[1].toInt());
+    }
     window.show();
     if (!parser.positionalArguments().isEmpty())
         window.openFile(parser.positionalArguments().constFirst());
