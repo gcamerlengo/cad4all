@@ -73,6 +73,11 @@ int main(int argc, char* argv[])
     window.show();
     if (!parser.positionalArguments().isEmpty())
         window.openFile(parser.positionalArguments().constFirst());
+    // A normal start offers what a crash left; scripts and screenshots run unattended.
+    const bool unattended = parser.isSet(scriptOption) || parser.isSet(exportOption) || parser.isSet(screenshotOption)
+                            || parser.isSet(screenshot3dOption);
+    if (!unattended && parser.positionalArguments().isEmpty())
+        QTimer::singleShot(0, &window, &MainWindow::offerRecovery);
     if (parser.isSet(scriptOption))
         window.runScript(parser.value(scriptOption));
     if (parser.isSet(screenshot3dOption)) {

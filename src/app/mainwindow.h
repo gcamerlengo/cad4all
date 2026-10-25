@@ -3,6 +3,7 @@
 
 #include "commandengine.h"
 #include "document.h"
+#include "recovery.h"
 
 #include <QHash>
 #include <QMainWindow>
@@ -19,6 +20,7 @@ class QComboBox;
 class QDockWidget;
 class QLabel;
 class QSplitter;
+class QTimer;
 class QTabWidget;
 class QToolBar;
 class QToolButton;
@@ -51,6 +53,8 @@ public:
     bool runScript(const QString& path);
     // Writes the drawing to `path` (.c4a, .dxf or .pdf) without changing the current file.
     bool exportTo(const QString& path);
+    // Offers the drawings saved automatically by a session that crashed.
+    void offerRecovery();
     CadView* view() const { return view_; }
     View3D* view3d() const { return view3d_; }
 
@@ -83,6 +87,10 @@ private:
     void runScriptDialog();
     void updateTitle();
     void updateToggles();
+    void autosave();
+    // The automatic copy is no longer needed: the drawing was saved, opened or closed.
+    void clearAutosave();
+    void reportProblem();
     void about();
     void showLicence();
 
@@ -119,6 +127,10 @@ private:
     QToolButton* osnapButton_;
     QToolButton* orthoButton_;
     QToolButton* gridButton_;
+    // Automatic saves, every few minutes while the drawing has changes.
+    cad::io::RecoverySession recovery_;
+    QTimer* autosaveTimer_;
+    std::uint64_t autosavedRevision_ = 0;
     QString filePath_;
     // The DWG the drawing was read from, which is never written.
     QString dwgSource_;

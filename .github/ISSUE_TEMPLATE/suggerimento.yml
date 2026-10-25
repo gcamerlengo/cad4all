@@ -1,0 +1,26 @@
+name: Suggerisci una funzione
+description: Un comando o un modo di lavorare che manca rispetto ad AutoCAD, ArchiCAD o altri programmi.
+labels: [suggerimento]
+body:
+  - type: textarea
+    id: cosa
+    attributes:
+      label: Cosa manca
+      description: Il comando o la funzione, e come la usa nel suo lavoro.
+    validations:
+      required: true
+  - type: input
+    id: riferimento
+    attributes:
+      label: Come si chiama in altri programmi
+      placeholder: in AutoCAD è SERIE (ARRAY)
+  - type: dropdown
+    id: importanza
+    attributes:
+      label: Quanto è importante
+      options:
+        - Senza non posso usare CAD4All
+        - La uso tutti i giorni
+        - Mi farebbe comodo
+    validations:
+      required: true

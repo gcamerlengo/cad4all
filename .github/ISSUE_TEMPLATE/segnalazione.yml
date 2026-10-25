@@ -1,0 +1,44 @@
+name: Segnala un problema
+description: Qualcosa non funziona, si blocca o dà un risultato sbagliato.
+labels: [problema]
+body:
+  - type: input
+    id: versione
+    attributes:
+      label: Versione e sistema
+      description: Si compila da solo con Aiuto > Segnala un problema. Altrimenti è in Aiuto > Informazioni su CAD4All.
+      placeholder: CAD4All 0.1.0 su Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: cosa
+    attributes:
+      label: Cosa è successo
+      description: Che cosa si aspettava e che cosa ha fatto invece il programma.
+    validations:
+      required: true
+  - type: textarea
+    id: passi
+    attributes:
+      label: Come ripeterlo
+      description: I comandi usati, uno per riga. Se compare un messaggio nella riga di comando, lo copi qui.
+      placeholder: |
+        1. MURO
+        2. clic in due punti
+        3. ...
+  - type: textarea
+    id: allegati
+    attributes:
+      label: Disegno e immagini
+      description: Trascini qui il disegno (.c4a, .dxf, .dwg, anche compresso in .zip) e uno screenshot.
+  - type: dropdown
+    id: gravita
+    attributes:
+      label: Quanto blocca il lavoro
+      options:
+        - Il programma si chiude o perdo il disegno
+        - Non riesco a fare quello che mi serve
+        - Si aggira, ma è scomodo
+        - Dettaglio
+    validations:
+      required: true
