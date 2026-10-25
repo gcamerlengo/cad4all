@@ -3,6 +3,7 @@
 add_library(cad4all_core STATIC
     geometry.h geometry.cpp
     shapes.h shapes.cpp
+    style.h style.cpp
     document.h document.cpp
     coordinput.h coordinput.cpp
     editing.h editing.cpp

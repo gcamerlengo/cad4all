@@ -9,6 +9,7 @@ qt_add_executable(cad4all
     view3d.h view3d.cpp
     commandline.h commandline.cpp
     layerpanel.h layerpanel.cpp
+    stylecontrols.h stylecontrols.cpp
     icons.h icons.cpp
     ribbon.h ribbon.cpp
     toolbox.h toolbox.cpp

@@ -334,6 +334,20 @@ QIcon make(const QString& name)
             p.drawPolyline(QPolygonF({{3, 12}, {12, 16.5}, {21, 12}}));
             p.drawPolyline(QPolygonF({{3, 16}, {12, 20.5}, {21, 16}}));
         };
+    } else if (name == QLatin1String("matchProperties")) {
+        // A brush: AutoCAD's Match Properties.
+        painter = [](QPainter& p) {
+            p.drawLine(QPointF(19.5, 3.5), QPointF(12, 11));
+            p.drawPolygon(QPolygonF({{10, 9.5}, {14.5, 14}, {12.5, 16}, {8, 11.5}}));
+            accentPen(p);
+            p.drawPath([] {
+                QPainterPath path;
+                path.moveTo(8, 11.5);
+                path.cubicTo(5, 13, 6, 17, 3.5, 20.5);
+                path.cubicTo(8, 20, 11, 19, 12.5, 16);
+                return path;
+            }());
+        };
     } else if (name == QLatin1String("new")) {
         painter = [](QPainter& p) {
             p.drawPolygon(QPolygonF({{5.5, 2.5}, {14, 2.5}, {18.5, 7}, {18.5, 21.5}, {5.5, 21.5}}));

@@ -9,6 +9,7 @@
 #include "editing.h"
 #include "hatch.h"
 #include "properties.h"
+#include "stylenames.h"
 
 #include <QCoreApplication>
 
@@ -3505,6 +3506,290 @@ public:
     }
 };
 
+// ---------------------------------------------------------------- properties
+
+QString linetypeList(const Document& doc)
+{
+    QStringList names;
+    for (const Linetype& lt : doc.linetypes())
+        names << QStringLiteral("%1 (%2)").arg(QString::fromStdString(lt.name), QString::fromStdString(lt.description));
+    return t("Tipi di linea: %1").arg(names.join(QStringLiteral(", ")));
+}
+
+// What COLOR, LINETYPE, LWEIGHT and CHPROP ask: one property of the style,
+// typed by the user.
+class StyleQuestion {
+public:
+    enum class Kind { Color, Linetype, Lineweight };
+
+    explicit StyleQuestion(Kind kind) : kind_(kind) {}
+
+    QString prompt(const EntityStyle& current, bool forCurrent) const
+    {
+        switch (kind_) {
+        case Kind::Color:
+            return (forCurrent ? t("Specificare colore corrente (1-255, nome o R,G,B) o [DaLayer] <%1>:")
+                               : t("Specificare nuovo colore (1-255, nome o R,G,B) o [DaLayer] <%1>:"))
+                .arg(colorName(current.color));
+        case Kind::Linetype:
+            return (forCurrent ? t("Specificare tipo di linea corrente o [?/DaLayer] <%1>:")
+                               : t("Specificare nuovo tipo di linea o [?/DaLayer] <%1>:"))
+                .arg(linetypeName(current.linetype));
+        case Kind::Lineweight:
+            return (forCurrent ? t("Specificare spessore di linea corrente in mm o [DaLayer/Predefinito] <%1>:")
+                               : t("Specificare nuovo spessore di linea in mm o [DaLayer/Predefinito] <%1>:"))
+                .arg(lineweightName(current.lineweight));
+        }
+        return {};
+    }
+
+    // Applies the answer to `style`; false (with a message) when it is not valid.
+    bool answer(CommandEngine* engine, const QString& text, EntityStyle& style) const
+    {
+        switch (kind_) {
+        case Kind::Color:
+            if (const auto c = parseColor(text)) {
+                style.color = *c;
+                return true;
+            }
+            engine->message(t("Colore non valido: usare un numero da 1 a 255, un nome (rosso, giallo, verde, ciano, blu, magenta, bianco) o R,G,B."));
+            return false;
+        case Kind::Linetype: {
+            const QString upper = text.trimmed().toUpper();
+            if (upper == QLatin1String("?")) {
+                engine->message(linetypeList(engine->document()));
+                return false;
+            }
+            if (isAny(upper, {"DALAYER", "DL", "BYLAYER"})) {
+                style.linetype = kByLayer;
+                return true;
+            }
+            if (const Linetype* lt = engine->document().linetype(upper.toStdString())) {
+                style.linetype = lt->name;
+                return true;
+            }
+            engine->message(t("Tipo di linea \"%1\" non trovato. %2").arg(text.trimmed(), linetypeList(engine->document())));
+            return false;
+        }
+        case Kind::Lineweight:
+            if (const auto w = parseLineweight(text)) {
+                style.lineweight = *w;
+                return true;
+            }
+            engine->message(t("Spessore non valido: un valore in mm da 0 a 2.11, DaLayer o Predefinito."));
+            return false;
+        }
+        return false;
+    }
+
+private:
+    Kind kind_;
+};
+
+// COLOR, LINETYPE and LWEIGHT: what new objects get.
+class CurrentStyleCommand : public Command {
+public:
+    explicit CurrentStyleCommand(StyleQuestion::Kind kind) : question_(kind) {}
+
+    void start() override { engine->setPrompt(question_.prompt(engine->document().currentStyle(), true)); }
+
+    bool keyword(const QString& w) override
+    {
+        EntityStyle style = engine->document().currentStyle();
+        if (question_.answer(engine, w, style)) {
+            engine->document().setCurrentStyle(style);
+            engine->finish();
+        }
+        return true;
+    }
+
+private:
+    StyleQuestion question_;
+};
+
+class LinetypeScaleCommand : public Command {
+public:
+    void start() override
+    {
+        engine->setPrompt(t("Immettere nuovo fattore di scala del tipo di linea <%1>:").arg(engine->document().linetypeScale()));
+    }
+
+    bool number(double value) override
+    {
+        if (value <= kEps) {
+            engine->message(t("Il valore deve essere positivo."));
+            return true;
+        }
+        engine->document().setLinetypeScale(value);
+        engine->finish();
+        return true;
+    }
+};
+
+// CHPROP: changes the colour, layer, linetype or lineweight of the selected objects.
+class ChangePropertiesCommand : public SelectionCommand {
+public:
+    bool keyword(const QString& w) override
+    {
+        if (selectingNow())
+            return false;
+        if (question_) {
+            EntityStyle style = sample();
+            if (question_->answer(engine, w, style))
+                apply([&](Entity& e) {
+                    switch (asked_) {
+                    case StyleQuestion::Kind::Color: e.color = style.color; break;
+                    case StyleQuestion::Kind::Linetype: e.linetype = style.linetype; break;
+                    case StyleQuestion::Kind::Lineweight: e.lineweight = style.lineweight; break;
+                    }
+                });
+            return true;
+        }
+        if (askingLayer_) {
+            const std::string name = w.trimmed().toStdString();
+            const Document& doc = engine->document();
+            auto it = std::find_if(doc.layers().begin(), doc.layers().end(),
+                                   [&](const Layer& l) { return QString::fromStdString(l.name).toUpper() == w.trimmed(); });
+            if (it == doc.layers().end()) {
+                engine->message(t("Layer \"%1\" non trovato.").arg(QString::fromStdString(name)));
+                return true;
+            }
+            const std::string layer = it->name;
+            apply([&](Entity& e) { e.layer = layer; });
+            return true;
+        }
+        if (isAny(w, {"C", "COLORE", "COLOR"}))
+            ask(StyleQuestion::Kind::Color);
+        else if (isAny(w, {"TI", "TIPOLINEA", "LT", "LTYPE"}))
+            ask(StyleQuestion::Kind::Linetype);
+        else if (isAny(w, {"SP", "SPESSORE", "LW", "LWEIGHT"}))
+            ask(StyleQuestion::Kind::Lineweight);
+        else if (isAny(w, {"LA", "LAYER"})) {
+            askingLayer_ = true;
+            engine->setPrompt(t("Immettere nome del nuovo layer <%1>:").arg(QString::fromStdString(sampleLayer())));
+        } else
+            return false;
+        return true;
+    }
+
+protected:
+    void afterSelection() override { askProperty(); }
+
+    void onEnter() override
+    {
+        if (question_ || askingLayer_)
+            askProperty();  // keep the value
+        else
+            done();
+    }
+
+private:
+    bool selectingNow() const { return wantsSelection(); }
+
+    void askProperty()
+    {
+        question_.reset();
+        askingLayer_ = false;
+        engine->setPrompt(t("Immettere proprietà da modificare [Colore/LAyer/TIpolinea/SPessore]:"));
+    }
+
+    void ask(StyleQuestion::Kind kind)
+    {
+        asked_ = kind;
+        question_.emplace(kind);
+        engine->setPrompt(question_->prompt(sample(), false));
+    }
+
+    // The values shown as default: those of the first object.
+    EntityStyle sample() const
+    {
+        for (EntityId id : ids_)
+            if (const Entity* e = engine->document().entity(id))
+                return styleOf(*e);
+        return {};
+    }
+
+    std::string sampleLayer() const
+    {
+        for (EntityId id : ids_)
+            if (const Entity* e = engine->document().entity(id))
+                return e->layer;
+        return "0";
+    }
+
+    template <class F>
+    void apply(F change)
+    {
+        Document& doc = engine->document();
+        for (EntityId id : ids_) {
+            const Entity* e = doc.entity(id);
+            if (!e)
+                continue;
+            Entity updated = *e;
+            change(updated);
+            doc.restyle(id, updated.layer, styleOf(updated));
+        }
+        askProperty();
+    }
+
+    std::optional<StyleQuestion> question_;
+    StyleQuestion::Kind asked_ = StyleQuestion::Kind::Color;
+    bool askingLayer_ = false;
+};
+
+// MATCHPROP: gives the layer, colour, linetype and lineweight of one object to others.
+class MatchPropertiesCommand : public Command {
+public:
+    void start() override
+    {
+        engine->clearSelection();
+        engine->setPrompt(t("Selezionare oggetto di origine:"));
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (source_)
+            return false;
+        const auto id = pickObject(engine, p);
+        if (!id)
+            return false;
+        const Entity* e = engine->document().entity(*id);
+        source_ = *id;
+        layer_ = e->layer;
+        style_ = styleOf(*e);
+        engine->message(t("Proprietà: layer %1, colore %2, tipo di linea %3, spessore %4")
+                            .arg(QString::fromStdString(layer_), colorName(style_.color), linetypeName(style_.linetype),
+                                 lineweightName(style_.lineweight)));
+        engine->setPrompt(t("Selezionare oggetti di destinazione:"));
+        return true;
+    }
+
+    void enter() override
+    {
+        if (source_) {
+            int changed = 0;
+            for (EntityId id : engine->selection()) {
+                if (id == *source_)
+                    continue;
+                engine->document().restyle(id, layer_, style_);
+                ++changed;
+            }
+            if (changed > 0)
+                engine->message(QCoreApplication::translate("Command", "%n oggetti modificati", nullptr, changed));
+            engine->clearSelection();
+        }
+        engine->finish();
+    }
+
+    bool wantsObjectPick() const override { return !source_; }
+    bool wantsSelection() const override { return source_.has_value(); }
+
+private:
+    std::optional<EntityId> source_;
+    std::string layer_;
+    EntityStyle style_;
+};
+
 } // namespace
 
 std::unique_ptr<Command> makeLineCommand() { return std::make_unique<LineCommand>(); }
@@ -3542,5 +3827,11 @@ std::unique_ptr<Command> makeRoofCommand() { return std::make_unique<RoofCommand
 std::unique_ptr<Command> makeView3dCommand() { return std::make_unique<View3dCommand>(); }
 std::unique_ptr<Command> makeZoomCommand() { return std::make_unique<ZoomCommand>(); }
 std::unique_ptr<Command> makeLayerCommand() { return std::make_unique<LayerCommand>(); }
+std::unique_ptr<Command> makeColorCommand() { return std::make_unique<CurrentStyleCommand>(StyleQuestion::Kind::Color); }
+std::unique_ptr<Command> makeLinetypeCommand() { return std::make_unique<CurrentStyleCommand>(StyleQuestion::Kind::Linetype); }
+std::unique_ptr<Command> makeLineweightCommand() { return std::make_unique<CurrentStyleCommand>(StyleQuestion::Kind::Lineweight); }
+std::unique_ptr<Command> makeLinetypeScaleCommand() { return std::make_unique<LinetypeScaleCommand>(); }
+std::unique_ptr<Command> makeChangePropertiesCommand() { return std::make_unique<ChangePropertiesCommand>(); }
+std::unique_ptr<Command> makeMatchPropertiesCommand() { return std::make_unique<MatchPropertiesCommand>(); }
 
 } // namespace cad

@@ -19,6 +19,9 @@ public:
     void zoomExtents();
     bool gridVisible() const { return grid_; }
     void setGridVisible(bool on);
+    // AutoCAD's LWDISPLAY: lines as thick as their lineweight, or all thin.
+    bool lineweightsVisible() const { return lineweights_; }
+    void setLineweightsVisible(bool on);
 
     cad::Vec2 toWorld(QPointF screen) const;
     // The part of the drawing shown.
@@ -53,6 +56,7 @@ private:
     cad::Vec2 center_{0.0, 0.0};
     double scale_ = 20.0;
     bool grid_ = true;
+    bool lineweights_ = false;
 
     QPointF mouse_;
     bool mouseInside_ = false;

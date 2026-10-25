@@ -8,6 +8,7 @@
 #include "layerpanel.h"
 #include "navigator.h"
 #include "ribbon.h"
+#include "stylecontrols.h"
 #include "toolbox.h"
 #include "dwgreader.h"
 #include "dxf.h"
@@ -411,6 +412,9 @@ void MainWindow::createActions()
     commandAction(tr("Quota raggio"), QStringLiteral("DIMRADIUS"), icons::make(QStringLiteral("dimRadius")));
     commandAction(tr("Quota diametro"), QStringLiteral("DIMDIAMETER"), icons::make(QStringLiteral("dimDiameter")));
     commandAction(tr("Scala quote"), QStringLiteral("DIMSCALE"));
+    commandAction(tr("Corrispondenza proprietà"), QStringLiteral("MATCHPROP"), icons::make(QStringLiteral("matchProperties")));
+    commandAction(tr("Cambia proprietà"), QStringLiteral("CHPROP"));
+    commandAction(tr("Scala tipo di linea"), QStringLiteral("LTSCALE"));
 
     auto actions = [this](std::initializer_list<const char*> names) {
         QList<QAction*> list;
@@ -460,6 +464,9 @@ void MainWindow::createActions()
     QMenu* modify = menuBar()->addMenu(tr("&Edita"));
     modify->addActions(modifyActions);
 
+    modify->addSeparator();
+    modify->addActions(actions({"MATCHPROP", "CHPROP", "LTSCALE"}));
+
     QMenu* annotate = menuBar()->addMenu(tr("&Annota"));
     annotate->addActions(annotateActions);
     annotate->addSeparator();
@@ -486,6 +493,12 @@ void MainWindow::createActions()
     QToolBar* storyBar = toolBar(tr("Piani"), "storyToolBar", actions({"STORY"}), true);
     storyBar->addWidget(makeStoryCombo(storyBar));
     storyBar->addActions(actions({"plan", "view3d"}));
+    // Layer, colour, linetype and lineweight, which the ribbon has in its Base tab.
+    QToolBar* propertiesBar = toolBar(tr("Proprietà"), "propertiesToolBar", actions({"layers"}), true);
+    auto* barStyle = new StyleControls(engine_, propertiesBar);
+    for (QComboBox* c : {barStyle->layerCombo(), barStyle->colorCombo(), barStyle->linetypeCombo(), barStyle->lineweightCombo()})
+        propertiesBar->addWidget(c);
+    propertiesBar->addAction(command(QStringLiteral("MATCHPROP")));
     QToolBar* modifyBar = toolBar(tr("Edita"), "modifyToolBar", modifyActions, true);
     modifyBar->addSeparator();
     modifyBar->addAction(named_.value(QStringLiteral("zoom")));
@@ -514,6 +527,11 @@ void MainWindow::createActions()
     });
     QAction* ortho = toggle(QStringLiteral("ortho"), tr("O&rto"), QKeySequence(Qt::Key_F8), engine_.orthoEnabled(),
                             [this](bool on) { engine_.setOrthoEnabled(on); });
+    QAction* lineweights = toggle(QStringLiteral("lineweights"), tr("&Spessori di linea"), QKeySequence(), view_->lineweightsVisible(),
+                                  [this](bool on) {
+                                      view_->setLineweightsVisible(on);
+                                      updateToggles();
+                                  });
     viewMenu->addSeparator();
 
     QMenu* profileMenu = viewMenu->addMenu(tr("&Interfaccia"));
@@ -553,6 +571,9 @@ void MainWindow::createActions()
     gridButton_ = new QToolButton(this);
     gridButton_->setDefaultAction(grid);
     gridButton_->setText(tr("GRIGLIA"));
+    lineweightButton_ = new QToolButton(this);
+    lineweightButton_->setDefaultAction(lineweights);
+    lineweightButton_->setText(tr("SPESSORI"));
 
     QMenu* help = menuBar()->addMenu(tr("&Aiuto"));
     help->addAction(tr("&Segnala un problema..."), this, &MainWindow::reportProblem);
@@ -589,6 +610,13 @@ void MainWindow::createRibbon()
     large(p, {"TEXT", "DIMLINEAR"});
     p = ribbon_->addPanel(home, tr("Layer"));
     large(p, {"layers"});
+    auto* style = new StyleControls(engine_, p);
+    p->addSmall(style->layerCombo());
+    p = ribbon_->addPanel(home, tr("Proprietà"));
+    large(p, {"MATCHPROP"});
+    p->addSmall(style->colorCombo());
+    p->addSmall(style->linetypeCombo());
+    p->addSmall(style->lineweightCombo());
     p = ribbon_->addPanel(home, tr("Utilità"));
     large(p, {"zoom"});
     small(p, {"undo", "redo"});
@@ -688,7 +716,7 @@ void MainWindow::createStatusBar()
     coordinates_ = new QLabel(this);
     coordinates_->setMinimumWidth(260);
     statusBar()->addWidget(coordinates_);
-    for (QToolButton* b : {osnapButton_, orthoButton_, gridButton_}) {
+    for (QToolButton* b : {osnapButton_, orthoButton_, gridButton_, lineweightButton_}) {
         b->setFocusPolicy(Qt::NoFocus);
         b->setAutoRaise(true);
         statusBar()->addPermanentWidget(b);
@@ -705,6 +733,7 @@ void MainWindow::updateToggles()
     osnapButton_->setText(tr("SNAP"));
     orthoButton_->setText(tr("ORTO"));
     gridButton_->setText(tr("GRIGLIA"));
+    lineweightButton_->setText(tr("SPESSORI"));
 }
 
 void MainWindow::updateTitle()

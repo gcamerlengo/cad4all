@@ -3,6 +3,7 @@
 #pragma once
 
 #include "shapes.h"
+#include "style.h"
 
 #include <cstdint>
 #include <map>
@@ -14,16 +15,13 @@ namespace cad {
 
 using EntityId = std::uint64_t;
 
-struct Color {
-    std::uint8_t r = 255, g = 255, b = 255;
-    bool operator==(const Color&) const = default;
-};
-
 struct Layer {
     std::string name;
     Color color;
     bool visible = true;
     bool locked = false;
+    std::string linetype = kContinuous;
+    int lineweight = kLineweightDefault;
 
     static Layer named(std::string name)
     {
@@ -51,7 +49,22 @@ struct Entity {
     Shape shape;
     // 0: the current story when added.
     StoryId story = 0;
+    // Unset, BYLAYER and kLineweightByLayer: what the layer says.
+    std::optional<Color> color;
+    std::string linetype = kByLayer;
+    int lineweight = kLineweightByLayer;
 };
+
+// The look an object takes from its layer or has of its own: the colour,
+// linetype and lineweight of AutoCAD's Properties.
+struct EntityStyle {
+    std::optional<Color> color;
+    std::string linetype = kByLayer;
+    int lineweight = kLineweightByLayer;
+    bool operator==(const EntityStyle&) const = default;
+};
+EntityStyle styleOf(const Entity& e);
+void applyStyle(Entity& e, const EntityStyle& style);
 
 // Every change to the entities goes through add/remove/replace and is
 // recorded, so any group of changes can be undone as one step. Changes made
@@ -89,6 +102,26 @@ public:
     const Story* storyBelow(StoryId id) const;
     const Story* storyAbove(StoryId id) const;
 
+    // Linetypes: the standard ones and those read from drawings.
+    const std::vector<Linetype>& linetypes() const { return linetypes_; }
+    // By name, whatever the case.
+    const Linetype* linetype(const std::string& name) const;
+    // False if the name is empty or taken.
+    bool addLinetype(Linetype linetype);
+    // Multiplies every dash length (AutoCAD's LTSCALE).
+    double linetypeScale() const { return linetypeScale_; }
+    void setLinetypeScale(double scale);
+
+    // What new objects get (CECOLOR, CELTYPE, CELWEIGHT); BYLAYER at first.
+    const EntityStyle& currentStyle() const { return currentStyle_; }
+    void setCurrentStyle(const EntityStyle& style);
+
+    // What an object looks like once its layer is taken into account. The
+    // lineweight may still be kLineweightDefault.
+    Color colorOf(const Entity& e) const;
+    const Linetype& linetypeOf(const Entity& e) const;
+    int lineweightOf(const Entity& e) const;
+
     // Entities, kept in creation order (which is also the drawing order).
     const std::map<EntityId, Entity>& entities() const { return entities_; }
     const Entity* entity(EntityId id) const;
@@ -96,6 +129,8 @@ public:
     EntityId add(Entity entity);
     bool remove(EntityId id);
     bool replace(EntityId id, Shape shape);
+    // Changes the layer and style of an entity; its id, shape and story stay.
+    bool restyle(EntityId id, const std::string& layer, const EntityStyle& style);
     BBox extents() const;
 
     // Undo history.
@@ -135,6 +170,9 @@ private:
     std::vector<Story> stories_;
     StoryId currentStory_ = 0;
     StoryId nextStory_ = 1;
+    std::vector<Linetype> linetypes_;
+    double linetypeScale_ = 1.0;
+    EntityStyle currentStyle_;
     std::map<EntityId, Entity> entities_;
     EntityId nextId_ = 1;
 

@@ -19,7 +19,7 @@ Versione 0.1. Funziona già:
 - **Annotazioni:** testo su una o più righe (allineato a sinistra, al centro o a destra, con rotazione), quote lineari (orizzontali, verticali, ruotate), allineate, di raggio e di diametro, con testo personalizzabile e scala delle quote.
 - **Precisione:** coordinate assolute e relative (`10,20`, `@5,0`, `@10<45`), inserimento diretto della distanza, snap ad oggetto (fine, punto medio, centro, quadrante, intersezione, inserimento), orto.
 - **Selezione:** clic, finestra (da sinistra a destra) e interseca (da destra a sinistra), Maiusc+clic per togliere.
-- **Organizzazione:** layer con colore, visibilità e blocco.
+- **Organizzazione:** layer con colore, tipo di linea, spessore, visibilità e blocco; colore, tipo di linea (continua, tratteggiata, nascosta, asse, tratto punto, fantasma, punti e quelli dei DXF/DWG) e spessore anche per singolo oggetto, dalla barra Proprietà o con CAMBIAPROP; corrispondenza proprietà; spessori visibili a schermo con il pulsante SPESSORI e in stampa.
 - **Interfaccia:** ribbon come AutoCAD, oppure strumenti, Info Box e navigatore come ArchiCAD, con pianta e 3D in un pannello, affiancate o a schede.
 - **File:** formato nativo `.c4a` (JSON leggibile), apertura dei DWG di AutoCAD, apertura e salvataggio DXF, stampa su stampante e in PDF in scala, esportazione del modello 3D in OBJ e STL, annulla e ripristina illimitati, script di comandi `.scr`.
 
@@ -68,6 +68,12 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | SCALAQUOTE / DIMSCALE | | moltiplica le dimensioni delle nuove quote (testo e frecce 2,5) |
 | ZOOM | Z | Estensioni |
 | LAYER | LA | apre il pannello layer |
+| COLORE / COLOR | COL | colore dei nuovi oggetti: 1-255, nome (rosso, giallo, verde, ciano, blu, magenta, bianco), R,G,B o DaLayer |
+| TIPOLINEA / LINETYPE | LT | tipo di linea dei nuovi oggetti, ? per l'elenco, DaLayer |
+| SPESSLINEA / LWEIGHT | LW | spessore dei nuovi oggetti in mm, DaLayer o Predefinito |
+| SCALATL / LTSCALE | LTS | lunghezza dei trattini di tutti i tipi di linea |
+| CAMBIAPROP / CHPROP | CH | Colore, LAyer, TIpolinea, SPessore degli oggetti selezionati |
+| CORRISPPROP / MATCHPROP | MA | oggetto di origine, poi oggetti di destinazione e Invio |
 | STAMPA / PLOT | | apre la finestra di stampa (anche Ctrl+P) |
 | ANNULLA / UNDO | U | (anche Ctrl+Z) |
 | RIPRISTINA / REDO | | (anche Ctrl+Y) |

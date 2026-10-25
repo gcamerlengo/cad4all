@@ -43,5 +43,11 @@ std::unique_ptr<Command> makeView3dCommand();
 std::unique_ptr<Command> makeZoomCommand();
 std::unique_ptr<Command> makeLayerCommand();
 std::unique_ptr<Command> makePlotCommand();
+std::unique_ptr<Command> makeColorCommand();
+std::unique_ptr<Command> makeLinetypeCommand();
+std::unique_ptr<Command> makeLineweightCommand();
+std::unique_ptr<Command> makeLinetypeScaleCommand();
+std::unique_ptr<Command> makeChangePropertiesCommand();
+std::unique_ptr<Command> makeMatchPropertiesCommand();
 
 } // namespace cad

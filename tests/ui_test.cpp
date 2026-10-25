@@ -4,6 +4,7 @@
 #include "infobox.h"
 #include "navigator.h"
 #include "properties.h"
+#include "stylecontrols.h"
 #include "toolbox.h"
 
 #include <QApplication>
@@ -124,6 +125,40 @@ TEST_F(Ui, NavigatorListsStoriesFromTheTop)
     EXPECT_TRUE(stories->child(0)->text(0).startsWith(QStringLiteral("Primo")));
     emit nav.itemActivated(stories->child(1), 0);
     EXPECT_EQ(chosen, doc.stories().front().id);
+}
+
+TEST_F(Ui, StyleControlsChangeSelectionOrCurrentStyle)
+{
+    QWidget parent;
+    StyleControls controls(engine, &parent);
+    type({"L", "0,0", "10,0", ""});
+    const EntityId id = doc.entities().begin()->first;
+
+    // Nothing selected: the choice is for new objects.
+    QComboBox* weight = controls.lineweightCombo();
+    const int half = weight->findData(50);
+    ASSERT_GE(half, 0);
+    weight->setCurrentIndex(half);
+    emit weight->activated(half);
+    EXPECT_EQ(doc.currentStyle().lineweight, 50);
+    EXPECT_EQ(doc.entity(id)->lineweight, kLineweightByLayer);
+
+    // With a selection it changes the objects and shows their value.
+    engine.select({id});
+    EXPECT_EQ(weight->currentData().toInt(), kLineweightByLayer);
+    QComboBox* linetype = controls.linetypeCombo();
+    const int hidden = linetype->findData(QStringLiteral("HIDDEN"));
+    ASSERT_GE(hidden, 0);
+    linetype->setCurrentIndex(hidden);
+    emit linetype->activated(hidden);
+    QComboBox* color = controls.colorCombo();
+    const int red = color->findText(QStringLiteral("Rosso"));
+    ASSERT_GE(red, 0);
+    color->setCurrentIndex(red);
+    emit color->activated(red);
+    EXPECT_EQ(doc.entity(id)->linetype, "HIDDEN");
+    EXPECT_EQ(doc.entity(id)->color, std::optional<Color>(aciToColor(1)));
+    EXPECT_EQ(color->currentText(), QStringLiteral("Rosso"));
 }
 
 int main(int argc, char** argv)

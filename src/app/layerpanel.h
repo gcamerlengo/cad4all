@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Layer manager: create layers, set the current one, change colour,
-// visibility and lock.
+// linetype, lineweight, visibility and lock.
 #pragma once
 
 #include "commandengine.h"
@@ -19,7 +19,7 @@ public:
     void refresh();
 
 private:
-    enum Column { NameColumn, VisibleColumn, LockedColumn, ColorColumn };
+    enum Column { NameColumn, VisibleColumn, LockedColumn, ColorColumn, LinetypeColumn, LineweightColumn };
 
     void createLayer();
     void makeCurrent(QTreeWidgetItem* item);

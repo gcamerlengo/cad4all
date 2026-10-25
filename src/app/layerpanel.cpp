@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "layerpanel.h"
 
+#include "stylenames.h"
+
 #include <QColorDialog>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -16,13 +18,13 @@ LayerPanel::LayerPanel(CommandEngine& engine, QWidget* parent)
     : QWidget(parent), engine_(engine)
 {
     tree_ = new QTreeWidget(this);
-    tree_->setHeaderLabels({tr("Nome"), tr("Visibile"), tr("Bloccato"), tr("Colore")});
+    tree_->setHeaderLabels({tr("Nome"), tr("Visibile"), tr("Bloccato"), tr("Colore"), tr("Tipo di linea"), tr("Spessore")});
     tree_->setRootIsDecorated(false);
     tree_->setFocusPolicy(Qt::NoFocus);
     tree_->header()->setSectionResizeMode(NameColumn, QHeaderView::Stretch);
-    for (int c : {VisibleColumn, LockedColumn, ColorColumn})
+    for (int c : {VisibleColumn, LockedColumn, ColorColumn, LinetypeColumn, LineweightColumn})
         tree_->header()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
-    tree_->setToolTip(tr("Doppio clic sul nome per rendere corrente il layer, sul colore per cambiarlo."));
+    tree_->setToolTip(tr("Doppio clic sul nome per rendere corrente il layer, sul colore, sul tipo di linea o sullo spessore per cambiarli."));
 
     auto* add = new QPushButton(tr("Nuovo layer"), this);
     auto* current = new QPushButton(tr("Rendi corrente"), this);
@@ -68,6 +70,8 @@ void LayerPanel::refresh()
         item->setBackground(ColorColumn, color);
         item->setText(ColorColumn, color.name());
         item->setForeground(ColorColumn, color.lightness() > 128 ? Qt::black : Qt::white);
+        item->setText(LinetypeColumn, QString::fromStdString(l.linetype));
+        item->setText(LineweightColumn, lineweightName(l.lineweight));
         if (l.name == doc.currentLayer()) {
             QFont f = item->font(NameColumn);
             f.setBold(true);
@@ -127,12 +131,43 @@ void LayerPanel::itemDoubleClicked(QTreeWidgetItem* item, int column)
         makeCurrent(item);
         return;
     }
-    if (column != ColorColumn)
-        return;
     Document& doc = engine_.document();
     const std::string name = item->text(NameColumn).toStdString();
     const Layer* current = doc.layer(name);
     if (!current)
+        return;
+    if (column == LinetypeColumn || column == LineweightColumn) {
+        QStringList choices;
+        int index = 0;
+        if (column == LinetypeColumn) {
+            for (const Linetype& lt : doc.linetypes()) {
+                if (lt.name == current->linetype)
+                    index = static_cast<int>(choices.size());
+                choices << QStringLiteral("%1  %2").arg(QString::fromStdString(lt.name), QString::fromStdString(lt.description));
+            }
+        } else {
+            choices << lineweightName(kLineweightDefault);
+            for (int w : standardLineweights()) {
+                if (w == current->lineweight)
+                    index = static_cast<int>(choices.size());
+                choices << lineweightName(w);
+            }
+        }
+        bool ok = false;
+        const QString chosen = QInputDialog::getItem(this, column == LinetypeColumn ? tr("Tipo di linea del layer") : tr("Spessore del layer"),
+                                                     tr("Layer %1:").arg(item->text(NameColumn)), choices, index, false, &ok);
+        if (!ok)
+            return;
+        Layer updated = *current;
+        if (column == LinetypeColumn)
+            updated.linetype = chosen.section(QLatin1Char(' '), 0, 0).toStdString();
+        else
+            updated.lineweight = parseLineweight(chosen).value_or(kLineweightDefault);
+        doc.updateLayer(name, updated);
+        engine_.documentChanged();
+        return;
+    }
+    if (column != ColorColumn)
         return;
     const QColor chosen = QColorDialog::getColor(QColor(current->color.r, current->color.g, current->color.b), this, tr("Colore del layer"));
     if (!chosen.isValid())

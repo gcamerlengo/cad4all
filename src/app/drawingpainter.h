@@ -6,6 +6,7 @@
 
 #include "building.h"
 #include "shapes.h"
+#include "style.h"
 
 #include <QFont>
 #include <QPainter>
@@ -13,6 +14,14 @@
 // Extent of what a shape draws: a joined wall can reach past its own box by
 // the length of its mitred corners.
 cad::BBox drawnBox(const cad::Shape& shape);
+
+// Linetypes apply to lines, circles, arcs and polylines; texts, dimensions,
+// hatches and building elements keep their own look.
+bool usesLinetype(const cad::Shape& shape);
+// Gives `pen` the dashes of `type`, whose lengths are multiplied by
+// `lengthScale` (LTSCALE) and drawn at `deviceScale` device units per drawing
+// unit. Dashes too small to see are drawn as a continuous line.
+void applyLinetype(QPen& pen, const cad::Linetype& type, double lengthScale, double deviceScale);
 
 class DrawingPainter {
 public:
