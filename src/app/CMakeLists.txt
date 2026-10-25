@@ -10,6 +10,10 @@ qt_add_executable(cad4all
     commandline.h commandline.cpp
     layerpanel.h layerpanel.cpp
     icons.h icons.cpp
+    ribbon.h ribbon.cpp
+    toolbox.h toolbox.cpp
+    infobox.h infobox.cpp
+    navigator.h navigator.cpp
 )
 target_link_libraries(cad4all PRIVATE cad4all_core cad4all_io cad4all_engine Qt6::Widgets Qt6::PrintSupport)
 target_compile_definitions(cad4all PRIVATE CAD4ALL_VERSION="${PROJECT_VERSION}")

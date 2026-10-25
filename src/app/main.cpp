@@ -27,9 +27,17 @@ int main(int argc, char* argv[])
     parser.addOption(screenshotOption);
     const QCommandLineOption screenshot3dOption(QStringLiteral("screenshot3d"), QStringLiteral("Salva un'immagine della vista 3D (dopo lo script)."), QStringLiteral("png"));
     parser.addOption(screenshot3dOption);
+    const QCommandLineOption profileOption(QStringLiteral("profilo"), QStringLiteral("Interfaccia: autocad (ribbon) o archicad (strumenti, Info Box, navigatore)."), QStringLiteral("nome"));
+    parser.addOption(profileOption);
+    const QCommandLineOption layoutOption(QStringLiteral("viste"), QStringLiteral("Vista 3D: pannello, affiancate o schede."), QStringLiteral("nome"));
+    parser.addOption(layoutOption);
     parser.process(app);
 
     MainWindow window;
+    if (parser.isSet(profileOption) && !window.setProfile(parser.value(profileOption)))
+        parser.showHelp(1);
+    if (parser.isSet(layoutOption) && !window.setViewLayout(parser.value(layoutOption)))
+        parser.showHelp(1);
     window.show();
     if (!parser.positionalArguments().isEmpty())
         window.openFile(parser.positionalArguments().constFirst());

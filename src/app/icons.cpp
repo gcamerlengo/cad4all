@@ -323,6 +323,85 @@ QIcon make(const QString& name)
             p.drawPolyline(QPolygonF({{15.5, 6}, {18, 6}, {18, 8.5}}));
             p.drawPolyline(QPolygonF({{6, 15.5}, {6, 18}, {8.5, 18}}));
         };
+    } else if (name == QLatin1String("select")) {
+        painter = [](QPainter& p) {
+            p.drawPolygon(QPolygonF({{6, 3}, {6, 19}, {10, 15}, {13, 21.5}, {15.5, 20.5}, {12.5, 14}, {18, 14}}));
+        };
+    } else if (name == QLatin1String("layers")) {
+        painter = [](QPainter& p) {
+            p.drawPolygon(QPolygonF({{12, 3.5}, {21, 8}, {12, 12.5}, {3, 8}}));
+            accentPen(p);
+            p.drawPolyline(QPolygonF({{3, 12}, {12, 16.5}, {21, 12}}));
+            p.drawPolyline(QPolygonF({{3, 16}, {12, 20.5}, {21, 16}}));
+        };
+    } else if (name == QLatin1String("new")) {
+        painter = [](QPainter& p) {
+            p.drawPolygon(QPolygonF({{5.5, 2.5}, {14, 2.5}, {18.5, 7}, {18.5, 21.5}, {5.5, 21.5}}));
+            p.drawPolyline(QPolygonF({{14, 2.5}, {14, 7}, {18.5, 7}}));
+        };
+    } else if (name == QLatin1String("open")) {
+        painter = [](QPainter& p) {
+            p.drawPolygon(QPolygonF({{2.5, 6}, {9, 6}, {11, 8}, {20, 8}, {20, 19.5}, {2.5, 19.5}}));
+            accentPen(p);
+            p.drawPolyline(QPolygonF({{2.5, 19.5}, {6, 11.5}, {22, 11.5}, {20, 19.5}}));
+        };
+    } else if (name == QLatin1String("save")) {
+        painter = [](QPainter& p) {
+            p.drawPolygon(QPolygonF({{3.5, 3.5}, {17, 3.5}, {20.5, 7}, {20.5, 20.5}, {3.5, 20.5}}));
+            p.drawRect(QRectF(7.5, 3.5, 8, 5));
+            accentPen(p);
+            p.drawRect(QRectF(7, 13, 10, 7.5));
+        };
+    } else if (name == QLatin1String("print")) {
+        painter = [](QPainter& p) {
+            p.drawRect(QRectF(7, 3.5, 10, 5));
+            p.drawPolygon(QPolygonF({{3.5, 8.5}, {20.5, 8.5}, {20.5, 16.5}, {17, 16.5}, {17, 13}, {7, 13}, {7, 16.5}, {3.5, 16.5}}));
+            accentPen(p);
+            p.drawRect(QRectF(7, 13, 10, 7.5));
+        };
+    } else if (name == QLatin1String("export")) {
+        painter = [](QPainter& p) {
+            p.drawPolyline(QPolygonF({{14, 5}, {4, 5}, {4, 20}, {18, 20}, {18, 15}}));
+            accentPen(p);
+            p.drawLine(QPointF(9, 14), QPointF(20.5, 3.5));
+            p.drawPolyline(QPolygonF({{14.5, 3.5}, {20.5, 3.5}, {20.5, 9.5}}));
+        };
+    } else if (name == QLatin1String("undo")) {
+        painter = [](QPainter& p) {
+            QPainterPath path;
+            path.moveTo(5, 10);
+            path.lineTo(15, 10);
+            path.arcTo(QRectF(10, 10, 10, 10), 90, -180);
+            path.lineTo(9, 20);
+            p.drawPath(path);
+            accentPen(p);
+            p.drawPolyline(QPolygonF({{9, 6}, {5, 10}, {9, 14}}));
+        };
+    } else if (name == QLatin1String("redo")) {
+        painter = [](QPainter& p) {
+            QPainterPath path;
+            path.moveTo(19, 10);
+            path.lineTo(9, 10);
+            path.arcTo(QRectF(4, 10, 10, 10), 90, 180);
+            path.lineTo(15, 20);
+            p.drawPath(path);
+            accentPen(p);
+            p.drawPolyline(QPolygonF({{15, 6}, {19, 10}, {15, 14}}));
+        };
+    } else if (name == QLatin1String("plan")) {
+        painter = [](QPainter& p) {
+            p.drawRect(QRectF(3.5, 3.5, 17, 17));
+            accentPen(p);
+            p.drawPolyline(QPolygonF({{3.5, 12}, {11, 12}, {11, 20.5}}));
+            p.drawLine(QPointF(11, 3.5), QPointF(11, 7));
+        };
+    } else if (name == QLatin1String("script")) {
+        painter = [](QPainter& p) {
+            p.drawRect(QRectF(3.5, 3.5, 17, 17));
+            accentPen(p);
+            p.drawPolyline(QPolygonF({{7, 9}, {10, 12}, {7, 15}}));
+            p.drawLine(QPointF(12, 15.5), QPointF(17, 15.5));
+        };
     } else if (name == QLatin1String("zoomExtents")) {
         painter = [](QPainter& p) {
             p.drawEllipse(QPointF(10, 10), 6, 6);

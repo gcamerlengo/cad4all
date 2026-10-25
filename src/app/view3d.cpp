@@ -25,7 +25,7 @@ void View3D::refresh()
 {
     const bool wasEmpty = model_.empty();
     model_ = buildingModel(doc_);
-    if (wasEmpty && !model_.empty())
+    if (!model_.empty() && (wasEmpty || fitted_))
         zoomExtents();
     update();
 }
@@ -33,7 +33,14 @@ void View3D::refresh()
 void View3D::zoomExtents()
 {
     camera_ = fitCamera(model_, camera_, height() > 0 ? static_cast<double>(width()) / height() : 1.0);
+    fitted_ = true;
     update();
+}
+
+void View3D::resizeEvent(QResizeEvent*)
+{
+    if (fitted_)
+        zoomExtents();
 }
 
 QImage View3D::image(QSize size) const
@@ -77,6 +84,7 @@ void View3D::mouseMoveEvent(QMouseEvent* event)
     const QPoint pos = event->position().toPoint();
     const QPoint d = pos - last_;
     last_ = pos;
+    fitted_ = false;
     if (dragging_ == Qt::LeftButton) {
         camera_.yaw -= d.x() * 0.01;
         camera_.pitch = std::clamp(camera_.pitch + d.y() * 0.01, degToRad(-89.0), degToRad(89.0));
@@ -96,6 +104,7 @@ void View3D::wheelEvent(QWheelEvent* event)
 {
     const double steps = event->angleDelta().y() / 120.0;
     camera_.distance *= std::pow(0.85, steps);
+    fitted_ = false;
     camera_.distance = std::max(camera_.distance, 1e-3);
     update();
 }
