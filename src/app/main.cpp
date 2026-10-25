@@ -5,6 +5,7 @@
 
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QIcon>
 #include <QTimer>
 
 int main(int argc, char* argv[])
@@ -13,6 +14,10 @@ int main(int argc, char* argv[])
     QApplication::setApplicationName(QStringLiteral("CAD4All"));
     QApplication::setApplicationVersion(QStringLiteral(CAD4ALL_VERSION));
     QApplication::setOrganizationName(QStringLiteral("CAD4All"));
+    QIcon icon;
+    for (int size : {16, 24, 32, 48, 64, 128, 256, 512})
+        icon.addFile(QStringLiteral(":/resources/cad4all-%1.png").arg(size), QSize(size, size));
+    QApplication::setWindowIcon(icon);
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("CAD 2D e 3D parametrico"));
