@@ -95,4 +95,44 @@ PolylineCornersResult chamferPolyline(const Polyline& pl, double dist1, double d
 // when their centre is inside.
 Shape stretchShape(const Shape& shape, const BBox& window, Vec2 offset);
 
+// Grips, AutoCAD's squares on a selected object: line ends and midpoint,
+// circle centre and quadrants, arc centre, ends and midpoint, polyline
+// vertices and segment midpoints, text insertion, dimension points, wall ends
+// and midpoint. Other shapes have none.
+std::vector<Vec2> gripPoints(const Shape& shape);
+// The shape with grip `index` dragged to `to`: an end or vertex moves alone,
+// a midpoint or centre moves the whole line, segment or circle, a quadrant
+// changes the radius, an arc point keeps the other two. Nothing when the
+// result would be degenerate.
+std::optional<Shape> moveGrip(const Shape& shape, size_t index, Vec2 to);
+
+// LIST, DIST and AREA: length of lines, arcs, polylines and the
+// circumference of circles; area of circles and closed polylines.
+double shapeLength(const Shape& shape);
+std::optional<double> shapeArea(const Shape& shape);
+// Area enclosed by a closed polyline, arcs included.
+double polylineArea(const Polyline& pl);
+
+// EXPLODE: a polyline into its lines and arcs, a dimension into lines, text
+// and solid arrowheads. Empty for shapes that cannot be exploded.
+std::vector<Shape> explodeShape(const Shape& shape);
+
+// JOIN: lines, arcs and open polylines that meet end to end (within
+// `tolerance`) become one polyline; lines in a row become one line. Each
+// result says which of `shapes` it is made of; shapes that join nothing are
+// left out.
+struct JoinedShape {
+    Shape shape;
+    std::vector<size_t> sources;
+};
+std::vector<JoinedShape> joinShapes(const std::vector<Shape>& shapes, double tolerance);
+
+// ELLIPSE drawn as a closed polyline of arcs, as AutoCAD does with
+// PELLIPSE=1: `major` goes from the centre to the end of the major axis,
+// `ratio` is minor / major.
+Polyline ellipsePolyline(Vec2 center, Vec2 major, double ratio);
+// SPLINE through `fit` points, as a polyline of short segments (centripetal
+// Catmull-Rom).
+Polyline splinePolyline(const std::vector<Vec2>& fit, bool closed);
+
 } // namespace cad

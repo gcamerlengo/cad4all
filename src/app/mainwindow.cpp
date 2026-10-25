@@ -383,6 +383,8 @@ void MainWindow::createActions()
     commandAction(tr("Cerchio"), QStringLiteral("CIRCLE"), icons::make(QStringLiteral("circle")));
     commandAction(tr("Arco"), QStringLiteral("ARC"), icons::make(QStringLiteral("arc")));
     commandAction(tr("Rettangolo"), QStringLiteral("RECTANG"), icons::make(QStringLiteral("rectangle")));
+    commandAction(tr("Ellisse"), QStringLiteral("ELLIPSE"), icons::make(QStringLiteral("ellipse")));
+    commandAction(tr("Spline"), QStringLiteral("SPLINE"), icons::make(QStringLiteral("spline")));
     commandAction(tr("Tratteggio"), QStringLiteral("HATCH"), icons::make(QStringLiteral("hatch")));
     commandAction(tr("Modifica tratteggio"), QStringLiteral("HATCHEDIT"));
     commandAction(tr("Muro"), QStringLiteral("WALL"), icons::make(QStringLiteral("wall")));
@@ -405,6 +407,13 @@ void MainWindow::createActions()
     commandAction(tr("Raccordo"), QStringLiteral("FILLET"), icons::make(QStringLiteral("fillet")));
     commandAction(tr("Cima"), QStringLiteral("CHAMFER"), icons::make(QStringLiteral("chamfer")));
     commandAction(tr("Stira"), QStringLiteral("STRETCH"), icons::make(QStringLiteral("stretch")));
+    commandAction(tr("Serie"), QStringLiteral("ARRAY"), icons::make(QStringLiteral("array")));
+    commandAction(tr("Esplodi"), QStringLiteral("EXPLODE"), icons::make(QStringLiteral("explode")));
+    commandAction(tr("Unisci"), QStringLiteral("JOIN"), icons::make(QStringLiteral("join")));
+    commandAction(tr("Direttrice"), QStringLiteral("LEADER"), icons::make(QStringLiteral("leader")));
+    commandAction(tr("Distanza"), QStringLiteral("DIST"), icons::make(QStringLiteral("measure")));
+    commandAction(tr("Area"), QStringLiteral("AREA"));
+    commandAction(tr("Lista"), QStringLiteral("LIST"));
     commandAction(tr("Testo"), QStringLiteral("TEXT"), icons::make(QStringLiteral("text")));
     commandAction(tr("Modifica testo"), QStringLiteral("TEXTEDIT"));
     commandAction(tr("Quota lineare"), QStringLiteral("DIMLINEAR"), icons::make(QStringLiteral("dimLinear")));
@@ -424,9 +433,9 @@ void MainWindow::createActions()
         }
         return list;
     };
-    const auto drawActions = actions({"LINE", "PLINE", "CIRCLE", "ARC", "RECTANG", "HATCH"});
+    const auto drawActions = actions({"LINE", "PLINE", "CIRCLE", "ARC", "RECTANG", "ELLIPSE", "SPLINE", "HATCH"});
     const auto architectureActions = actions({"WALL", "DOOR", "WINDOW", "SLAB", "ROOF", "STAIR"});
-    const auto modifyActions = actions({"ERASE", "MOVE", "COPY", "ROTATE", "SCALE", "MIRROR", "OFFSET", "TRIM", "EXTEND", "FILLET", "CHAMFER", "STRETCH"});
+    const auto modifyActions = actions({"ERASE", "MOVE", "COPY", "ROTATE", "SCALE", "MIRROR", "OFFSET", "TRIM", "EXTEND", "FILLET", "CHAMFER", "STRETCH", "ARRAY", "EXPLODE", "JOIN"});
     const auto annotateActions = actions({"TEXT", "DIMLINEAR", "DIMALIGNED", "DIMRADIUS", "DIMDIAMETER"});
 
     // Menus
@@ -466,11 +475,14 @@ void MainWindow::createActions()
 
     modify->addSeparator();
     modify->addActions(actions({"MATCHPROP", "CHPROP", "LTSCALE"}));
+    modify->addSeparator();
+    QMenu* inquiry = modify->addMenu(tr("&Interroga"));
+    inquiry->addActions(actions({"DIST", "AREA", "LIST"}));
 
     QMenu* annotate = menuBar()->addMenu(tr("&Annota"));
     annotate->addActions(annotateActions);
     annotate->addSeparator();
-    annotate->addActions(actions({"TEXTEDIT", "DIMSCALE"}));
+    annotate->addActions(actions({"TEXTEDIT", "DIMSCALE", "LEADER"}));
 
     // Classic toolbars: the ArchiCAD profile shows some of them, the others
     // are there for whoever wants them.
@@ -603,9 +615,10 @@ void MainWindow::createRibbon()
     QWidget* home = ribbon_->addPage(tr("Base"));
     RibbonPanel* p = ribbon_->addPanel(home, tr("Disegna"));
     large(p, {"LINE", "PLINE", "CIRCLE", "ARC"});
-    small(p, {"RECTANG", "HATCH", "HATCHEDIT"});
+    small(p, {"RECTANG", "ELLIPSE", "SPLINE", "HATCH", "HATCHEDIT"});
     p = ribbon_->addPanel(home, tr("Edita"));
-    small(p, {"MOVE", "COPY", "STRETCH", "ROTATE", "MIRROR", "SCALE", "TRIM", "EXTEND", "OFFSET", "FILLET", "CHAMFER", "ERASE"});
+    small(p, {"MOVE", "COPY", "STRETCH", "ROTATE", "MIRROR", "SCALE", "TRIM", "EXTEND", "OFFSET", "FILLET", "CHAMFER", "ERASE",
+              "ARRAY", "EXPLODE", "JOIN"});
     p = ribbon_->addPanel(home, tr("Annotazione"));
     large(p, {"TEXT", "DIMLINEAR"});
     p = ribbon_->addPanel(home, tr("Layer"));
@@ -620,6 +633,7 @@ void MainWindow::createRibbon()
     p = ribbon_->addPanel(home, tr("Utilità"));
     large(p, {"zoom"});
     small(p, {"undo", "redo"});
+    small(p, {"DIST", "AREA", "LIST"});
 
     QWidget* arch = ribbon_->addPage(tr("Architettura"));
     p = ribbon_->addPanel(arch, tr("Costruzione"));
@@ -636,7 +650,7 @@ void MainWindow::createRibbon()
     QWidget* annotatePage = ribbon_->addPage(tr("Annota"));
     p = ribbon_->addPanel(annotatePage, tr("Testo"));
     large(p, {"TEXT"});
-    small(p, {"TEXTEDIT"});
+    small(p, {"TEXTEDIT", "LEADER"});
     p = ribbon_->addPanel(annotatePage, tr("Quote"));
     large(p, {"DIMLINEAR", "DIMALIGNED"});
     small(p, {"DIMRADIUS", "DIMDIAMETER", "DIMSCALE"});

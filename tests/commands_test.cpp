@@ -713,3 +713,108 @@ TEST_F(Commands, MatchPropertiesCopiesLayerAndStyle)
     EXPECT_EQ(doc.entity(target)->layer, "Assi");
     EXPECT_EQ(styleOf(*doc.entity(target)), styleOf(*doc.entity(source)));
 }
+
+TEST_F(Commands, GripsStretchEverySelectedObjectSharingThePoint)
+{
+    type({"L", "0,0", "10,0", "10,10", ""});
+    std::vector<EntityId> ids;
+    for (const auto& [id, e] : doc.entities())
+        ids.push_back(id);
+    engine.select(ids);
+    EXPECT_EQ(engine.grips().size(), 6u);
+
+    ASSERT_TRUE(engine.startGrip({10, 0}, 0.1));
+    EXPECT_TRUE(engine.isActive());
+    type({"12,1"});
+    EXPECT_FALSE(engine.isActive());
+    const auto lines = shapes<Line>();
+    EXPECT_EQ(lines[0].b, (Vec2{12, 1}));
+    EXPECT_EQ(lines[1].a, (Vec2{12, 1}));
+    // The objects stay selected and the edit is one undo step.
+    EXPECT_EQ(engine.selection().size(), 2u);
+    type({"U"});
+    EXPECT_EQ(shapes<Line>()[0].b, (Vec2{10, 0}));
+
+    EXPECT_FALSE(engine.startGrip({50, 50}, 0.1));
+}
+
+TEST_F(Commands, ArrayRectangularAndPolar)
+{
+    type({"CERCHIO", "0,0", "1"});
+    const EntityId circle = doc.entities().begin()->first;
+    engine.select({circle});
+    type({"SERIE", "R", "2", "3", "10", "20"});
+    EXPECT_FALSE(engine.isActive());
+    auto circles = shapes<Circle>();
+    ASSERT_EQ(circles.size(), 6u);
+    EXPECT_EQ(circles.back().center, (Vec2{40, 10}));
+
+    type({"U"});
+    engine.select({circle});
+    type({"SERIE", "PO", "10,0", "4", "", ""});
+    circles = shapes<Circle>();
+    ASSERT_EQ(circles.size(), 4u);
+    EXPECT_NEAR(circles[2].center.x, 20.0, 1e-9);
+    EXPECT_NEAR(circles[2].center.y, 0.0, 1e-9);
+}
+
+TEST_F(Commands, ExplodeAndJoinKeepLayerAndStyle)
+{
+    doc.setCurrentStyle({aciToColor(1), "DASHED", 50});
+    type({"RETTANGOLO", "0,0", "10,5"});
+    engine.select({doc.entities().begin()->first});
+    type({"ESPLODI"});
+    ASSERT_EQ(shapes<Line>().size(), 4u);
+    for (const auto& [id, e] : doc.entities())
+        EXPECT_EQ(styleOf(e), (EntityStyle{aciToColor(1), "DASHED", 50}));
+
+    std::vector<EntityId> ids;
+    for (const auto& [id, e] : doc.entities())
+        ids.push_back(id);
+    engine.select(ids);
+    type({"UNISCI"});
+    const auto plines = shapes<Polyline>();
+    ASSERT_EQ(plines.size(), 1u);
+    EXPECT_TRUE(plines[0].closed);
+    EXPECT_EQ(doc.entities().begin()->second.linetype, "DASHED");
+}
+
+TEST_F(Commands, EllipseSplineAndLeader)
+{
+    type({"ELLISSE", "-10,0", "10,0", "5"});
+    ASSERT_EQ(shapes<Polyline>().size(), 1u);
+    EXPECT_TRUE(shapes<Polyline>()[0].closed);
+    type({"ELLISSE", "C", "0,0", "0,4", "8"});
+    // The longer half-axis wins: an ellipse 16 by 8.
+    const BBox box = boundingBox(shapes<Polyline>()[1]);
+    EXPECT_NEAR(box.width(), 16.0, 1e-6);
+
+    type({"SPLINE", "0,0", "10,10", "20,0", ""});
+    EXPECT_EQ(shapes<Polyline>().size(), 3u);
+
+    type({"DIRETTRICE", "0,0", "10,10", "20,10", "", "Vedi dettaglio"});
+    EXPECT_FALSE(engine.isActive());
+    ASSERT_EQ(shapes<Text>().size(), 1u);
+    EXPECT_EQ(shapes<Text>()[0].content, "Vedi dettaglio");
+    EXPECT_EQ(shapes<Hatch>().size(), 1u);
+}
+
+TEST_F(Commands, DistAreaAndListReport)
+{
+    QStringList messages;
+    QObject::connect(&engine, &CommandEngine::messageAdded, [&](const QString& m) { messages << m; });
+    type({"DIST", "0,0", "3,4"});
+    EXPECT_TRUE(messages.last().startsWith(QStringLiteral("Distanza = 5")));
+    type({"AREA", "0,0", "10,0", "10,10", "0,10", ""});
+    EXPECT_TRUE(messages.last().startsWith(QStringLiteral("Area = 100,  Perimetro = 40")));
+
+    type({"CERCHIO", "0,0", "1"});
+    engine.setPickTolerance(0.1);
+    type({"AREA", "O"});
+    engine.pickPoint({1, 0});
+    EXPECT_TRUE(messages.last().startsWith(QStringLiteral("Area = 3,14")));
+
+    engine.select({doc.entities().begin()->first});
+    type({"LISTA"});
+    EXPECT_TRUE(messages.join(QLatin1Char('\n')).contains(QStringLiteral("CERCHIO  Layer: 0")));
+}

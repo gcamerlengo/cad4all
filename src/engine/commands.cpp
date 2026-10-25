@@ -3790,6 +3790,716 @@ private:
     EntityStyle style_;
 };
 
+// ---------------------------------------------------------------- grips
+
+// Grip editing, as AutoCAD's ** STIRA ** mode: every selected object with a
+// grip on `base` has it moved to the point picked. The selection stays.
+class GripCommand : public Command {
+public:
+    explicit GripCommand(Vec2 base) : base_(base) {}
+
+    void start() override
+    {
+        const Document& doc = engine->document();
+        for (EntityId id : engine->selection()) {
+            const Entity* e = doc.entity(id);
+            if (!e)
+                continue;
+            const std::vector<Vec2> grips = gripPoints(e->shape);
+            for (size_t i = 0; i < grips.size(); ++i)
+                if (almostEqual(grips[i], base_, 1e-6 * std::max(1.0, length(base_)))) {
+                    targets_.push_back({id, i});
+                    break;
+                }
+        }
+        if (targets_.empty()) {
+            engine->finish();
+            return;
+        }
+        engine->setPrompt(t("** STIRA ** Specificare punto di stiramento o [Esci]:"));
+    }
+
+    bool point(Vec2 p) override
+    {
+        Document& doc = engine->document();
+        for (const auto& [id, grip] : targets_)
+            if (const Entity* e = doc.entity(id))
+                if (const auto moved = moveGrip(e->shape, grip, p))
+                    doc.replace(id, *moved);
+        engine->finish();
+        return true;
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (!isExitWord(w))
+            return false;
+        engine->finish();
+        return true;
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        for (const auto& [id, grip] : targets_)
+            if (const Entity* e = engine->document().entity(id))
+                if (const auto moved = moveGrip(e->shape, grip, cursor))
+                    out.push_back(*moved);
+        out.push_back(Line{base_, cursor});
+    }
+
+    std::optional<Vec2> base() const override { return base_; }
+
+private:
+    Vec2 base_;
+    std::vector<std::pair<EntityId, size_t>> targets_;
+};
+
+// ---------------------------------------------------------------- 2D extras
+
+// ARRAY, as AutoCAD's -ARRAY: rectangular (rows and columns) or polar
+// (copies around a centre).
+class ArrayCommand : public SelectionCommand {
+public:
+    bool keyword(const QString& w) override
+    {
+        if (step_ == Step::Kind) {
+            if (isAny(w, {"R", "RETTANGOLARE", "RECTANGULAR"}))
+                toRows();
+            else if (isAny(w, {"PO", "POLARE", "P", "POLAR"}))
+                toCenter();
+            else
+                return false;
+            return true;
+        }
+        if (step_ == Step::Rotate) {
+            if (isAny(w, {"S", "SI", "SÌ", "Y", "YES"}))
+                polar(true);
+            else if (isAny(w, {"N", "NO"}))
+                polar(false);
+            else
+                return false;
+            return true;
+        }
+        return false;
+    }
+
+    bool number(double v) override
+    {
+        switch (step_) {
+        case Step::Rows:
+        case Step::Columns:
+        case Step::Count: {
+            const int n = static_cast<int>(std::lround(v));
+            if (n < 1 || std::abs(v - n) > 1e-9 || (step_ == Step::Count && n < 2) || n > 1000) {
+                engine->message(t("Immettere un numero intero da %1 a 1000.").arg(step_ == Step::Count ? 2 : 1));
+                return true;
+            }
+            if (step_ == Step::Rows) {
+                rows_ = n;
+                toColumns();
+            } else if (step_ == Step::Columns) {
+                columns_ = n;
+                toRowDistance();
+            } else {
+                count_ = n;
+                step_ = Step::Fill;
+                engine->setPrompt(t("Specificare l'angolo da riempire (+=antiorario, -=orario) <360>:"));
+            }
+            return true;
+        }
+        case Step::RowDistance:
+            rowDistance_ = v;
+            toColumnDistance();
+            return true;
+        case Step::ColumnDistance:
+            columnDistance_ = v;
+            rectangular();
+            return true;
+        case Step::Fill:
+            if (std::abs(v) < kEps || std::abs(v) > 360.0 + kEps) {
+                engine->message(t("L'angolo deve essere tra -360 e 360, diverso da 0."));
+                return true;
+            }
+            fill_ = v;
+            toRotate();
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    std::optional<Vec2> base() const override
+    {
+        if (step_ == Step::Count || step_ == Step::Fill)
+            return center_;
+        return std::nullopt;
+    }
+
+protected:
+    void afterSelection() override
+    {
+        step_ = Step::Kind;
+        engine->setPrompt(t("Immettere tipo di serie [Rettangolare/POlare] <R>:"));
+    }
+
+    bool onPoint(Vec2 p) override
+    {
+        if (step_ != Step::Center)
+            return false;
+        center_ = p;
+        step_ = Step::Count;
+        engine->setPrompt(t("Immettere il numero di elementi nella serie:"));
+        return true;
+    }
+
+    void onEnter() override
+    {
+        switch (step_) {
+        case Step::Kind: toRows(); break;
+        case Step::Rows: toColumns(); break;
+        case Step::Columns: toRowDistance(); break;
+        case Step::Fill: toRotate(); break;
+        case Step::Rotate: polar(true); break;
+        default: done(); break;
+        }
+    }
+
+private:
+    enum class Step { Kind, Rows, Columns, RowDistance, ColumnDistance, Center, Count, Fill, Rotate };
+
+    void toRows()
+    {
+        step_ = Step::Rows;
+        engine->setPrompt(t("Immettere il numero di righe (---) <%1>:").arg(rows_));
+    }
+    void toColumns()
+    {
+        step_ = Step::Columns;
+        engine->setPrompt(t("Immettere il numero di colonne (|||) <%1>:").arg(columns_));
+    }
+    void toRowDistance()
+    {
+        if (rows_ == 1) {
+            toColumnDistance();
+            return;
+        }
+        step_ = Step::RowDistance;
+        engine->setPrompt(t("Immettere la distanza tra le righe (---):"));
+    }
+    void toColumnDistance()
+    {
+        if (columns_ == 1) {
+            rectangular();
+            return;
+        }
+        step_ = Step::ColumnDistance;
+        engine->setPrompt(t("Specificare la distanza tra le colonne (|||):"));
+    }
+    void toCenter()
+    {
+        step_ = Step::Center;
+        engine->setPrompt(t("Specificare il punto centrale della serie:"));
+    }
+    void toRotate()
+    {
+        step_ = Step::Rotate;
+        engine->setPrompt(t("Ruotare gli oggetti nella serie? [Sì/No] <S>:"));
+    }
+
+    void rectangular()
+    {
+        for (int r = 0; r < rows_; ++r)
+            for (int c = 0; c < columns_; ++c)
+                if (r != 0 || c != 0)
+                    applyTransform(Transform::translation({c * columnDistance_, r * rowDistance_}), true);
+        done();
+    }
+
+    void polar(bool rotate)
+    {
+        // A full turn spreads the copies evenly; a part of it puts the last one at its end.
+        const double step = degToRad(std::abs(std::abs(fill_) - 360.0) < kEps ? fill_ / count_ : fill_ / (count_ - 1));
+        BBox box;
+        for (EntityId id : ids_)
+            if (const Entity* e = engine->document().entity(id))
+                box.add(boundingBox(e->shape));
+        const Vec2 reference = box.valid() ? box.center() : center_;
+        for (int i = 1; i < count_; ++i) {
+            const Transform turn = Transform::rotation(center_, step * i);
+            applyTransform(rotate ? turn : Transform::translation(turn.apply(reference) - reference), true);
+        }
+        done();
+    }
+
+    Step step_ = Step::Kind;
+    int rows_ = 1;
+    int columns_ = 1;
+    double rowDistance_ = 0.0;
+    double columnDistance_ = 0.0;
+    Vec2 center_;
+    int count_ = 2;
+    double fill_ = 360.0;
+};
+
+// Adds `shape` with the layer, style and story of `like`.
+EntityId addLike(Document& doc, const Entity& like, Shape shape)
+{
+    Entity e = like;
+    e.id = 0;
+    e.shape = std::move(shape);
+    return doc.add(std::move(e));
+}
+
+class ExplodeCommand : public SelectionCommand {
+protected:
+    void afterSelection() override
+    {
+        Document& doc = engine->document();
+        int exploded = 0;
+        int kept = 0;
+        for (EntityId id : ids_) {
+            const Entity* e = doc.entity(id);
+            if (!e)
+                continue;
+            const std::vector<Shape> parts = explodeShape(e->shape);
+            if (parts.empty()) {
+                ++kept;
+                continue;
+            }
+            const Entity original = *e;
+            doc.remove(id);
+            for (const Shape& part : parts)
+                addLike(doc, original, part);
+            ++exploded;
+        }
+        engine->message(QCoreApplication::translate("Command", "%n oggetti esplosi", nullptr, exploded));
+        if (kept > 0)
+            engine->message(QCoreApplication::translate("Command", "%n oggetti non si possono esplodere", nullptr, kept));
+        done();
+    }
+};
+
+class JoinCommand : public SelectionCommand {
+protected:
+    void afterSelection() override
+    {
+        Document& doc = engine->document();
+        std::vector<Entity> entities;
+        std::vector<Shape> shapes;
+        for (EntityId id : ids_)
+            if (const Entity* e = doc.entity(id)) {
+                entities.push_back(*e);
+                shapes.push_back(e->shape);
+            }
+        int joined = 0;
+        for (const JoinedShape& j : joinShapes(shapes, 1e-6)) {
+            for (size_t i : j.sources)
+                doc.remove(entities[i].id);
+            addLike(doc, entities[j.sources.front()], j.shape);
+            joined += static_cast<int>(j.sources.size());
+        }
+        if (joined == 0)
+            engine->message(t("Nessun oggetto unito: le estremità devono coincidere."));
+        else
+            engine->message(QCoreApplication::translate("Command", "%n oggetti uniti", nullptr, joined));
+        done();
+    }
+};
+
+class EllipseCommand : public Command {
+public:
+    void start() override { engine->setPrompt(t("Specificare punto finale asse dell'ellisse o [Centro]:")); }
+
+    bool keyword(const QString& w) override
+    {
+        if (step_ != Step::First || !isAny(w, {"C", "CENTRO", "CENTER"}))
+            return false;
+        step_ = Step::Center;
+        engine->setPrompt(t("Specificare centro dell'ellisse:"));
+        return true;
+    }
+
+    bool point(Vec2 p) override
+    {
+        switch (step_) {
+        case Step::First:
+            first_ = p;
+            step_ = Step::Second;
+            engine->setPrompt(t("Specificare altro punto finale dell'asse:"));
+            return true;
+        case Step::Center:
+            center_ = p;
+            step_ = Step::AxisEnd;
+            engine->setPrompt(t("Specificare punto finale dell'asse:"));
+            return true;
+        case Step::Second:
+        case Step::AxisEnd: {
+            if (step_ == Step::Second)
+                center_ = (first_ + p) * 0.5;
+            major_ = p - center_;
+            if (length(major_) < kEps)
+                return false;
+            step_ = Step::Other;
+            engine->setPrompt(t("Specificare distanza dall'altro asse:"));
+            return true;
+        }
+        case Step::Other:
+            return create(distance(center_, p));
+        }
+        return false;
+    }
+
+    bool number(double v) override { return step_ == Step::Other && create(v); }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (step_ == Step::Other) {
+            if (const auto pl = ellipse(distance(center_, cursor)))
+                out.push_back(*pl);
+            out.push_back(Line{center_, cursor});
+        } else if (step_ == Step::Second || step_ == Step::AxisEnd) {
+            out.push_back(Line{step_ == Step::Second ? first_ : center_, cursor});
+        }
+    }
+
+    std::optional<Vec2> base() const override
+    {
+        switch (step_) {
+        case Step::Second: return first_;
+        case Step::AxisEnd:
+        case Step::Other: return center_;
+        default: return std::nullopt;
+        }
+    }
+
+private:
+    enum class Step { First, Second, Center, AxisEnd, Other };
+
+    std::optional<Polyline> ellipse(double other) const
+    {
+        const double half = length(major_);
+        if (other < kEps)
+            return std::nullopt;
+        // The longer half-axis is the major one.
+        if (other > half)
+            return ellipsePolyline(center_, normalized(perpendicular(major_)) * other, half / other);
+        return ellipsePolyline(center_, major_, other / half);
+    }
+
+    bool create(double other)
+    {
+        const auto pl = ellipse(std::abs(other));
+        if (!pl)
+            return false;
+        engine->document().add(*pl);
+        engine->finish();
+        return true;
+    }
+
+    Step step_ = Step::First;
+    Vec2 first_, center_, major_;
+};
+
+class SplineCommand : public Command {
+public:
+    void start() override { engine->setPrompt(t("Specificare primo punto:")); }
+
+    bool point(Vec2 p) override
+    {
+        if (!points_.empty() && almostEqual(points_.back(), p))
+            return false;
+        points_.push_back(p);
+        engine->setPrompt(points_.size() < 3 ? t("Specificare punto successivo:")
+                                             : t("Specificare punto successivo o [Chiudi]:"));
+        return true;
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (points_.size() < 3 || !isCloseWord(w))
+            return false;
+        finish(true);
+        return true;
+    }
+
+    void enter() override { finish(false); }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (points_.empty())
+            return;
+        std::vector<Vec2> pts = points_;
+        pts.push_back(cursor);
+        out.push_back(splinePolyline(pts, false));
+    }
+
+    std::optional<Vec2> base() const override
+    {
+        return points_.empty() ? std::nullopt : std::optional<Vec2>(points_.back());
+    }
+
+private:
+    void finish(bool closed)
+    {
+        if (points_.size() >= 2)
+            engine->document().add(splinePolyline(points_, closed));
+        engine->finish();
+    }
+
+    std::vector<Vec2> points_;
+};
+
+// LEADER: a line from an arrowhead to a note.
+class LeaderCommand : public Command {
+public:
+    void start() override { engine->setPrompt(t("Specificare punto iniziale della direttrice:")); }
+
+    bool point(Vec2 p) override
+    {
+        if (writing_ || (!points_.empty() && almostEqual(points_.back(), p)))
+            return false;
+        points_.push_back(p);
+        engine->setPrompt(t("Specificare punto successivo:"));
+        return true;
+    }
+
+    void enter() override
+    {
+        if (writing_ || points_.size() < 2) {
+            if (writing_)
+                create(QString());
+            else
+                engine->finish();
+            return;
+        }
+        writing_ = true;
+        engine->setPrompt(t("Immettere testo dell'annotazione:"));
+    }
+
+    bool wantsText() const override { return writing_; }
+    void text(const QString& s) override { create(s); }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (points_.empty() || writing_)
+            return;
+        std::vector<Vec2> pts = points_;
+        pts.push_back(cursor);
+        out.push_back(Polyline(pts));
+    }
+
+    std::optional<Vec2> base() const override
+    {
+        return points_.empty() || writing_ ? std::nullopt : std::optional<Vec2>(points_.back());
+    }
+
+private:
+    void create(const QString& note)
+    {
+        Document& doc = engine->document();
+        doc.add(Polyline(points_));
+        // Arrowhead and text as big as those of the dimensions.
+        const double arrow = 2.5 * gDimScale;
+        const Vec2 dir = normalized(points_[1] - points_[0]);
+        const Vec2 side = perpendicular(dir) * (arrow / 6.0);
+        Hatch head;
+        head.pattern = "SOLID";
+        head.loops.push_back(Polyline({points_[0], points_[0] + dir * arrow + side, points_[0] + dir * arrow - side}, true));
+        doc.add(head);
+        if (!note.trimmed().isEmpty()) {
+            const Vec2 end = points_.back();
+            const bool right = (end - points_[points_.size() - 2]).x >= 0.0;
+            Text tx;
+            tx.height = 2.5 * gDimScale;
+            tx.content = note.toStdString();
+            tx.align = right ? Text::Align::Left : Text::Align::Right;
+            tx.position = end + Vec2{right ? tx.height * 0.5 : -tx.height * 0.5, -tx.height / 2.0};
+            doc.add(tx);
+        }
+        engine->finish();
+    }
+
+    std::vector<Vec2> points_;
+    bool writing_ = false;
+};
+
+QString fmt(double v) { return QString::fromStdString(formatMeasurement(v)); }
+
+QString xy(Vec2 p) { return QStringLiteral("X=%1 Y=%2").arg(fmt(p.x), fmt(p.y)); }
+
+class DistanceCommand : public Command {
+public:
+    void start() override { engine->setPrompt(t("Specificare primo punto:")); }
+
+    bool point(Vec2 p) override
+    {
+        if (!first_) {
+            first_ = p;
+            engine->setPrompt(t("Specificare secondo punto:"));
+            return true;
+        }
+        const Vec2 d = p - *first_;
+        engine->message(t("Distanza = %1,  Angolo nel piano XY = %2°,  Delta X = %3,  Delta Y = %4")
+                            .arg(fmt(length(d)), fmt(radToDeg(normalizeAngle(angleOf(d)))), fmt(d.x), fmt(d.y)));
+        engine->finish();
+        return true;
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (first_)
+            out.push_back(Line{*first_, cursor});
+    }
+
+    std::optional<Vec2> base() const override { return first_; }
+
+private:
+    std::optional<Vec2> first_;
+};
+
+class AreaCommand : public Command {
+public:
+    void start() override { engine->setPrompt(t("Specificare primo punto d'angolo o [Oggetto] <Oggetto>:")); }
+
+    bool keyword(const QString& w) override
+    {
+        if (!points_.empty() || picking_ || !isAny(w, {"O", "OGGETTO", "OBJECT"}))
+            return false;
+        toObject();
+        return true;
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (picking_) {
+            const auto id = pickObject(engine, p);
+            if (!id)
+                return false;
+            const Shape& shape = engine->document().entity(*id)->shape;
+            if (const auto area = shapeArea(shape))
+                engine->message(t("Area = %1,  Perimetro = %2").arg(fmt(*area), fmt(shapeLength(shape))));
+            else
+                engine->message(t("L'oggetto non è chiuso: lunghezza = %1").arg(fmt(shapeLength(shape))));
+            engine->finish();
+            return true;
+        }
+        points_.push_back(p);
+        engine->setPrompt(t("Specificare punto successivo o premere INVIO per il totale:"));
+        return true;
+    }
+
+    void enter() override
+    {
+        if (points_.empty() && !picking_) {
+            toObject();
+            return;
+        }
+        if (points_.size() >= 3) {
+            const Polyline pl(points_, true);
+            engine->message(t("Area = %1,  Perimetro = %2").arg(fmt(polylineArea(pl)), fmt(shapeLength(pl))));
+        }
+        engine->finish();
+    }
+
+    bool wantsObjectPick() const override { return picking_; }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (points_.empty())
+            return;
+        std::vector<Vec2> pts = points_;
+        pts.push_back(cursor);
+        out.push_back(Polyline(pts, true));
+    }
+
+    std::optional<Vec2> base() const override
+    {
+        return points_.empty() ? std::nullopt : std::optional<Vec2>(points_.back());
+    }
+
+private:
+    void toObject()
+    {
+        picking_ = true;
+        engine->setPrompt(t("Selezionare oggetti:"));
+    }
+
+    std::vector<Vec2> points_;
+    bool picking_ = false;
+};
+
+QString shapeKind(const Shape& shape)
+{
+    return std::visit(
+        [](const auto& s) -> QString {
+            using T = std::decay_t<decltype(s)>;
+            if constexpr (std::is_same_v<T, Line>) return t("LINEA");
+            else if constexpr (std::is_same_v<T, Circle>) return t("CERCHIO");
+            else if constexpr (std::is_same_v<T, Arc>) return t("ARCO");
+            else if constexpr (std::is_same_v<T, Polyline>) return t("POLILINEA");
+            else if constexpr (std::is_same_v<T, Text>) return t("TESTO");
+            else if constexpr (std::is_same_v<T, Dimension>) return t("QUOTA");
+            else if constexpr (std::is_same_v<T, Hatch>) return t("TRATTEGGIO");
+            else if constexpr (std::is_same_v<T, Wall>) return t("MURO");
+            else if constexpr (std::is_same_v<T, Slab>) return t("SOLAIO");
+            else if constexpr (std::is_same_v<T, Roof>) return t("TETTO");
+            else return t("SCALINATA");
+        },
+        shape);
+}
+
+class ListCommand : public SelectionCommand {
+protected:
+    void afterSelection() override
+    {
+        const Document& doc = engine->document();
+        for (EntityId id : ids_) {
+            const Entity* e = doc.entity(id);
+            if (!e)
+                continue;
+            const Story* story = doc.story(e->story);
+            engine->message(t("%1  Layer: %2  Piano: %3  Colore: %4  Tipo di linea: %5  Spessore: %6")
+                                .arg(shapeKind(e->shape), QString::fromStdString(e->layer),
+                                     story ? QString::fromStdString(story->name) : QString(), colorName(e->color),
+                                     linetypeName(e->linetype), lineweightName(e->lineweight)));
+            engine->message(QStringLiteral("    ") + details(e->shape));
+        }
+        done();
+    }
+
+private:
+    static QString details(const Shape& shape)
+    {
+        if (const auto* l = std::get_if<Line>(&shape))
+            return t("da %1 a %2, lunghezza %3, angolo %4°")
+                .arg(xy(l->a), xy(l->b), fmt(shapeLength(shape)), fmt(radToDeg(normalizeAngle(angleOf(l->b - l->a)))));
+        if (const auto* c = std::get_if<Circle>(&shape))
+            return t("centro %1, raggio %2, circonferenza %3, area %4")
+                .arg(xy(c->center), fmt(c->radius), fmt(shapeLength(shape)), fmt(*shapeArea(shape)));
+        if (const auto* a = std::get_if<Arc>(&shape))
+            return t("centro %1, raggio %2, angolo iniziale %3°, finale %4°, lunghezza %5")
+                .arg(xy(a->center), fmt(a->radius), fmt(radToDeg(a->startAngle)), fmt(radToDeg(a->endAngle)),
+                     fmt(shapeLength(shape)));
+        if (const auto* pl = std::get_if<Polyline>(&shape)) {
+            QString s = t("%1 vertici, %2, lunghezza %3").arg(pl->points.size()).arg(pl->closed ? t("chiusa") : t("aperta"), fmt(shapeLength(shape)));
+            if (const auto area = shapeArea(shape))
+                s += t(", area %1").arg(fmt(*area));
+            return s;
+        }
+        if (const auto* tx = std::get_if<Text>(&shape))
+            return t("\"%1\" in %2, altezza %3").arg(QString::fromStdString(tx->content), xy(tx->position), fmt(tx->height));
+        if (const auto* d = std::get_if<Dimension>(&shape))
+            return t("misura %1").arg(fmt(d->measurement()));
+        if (const auto* h = std::get_if<Hatch>(&shape))
+            return t("motivo %1, %2 contorni").arg(QString::fromStdString(h->pattern)).arg(h->loops.size());
+        if (const auto* w = std::get_if<Wall>(&shape))
+            return t("da %1 a %2, lunghezza %3, spessore %4, altezza %5, %6 aperture")
+                .arg(xy(w->start), xy(w->end), fmt(distance(w->start, w->end)), fmt(w->thickness), fmt(w->height))
+                .arg(w->openings.size());
+        return {};
+    }
+};
+
 } // namespace
 
 std::unique_ptr<Command> makeLineCommand() { return std::make_unique<LineCommand>(); }
@@ -3833,5 +4543,15 @@ std::unique_ptr<Command> makeLineweightCommand() { return std::make_unique<Curre
 std::unique_ptr<Command> makeLinetypeScaleCommand() { return std::make_unique<LinetypeScaleCommand>(); }
 std::unique_ptr<Command> makeChangePropertiesCommand() { return std::make_unique<ChangePropertiesCommand>(); }
 std::unique_ptr<Command> makeMatchPropertiesCommand() { return std::make_unique<MatchPropertiesCommand>(); }
+std::unique_ptr<Command> makeGripCommand(Vec2 grip) { return std::make_unique<GripCommand>(grip); }
+std::unique_ptr<Command> makeArrayCommand() { return std::make_unique<ArrayCommand>(); }
+std::unique_ptr<Command> makeExplodeCommand() { return std::make_unique<ExplodeCommand>(); }
+std::unique_ptr<Command> makeJoinCommand() { return std::make_unique<JoinCommand>(); }
+std::unique_ptr<Command> makeEllipseCommand() { return std::make_unique<EllipseCommand>(); }
+std::unique_ptr<Command> makeSplineCommand() { return std::make_unique<SplineCommand>(); }
+std::unique_ptr<Command> makeLeaderCommand() { return std::make_unique<LeaderCommand>(); }
+std::unique_ptr<Command> makeDistanceCommand() { return std::make_unique<DistanceCommand>(); }
+std::unique_ptr<Command> makeAreaCommand() { return std::make_unique<AreaCommand>(); }
+std::unique_ptr<Command> makeListCommand() { return std::make_unique<ListCommand>(); }
 
 } // namespace cad

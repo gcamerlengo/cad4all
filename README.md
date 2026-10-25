@@ -13,10 +13,10 @@ CAD 2D e 3D parametrico per tecnici, open source. Il disegno 2D funziona come Au
 
 Versione 0.1. Funziona già:
 
-- **Disegno:** linea, polilinea con tratti dritti e archi, cerchio (raggio o diametro), arco per tre punti, rettangolo, tratteggio (contorno trovato cliccando un punto interno, con le isole, o scegliendo oggetti chiusi; 17 motivi ISO tra cui ANSI31, NET, BRICK, EARTH e il pieno SOLID).
+- **Disegno:** linea, polilinea con tratti dritti e archi, cerchio (raggio o diametro), arco per tre punti, rettangolo, ellisse e spline (salvate come polilinee), tratteggio (contorno trovato cliccando un punto interno, con le isole, o scegliendo oggetti chiusi; 17 motivi ISO tra cui ANSI31, NET, BRICK, EARTH e il pieno SOLID).
 - **Architettura:** muri con spessore, altezza e giustificazione (centro, sinistra, destra) che si uniscono da soli negli angoli a L, negli incroci a T e quando proseguono dritti; porte con lato e verso di apertura e finestre con davanzale, che forano il muro; solai cliccando dentro una stanza o sotto tutti i muri; piani dell'edificio con la loro quota; tetti a padiglione, a capanna, a una falda e piani, anche su piante a L, a T e a U; scale dritte, a L e a U; vista 3D con rotazione, spostamento e zoom.
-- **Modifica:** cancella, sposta, copia (multipla), ruota, scala, specchio, offset (a distanza o per punto), taglia, estendi, raccordo tra linee, archi e cerchi (con raggio o a spigolo vivo), cima tra linee (due distanze o lunghezza e angolo), raccordo e cima su tutti gli angoli di una polilinea, stira con finestra interseca.
-- **Annotazioni:** testo su una o più righe (allineato a sinistra, al centro o a destra, con rotazione), quote lineari (orizzontali, verticali, ruotate), allineate, di raggio e di diametro, con testo personalizzabile e scala delle quote.
+- **Modifica:** cancella, sposta, copia (multipla), ruota, scala, specchio, offset (a distanza o per punto), taglia, estendi, raccordo tra linee, archi e cerchi (con raggio o a spigolo vivo), cima tra linee (due distanze o lunghezza e angolo), raccordo e cima su tutti gli angoli di una polilinea, stira con finestra interseca, serie rettangolare e polare, esplodi, unisci; maniglie sugli oggetti selezionati da trascinare (estremi, punti medi, centri, quadranti, vertici), anche su più oggetti che le condividono.
+- **Annotazioni:** testo su una o più righe (allineato a sinistra, al centro o a destra, con rotazione), quote lineari (orizzontali, verticali, ruotate), allineate, di raggio e di diametro, con testo personalizzabile e scala delle quote; direttrici con freccia e nota. Misure con DIST, AREA e LISTA.
 - **Precisione:** coordinate assolute e relative (`10,20`, `@5,0`, `@10<45`), inserimento diretto della distanza, snap ad oggetto (fine, punto medio, centro, quadrante, intersezione, inserimento), orto.
 - **Selezione:** clic, finestra (da sinistra a destra) e interseca (da destra a sinistra), Maiusc+clic per togliere.
 - **Organizzazione:** layer con colore, tipo di linea, spessore, visibilità e blocco; colore, tipo di linea (continua, tratteggiata, nascosta, asse, tratto punto, fantasma, punti e quelli dei DXF/DWG) e spessore anche per singolo oggetto, dalla barra Proprietà o con CAMBIAPROP; corrispondenza proprietà; spessori visibili a schermo con il pulsante SPESSORI e in stampa.
@@ -36,6 +36,8 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | CERCHIO / CIRCLE | C | Diametro |
 | ARCO / ARC | A | tre punti |
 | RETTANGOLO / RECTANG | REC | |
+| ELLISSE / ELLIPSE | EL | estremi di un asse e metà dell'altro, o Centro |
+| SPLINE | SPL | punti per cui passa la curva, Chiudi |
 | TRATTEGGIO / HATCH | H, BH | punto interno o Oggetti, Motivo (? per l'elenco), Scala, ANgolo; Invio crea il tratteggio |
 | MODIFICATRATTEGGIO / HATCHEDIT | HE | Motivo, Scala, ANgolo di un tratteggio esistente |
 | MURO / WALL | MU | Spessore, Altezza, Giustificazione (Centro/Sinistra/Destra), Chiudi, ANnulla; un muro per ogni tratto |
@@ -59,12 +61,19 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | RACCORDO / FILLET | F | Raggio (0 = spigolo vivo), Polilinea (tutti gli angoli); tra linee, archi e cerchi |
 | CIMA / CHAMFER | CHA | Distanza, Angolo, Polilinea (tutti gli angoli) |
 | STIRA / STRETCH | S | finestra interseca, poi punto base e secondo punto |
+| SERIE / ARRAY | AR | Rettangolare (righe, colonne, distanze) o POlare (centro, numero, angolo, ruotare Sì/No) |
+| ESPLODI / EXPLODE | X | polilinee in linee e archi, quote in linee, testo e frecce |
+| UNISCI / JOIN | J | linee, archi e polilinee con le estremità in comune diventano una polilinea |
 | TESTO / TEXT | DT | Giustifica (Sinistra/Centro/Destra); Spazio scrive uno spazio, Invio va a capo, Invio a vuoto termina |
 | MODIFICATESTO / TEXTEDIT | ED | cambia un testo o il testo di una quota (`<>` = valore misurato) |
 | QUOTALIN / DIMLINEAR | DLI | Invio per selezionare una linea; Testo, Orizzontale, Verticale, Ruotato |
 | QUOTALLINEATA / DIMALIGNED | DAL | Invio per selezionare una linea; Testo |
 | QUOTARAGGIO / DIMRADIUS | DRA | Testo |
 | QUOTADIAMETRO / DIMDIAMETER | DDI | Testo |
+| DIRETTRICE / LEADER | LE | punti dalla freccia alla nota, Invio, testo |
+| DIST | DI | due punti: distanza, angolo, delta X e Y |
+| AREA | AA | punti del contorno e Invio, o Oggetto (cerchio o polilinea chiusa) |
+| LISTA / LIST | LI | dati degli oggetti selezionati |
 | SCALAQUOTE / DIMSCALE | | moltiplica le dimensioni delle nuove quote (testo e frecce 2,5) |
 | ZOOM | Z | Estensioni |
 | LAYER | LA | apre il pannello layer |
@@ -77,6 +86,8 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | STAMPA / PLOT | | apre la finestra di stampa (anche Ctrl+P) |
 | ANNULLA / UNDO | U | (anche Ctrl+Z) |
 | RIPRISTINA / REDO | | (anche Ctrl+Y) |
+
+Maniglie: con nessun comando attivo gli oggetti selezionati mostrano dei quadratini blu; un clic su uno (o un trascinamento) lo sposta nel punto scelto, con snap, orto e coordinate scritte.
 
 Tasti: F3 snap ad oggetto, F7 griglia, F8 orto. Rotella per lo zoom, tasto centrale per spostare la vista, doppio clic del tasto centrale per lo zoom estensioni.
 

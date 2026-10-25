@@ -3,6 +3,8 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 using namespace cad;
 
 namespace {
@@ -378,4 +380,141 @@ TEST(PolylineArcs, ChamferSkipsShortSegments)
     expectNear(ok.polyline.points[2], {10, 0.4});
     // Cuts that meet in the middle of the short segment share one vertex.
     EXPECT_EQ(chamferPolyline(step, 0.5, 0.5).polyline.points.size(), 5u);
+}
+
+TEST(Grips, LineEndsAndMidpoint)
+{
+    const Line l{{0, 0}, {10, 0}};
+    const auto grips = gripPoints(l);
+    ASSERT_EQ(grips.size(), 3u);
+    EXPECT_EQ(grips[2], (Vec2{5, 0}));
+    const auto end = moveGrip(l, 1, {10, 5});
+    ASSERT_TRUE(end);
+    EXPECT_EQ(std::get<Line>(*end).b, (Vec2{10, 5}));
+    EXPECT_EQ(std::get<Line>(*end).a, (Vec2{0, 0}));
+    const auto moved = moveGrip(l, 2, {5, 3});
+    EXPECT_EQ(std::get<Line>(*moved).a, (Vec2{0, 3}));
+    EXPECT_EQ(std::get<Line>(*moved).b, (Vec2{10, 3}));
+    // A line cannot shrink to a point.
+    EXPECT_FALSE(moveGrip(l, 1, {0, 0}));
+}
+
+TEST(Grips, CircleAndArc)
+{
+    const Circle c{{0, 0}, 5};
+    EXPECT_DOUBLE_EQ(std::get<Circle>(*moveGrip(c, 2, {0, 8})).radius, 8.0);
+    EXPECT_EQ(std::get<Circle>(*moveGrip(c, 0, {1, 1})).center, (Vec2{1, 1}));
+
+    const Arc a{{0, 0}, 10, 0.0, kPi};  // upper half
+    const auto grips = gripPoints(a);
+    ASSERT_EQ(grips.size(), 4u);
+    EXPECT_NEAR(grips[3].y, 10.0, 1e-9);
+    // Dragging the midpoint up makes a flatter, larger arc through the same ends.
+    const Arc r = std::get<Arc>(*moveGrip(a, 3, {0, 5}));
+    EXPECT_TRUE(almostEqual(r.startPoint(), {10, 0}, 1e-9) || almostEqual(r.endPoint(), {10, 0}, 1e-9));
+    EXPECT_NEAR(r.radius, 12.5, 1e-9);
+}
+
+TEST(Grips, PolylineVerticesAndSegments)
+{
+    const Polyline pl({{0, 0}, {10, 0}, {10, 10}}, false);
+    const auto grips = gripPoints(pl);
+    ASSERT_EQ(grips.size(), 5u);  // three vertices, two midpoints
+    const Polyline v = std::get<Polyline>(*moveGrip(pl, 1, {12, 0}));
+    EXPECT_EQ(v.points[1], (Vec2{12, 0}));
+    // A straight segment moves parallel.
+    const Polyline s = std::get<Polyline>(*moveGrip(pl, 3, {5, -2}));
+    EXPECT_EQ(s.points[0], (Vec2{0, -2}));
+    EXPECT_EQ(s.points[1], (Vec2{10, -2}));
+    EXPECT_EQ(s.points[2], (Vec2{10, 10}));
+
+    // An arc segment bends through the point: here a half circle below the chord.
+    const Polyline arc({{0, 0}, {10, 0}}, false, {1.0});
+    const Polyline bent = std::get<Polyline>(*moveGrip(arc, 2, {5, -2}));
+    EXPECT_GT(bent.bulge(0), 0.0);
+    EXPECT_LT(bent.bulge(0), 1.0);
+}
+
+TEST(Grips, WallKeepsItsOpeningsInPlace)
+{
+    Wall w;
+    w.start = {0, 0};
+    w.end = {5000, 0};
+    w.openings.push_back({Opening::Kind::Door, 2000.0, 900.0, 2100.0, 0.0});
+    const Wall r = std::get<Wall>(*moveGrip(w, 0, {-1000, 0}));
+    EXPECT_EQ(r.start, (Vec2{-1000, 0}));
+    EXPECT_NEAR(r.openings[0].position, 3000.0, 1e-9);
+}
+
+TEST(Measure, LengthsAndAreas)
+{
+    EXPECT_DOUBLE_EQ(shapeLength(Line{{0, 0}, {3, 4}}), 5.0);
+    EXPECT_NEAR(*shapeArea(Circle{{0, 0}, 2}), 4 * kPi, 1e-12);
+    const Polyline square({{0, 0}, {10, 0}, {10, 10}, {0, 10}}, true);
+    EXPECT_NEAR(*shapeArea(square), 100.0, 1e-9);
+    EXPECT_NEAR(shapeLength(square), 40.0, 1e-9);
+    // A half disc closed by its diameter, drawn either way round.
+    const Polyline half({{-5, 0}, {5, 0}}, true, {1.0, 0.0});
+    EXPECT_NEAR(polylineArea(half), kPi * 25 / 2, 1e-9);
+    const Polyline back({{5, 0}, {-5, 0}}, true, {0.0, -1.0});
+    EXPECT_NEAR(polylineArea(back), kPi * 25 / 2, 1e-9);
+    EXPECT_FALSE(shapeArea(Polyline({{0, 0}, {1, 0}, {1, 1}})).has_value());
+}
+
+TEST(Explode, PolylineAndDimension)
+{
+    const auto parts = explodeShape(Polyline({{0, 0}, {10, 0}, {10, 10}}, false, {0.0, 0.5}));
+    ASSERT_EQ(parts.size(), 2u);
+    EXPECT_TRUE(std::holds_alternative<Line>(parts[0]));
+    EXPECT_TRUE(std::holds_alternative<Arc>(parts[1]));
+
+    Dimension d;
+    d.p1 = {0, 0};
+    d.p2 = {100, 0};
+    d.location = {50, 20};
+    const auto dim = explodeShape(d);
+    EXPECT_TRUE(std::any_of(dim.begin(), dim.end(), [](const Shape& s) { return std::holds_alternative<Text>(s); }));
+    EXPECT_TRUE(std::any_of(dim.begin(), dim.end(), [](const Shape& s) { return std::holds_alternative<Hatch>(s); }));
+    EXPECT_TRUE(explodeShape(Circle{{0, 0}, 1}).empty());
+}
+
+TEST(Join, ChainsLinesAndArcsInAnyDirection)
+{
+    // A square from four lines, one of them drawn backwards.
+    const std::vector<Shape> square = {Line{{0, 0}, {10, 0}}, Line{{10, 10}, {10, 0}}, Line{{10, 10}, {0, 10}}, Line{{0, 10}, {0, 0}}};
+    const auto joined = joinShapes(square, 1e-9);
+    ASSERT_EQ(joined.size(), 1u);
+    const Polyline& pl = std::get<Polyline>(joined[0].shape);
+    EXPECT_TRUE(pl.closed);
+    EXPECT_EQ(pl.points.size(), 4u);
+    EXPECT_EQ(joined[0].sources.size(), 4u);
+    EXPECT_NEAR(polylineArea(pl), 100.0, 1e-9);
+
+    // Lines in a row become one line; a line far away is left alone.
+    const auto row = joinShapes({Line{{0, 0}, {5, 0}}, Line{{5, 0}, {9, 0}}, Line{{50, 50}, {60, 60}}}, 1e-9);
+    ASSERT_EQ(row.size(), 1u);
+    EXPECT_EQ(std::get<Line>(row[0].shape).b, (Vec2{9, 0}));
+
+    // A line and an arc keep the arc as a bulge.
+    const auto withArc = joinShapes({Line{{-10, 0}, {-5, 0}}, Arc{{0, 0}, 5, 0.0, kPi}}, 1e-9);
+    ASSERT_EQ(withArc.size(), 1u);
+    const Polyline& p2 = std::get<Polyline>(withArc[0].shape);
+    EXPECT_NEAR(shapeLength(p2), 5.0 + 5.0 * kPi, 1e-9);
+}
+
+TEST(Curves, EllipseAndSpline)
+{
+    const Polyline e = ellipsePolyline({0, 0}, {10, 0}, 0.5);
+    EXPECT_TRUE(e.closed);
+    EXPECT_NEAR(polylineArea(e), kPi * 10 * 5, 1e-4 * kPi * 10 * 5);
+    for (Vec2 p : e.points)
+        EXPECT_NEAR(p.x * p.x / 100 + p.y * p.y / 25, 1.0, 1e-9);
+
+    const std::vector<Vec2> fit = {{0, 0}, {10, 5}, {20, 0}, {30, 5}};
+    const Polyline s = splinePolyline(fit, false);
+    EXPECT_EQ(s.points.front(), fit.front());
+    EXPECT_EQ(s.points.back(), fit.back());
+    // The curve passes through every fit point.
+    for (Vec2 f : fit)
+        EXPECT_TRUE(std::any_of(s.points.begin(), s.points.end(), [&](Vec2 p) { return almostEqual(p, f, 1e-9); }));
 }
