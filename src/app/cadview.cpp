@@ -14,6 +14,8 @@ using namespace cad;
 namespace {
 
 const QColor kBackground(33, 40, 48);
+// The story below, as a reference for drawing the current one.
+const QColor kStoryBelow(88, 96, 106);
 const QColor kGridMinor(42, 50, 60);
 const QColor kGridMajor(54, 63, 75);
 const QColor kAxisX(150, 60, 60);
@@ -243,6 +245,17 @@ void CadView::paintEvent(QPaintEvent*)
     dp.setVisibleArea(visible);
 
     const std::map<EntityId, WallFaces> walls = joinedWalls(doc);
+    if (const Story* below = doc.storyBelow(doc.currentStory())) {
+        p.setPen(QPen(kStoryBelow, 0));
+        for (const auto& [id, e] : doc.entities()) {
+            if (e.story != below->id || !doc.isLayerVisible(e) || !drawnBox(e.shape).intersects(visible))
+                continue;
+            if (const auto* w = std::get_if<Wall>(&e.shape))
+                dp.drawWall(*w, walls.at(id));
+            else
+                dp.drawShape(e.shape);
+        }
+    }
     for (const auto& [id, e] : doc.entities()) {
         if (!doc.isVisible(e) || !drawnBox(e.shape).intersects(visible))
             continue;

@@ -22,3 +22,4 @@ Screenshot without a display: `QT_QPA_PLATFORM=offscreen ./build/src/app/CAD4All
 - User-facing text is Italian, prompts follow Italian AutoCAD ("Specificare ..."). Code, comments and identifiers are English.
 - Each source file starts with `// SPDX-License-Identifier: GPL-3.0-or-later`.
 - Walls, doors and windows: `Wall` (with its `Opening`s) is a shape; joins, plan symbols and the 3D mesh are computed in `src/core/building.cpp`. The 3D view (`src/app/view3d.cpp`) uses the software renderer in `render3d.cpp`, so it needs no OpenGL.
+- Stories: every entity has a `story`; the plan shows the current story (`Document::isVisible`), the 3D view every story raised by its elevation. `Slab` and `Roof` are shapes; roofs need a convex footprint (`roofGeometry` in `building.cpp`).

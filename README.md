@@ -9,7 +9,7 @@ CAD 2D e 3D parametrico per tecnici, open source. Il disegno 2D funziona come Au
 Versione 0.1. Funziona già:
 
 - **Disegno:** linea, polilinea con tratti dritti e archi, cerchio (raggio o diametro), arco per tre punti, rettangolo, tratteggio (contorno trovato cliccando un punto interno, con le isole, o scegliendo oggetti chiusi; 17 motivi ISO tra cui ANSI31, NET, BRICK, EARTH e il pieno SOLID).
-- **Architettura:** muri con spessore, altezza e giustificazione (centro, sinistra, destra) che si uniscono da soli negli angoli a L, negli incroci a T e quando proseguono dritti; porte con lato e verso di apertura e finestre con davanzale, che forano il muro; vista 3D con rotazione, spostamento e zoom.
+- **Architettura:** muri con spessore, altezza e giustificazione (centro, sinistra, destra) che si uniscono da soli negli angoli a L, negli incroci a T e quando proseguono dritti; porte con lato e verso di apertura e finestre con davanzale, che forano il muro; solai cliccando dentro una stanza o sotto tutti i muri; piani dell'edificio con la loro quota; tetti a padiglione, a capanna, a una falda e piani; vista 3D con rotazione, spostamento e zoom.
 - **Modifica:** cancella, sposta, copia (multipla), ruota, scala, specchio, offset (a distanza o per punto), taglia, estendi, raccordo tra linee, archi e cerchi (con raggio o a spigolo vivo), cima tra linee (due distanze o lunghezza e angolo), raccordo e cima su tutti gli angoli di una polilinea, stira con finestra interseca.
 - **Annotazioni:** testo su una o più righe (allineato a sinistra, al centro o a destra, con rotazione), quote lineari (orizzontali, verticali, ruotate), allineate, di raggio e di diametro, con testo personalizzabile e scala delle quote.
 - **Precisione:** coordinate assolute e relative (`10,20`, `@5,0`, `@10<45`), inserimento diretto della distanza, snap ad oggetto (fine, punto medio, centro, quadrante, intersezione, inserimento), orto.
@@ -17,7 +17,7 @@ Versione 0.1. Funziona già:
 - **Organizzazione:** layer con colore, visibilità e blocco.
 - **File:** formato nativo `.c4a` (JSON leggibile), apertura dei DWG di AutoCAD, apertura e salvataggio DXF, stampa su stampante e in PDF in scala, annulla e ripristina illimitati, script di comandi `.scr`.
 
-In arrivo: solai, piani dell'edificio, tetti e scale; esportazione del modello 3D.
+In arrivo: scale, tetti su piante a L; esportazione del modello 3D.
 
 ## Comandi
 
@@ -36,6 +36,9 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | PORTA / DOOR | PO | punto sul muro (centro della porta), poi lato di apertura; Larghezza, Altezza |
 | FINESTRA / WINDOW | FI | punto sul muro (centro della finestra); Larghezza, Altezza, Davanzale |
 | MODIFICAMURO / WALLEDIT | MM | Spessore, Altezza, Giustificazione di un muro, Elimina apertura |
+| SOLAIO / SLAB | SO | punto dentro una stanza, Muri (sotto tutti i muri), Oggetti (polilinea chiusa o cerchio), Disegna, Spessore, Quota |
+| TETTO / ROOF | TE | punti del contorno, Muri, Oggetti, Tipo (Padiglione/Capanna/Falda/PIano), Pendenza, Sporto, SPessore, Imposta |
+| PIANO / STORY | PN | Nuovo, Corrente, Su, Giù, Rinomina, Quota, Altezza, Elimina, ? (elenco) |
 | VISTA3D / VIEW3D | 3D | apre la vista 3D |
 | CANCELLA / ERASE | E | (anche tasto Canc) |
 | SPOSTA / MOVE | M | |
@@ -103,6 +106,20 @@ La vista 3D si apre da sola con il primo muro (o con VISTA3D, o da Architettura 
 ![Pianta con muri, porte e finestre](docs/immagini/casa.png)
 
 ![La stessa casa in 3D](docs/immagini/casa-3d.png)
+
+## Solai, piani e tetti
+
+Un edificio ha uno o più piani (PIANO, o il menu a tendina nella barra Architettura; Ctrl+PagSu e Ctrl+PagGiù passano al piano sopra o sotto). Ogni piano ha nome, quota e altezza; si disegna sempre sul piano corrente, la pianta mostra solo quello, con il piano sotto in grigio come riferimento, e la vista 3D mostra tutti i piani, ciascuno alla sua quota. Un piano nuovo va sopra il più alto e diventa corrente. Il DXF contiene il piano corrente.
+
+SOLAIO crea un solaio cliccando dentro una stanza (le porte non la aprono), sotto tutti i muri del piano (Muri), lungo una polilinea chiusa o un cerchio (Oggetti) o disegnandone il contorno (Disegna). Lo spessore va verso il basso dalla quota superiore, che di solito coincide con il piano (Quota la sposta).
+
+TETTO crea un tetto sopra i muri del piano (Muri), su una polilinea chiusa o su un contorno disegnato punto per punto. Il tipo può essere a padiglione (falde su tutti i lati), a capanna (due falde sui lati lunghi, con i timpani chiusi da un muro), a una falda o piano; pendenza, sporto e spessore restano per i tetti successivi. Le falde partono dalla cima dei muri, a meno di un'altezza d'imposta data. Il contorno deve essere convesso: per una pianta a L si fa un tetto per ogni parte. In pianta il tetto si vede tratteggiato, con colmo e displuvi.
+
+L'esempio [casa-due-piani.scr](docs/esempi/casa-due-piani.scr) disegna una casa su due piani con solai e tetto a capanna.
+
+![Il primo piano, con il piano terra in grigio](docs/immagini/casa-due-piani.png)
+
+![La casa su due piani in 3D](docs/immagini/casa-due-piani-3d.png)
 
 ## Tratteggi
 

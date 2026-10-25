@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The drawing: layers, entities and the undo history.
+// The drawing: layers, building stories, entities and the undo history.
 #pragma once
 
 #include "shapes.h"
@@ -33,10 +33,24 @@ struct Layer {
     }
 };
 
+using StoryId = int;
+
+// A floor of the building (ArchiCAD's story). Every entity belongs to one;
+// the plan shows the current story, the 3D view all of them, each raised to
+// its elevation.
+struct Story {
+    StoryId id = 0;
+    std::string name;
+    double elevation = 0.0;
+    double height = 3000.0;
+};
+
 struct Entity {
     EntityId id = 0;
     std::string layer = "0";
     Shape shape;
+    // 0: the current story when added.
+    StoryId story = 0;
 };
 
 // Every change to the entities goes through add/remove/replace and is
@@ -53,9 +67,27 @@ public:
     bool updateLayer(const std::string& name, const Layer& value);
     const std::string& currentLayer() const { return currentLayer_; }
     bool setCurrentLayer(const std::string& name);
-    // Visible and not locked: the entity can be picked and edited.
+    // On the current story, visible and not locked: the entity can be picked and edited.
     bool isEditable(const Entity& e) const;
+    // On the current story and on a visible layer: drawn in plan.
     bool isVisible(const Entity& e) const;
+    // On a visible layer, whatever its story (the 3D view).
+    bool isLayerVisible(const Entity& e) const;
+
+    // Stories, from the lowest. There is always at least one.
+    const std::vector<Story>& stories() const { return stories_; }
+    const Story* story(StoryId id) const;
+    const Story* storyNamed(const std::string& name) const;
+    // Returns the id of the new story, 0 if the name is empty or taken.
+    StoryId addStory(Story story);
+    bool updateStory(StoryId id, const Story& value);
+    // Only an empty story can go, and never the last one.
+    bool removeStory(StoryId id);
+    StoryId currentStory() const { return currentStory_; }
+    bool setCurrentStory(StoryId id);
+    // The next story down or up from `id`, if any.
+    const Story* storyBelow(StoryId id) const;
+    const Story* storyAbove(StoryId id) const;
 
     // Entities, kept in creation order (which is also the drawing order).
     const std::map<EntityId, Entity>& entities() const { return entities_; }
@@ -100,6 +132,9 @@ private:
 
     std::vector<Layer> layers_;
     std::string currentLayer_;
+    std::vector<Story> stories_;
+    StoryId currentStory_ = 0;
+    StoryId nextStory_ = 1;
     std::map<EntityId, Entity> entities_;
     EntityId nextId_ = 1;
 

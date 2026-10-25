@@ -145,6 +145,27 @@ QIcon make(const QString& name)
             p.drawLine(QPointF(16.5, 9.5), QPointF(16.5, 14.5));
             p.drawLine(QPointF(7.5, 12), QPointF(16.5, 12));
         };
+    } else if (name == QLatin1String("slab")) {
+        painter = [](QPainter& p) {
+            p.drawPolygon(QPolygonF({{2.5, 14}, {12, 9.5}, {21.5, 14}, {12, 18.5}}));
+            accentPen(p);
+            p.drawPolyline(QPolygonF({{2.5, 14}, {2.5, 16.5}, {12, 21}, {21.5, 16.5}, {21.5, 14}}));
+            p.drawLine(QPointF(12, 18.5), QPointF(12, 21));
+        };
+    } else if (name == QLatin1String("roof")) {
+        painter = [](QPainter& p) {
+            p.drawPolyline(QPolygonF({{5.5, 12}, {5.5, 20.5}, {18.5, 20.5}, {18.5, 12}}));
+            accentPen(p);
+            p.drawPolyline(QPolygonF({{2, 13.5}, {12, 4}, {22, 13.5}}));
+        };
+    } else if (name == QLatin1String("story")) {
+        painter = [](QPainter& p) {
+            p.drawRect(QRectF(4.5, 3.5, 15, 17));
+            accentPen(p);
+            p.drawLine(QPointF(4.5, 12), QPointF(19.5, 12));
+            p.drawLine(QPointF(9, 7.5), QPointF(15, 7.5));
+            p.drawLine(QPointF(9, 16.5), QPointF(15, 16.5));
+        };
     } else if (name == QLatin1String("view3d")) {
         painter = [](QPainter& p) {
             p.drawPolygon(QPolygonF({{12, 3}, {20.5, 7.5}, {20.5, 16.5}, {12, 21}, {3.5, 16.5}, {3.5, 7.5}}));

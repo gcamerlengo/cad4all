@@ -407,6 +407,9 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("DOOR"), {QStringLiteral("PORTA"), QStringLiteral("PO")}, [] { return makeDoorCommand(); });
     add(QStringLiteral("WINDOW"), {QStringLiteral("FINESTRA"), QStringLiteral("FI")}, [] { return makeWindowCommand(); });
     add(QStringLiteral("WALLEDIT"), {QStringLiteral("MODIFICAMURO"), QStringLiteral("MM")}, [] { return makeWallEditCommand(); });
+    add(QStringLiteral("STORY"), {QStringLiteral("PIANO"), QStringLiteral("PIANI"), QStringLiteral("PN")}, [] { return makeStoryCommand(); });
+    add(QStringLiteral("SLAB"), {QStringLiteral("SOLAIO"), QStringLiteral("SO")}, [] { return makeSlabCommand(); });
+    add(QStringLiteral("ROOF"), {QStringLiteral("TETTO"), QStringLiteral("TE")}, [] { return makeRoofCommand(); });
     add(QStringLiteral("VIEW3D"), {QStringLiteral("VISTA3D"), QStringLiteral("3D")}, [] { return makeView3dCommand(); });
     add(QStringLiteral("ZOOM"), {QStringLiteral("Z")}, [] { return makeZoomCommand(); });
     add(QStringLiteral("PLOT"), {QStringLiteral("STAMPA"), QStringLiteral("PRINT")}, [] { return makePlotCommand(); });

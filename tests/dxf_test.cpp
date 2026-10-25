@@ -287,3 +287,20 @@ TEST(Dxf, WritesWallsAsTheirPlan)
     EXPECT_EQ(shapes<Line>(back).size(), 11u);
     EXPECT_EQ(shapes<Arc>(back).size(), 1u);
 }
+
+TEST(Dxf, WritesOnlyTheCurrentStory)
+{
+    Document doc;
+    doc.add(Line{{0, 0}, {1, 0}});
+    doc.setCurrentStory(doc.addStory({0, "Primo piano", 3000, 3000}));
+    doc.add(Circle{{0, 0}, 1});
+    Roof roof;
+    roof.footprint = Polyline{{{0, 0}, {6000, 0}, {6000, 4000}, {0, 4000}}, true};
+    doc.add(roof);
+    Document back;
+    ASSERT_TRUE(io::fromDxf(io::toDxf(doc), back));
+    EXPECT_TRUE(shapes<Line>(back).size() >= 4u);  // the roof: hips and the ridge
+    EXPECT_EQ(shapes<Circle>(back).size(), 1u);
+    for (const auto& [layer, l] : shapes<Line>(back))
+        EXPECT_FALSE(l.a == (Vec2{0, 0}) && l.b == (Vec2{1, 0}));
+}

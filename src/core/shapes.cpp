@@ -99,6 +99,18 @@ std::vector<Piece> pieces(const Shape& shape)
                            out.insert(out.end(), sub.begin(), sub.end());
                        }
                    },
+                   [&](const Slab& sl) {
+                       for (const Polyline& loop : sl.loops) {
+                           const auto sub = pieces(loop);
+                           out.insert(out.end(), sub.begin(), sub.end());
+                       }
+                   },
+                   [&](const Roof& r) {
+                       for (const Shape& s : roofPlan(r)) {
+                           const auto sub = pieces(s);
+                           out.insert(out.end(), sub.begin(), sub.end());
+                       }
+                   },
                },
                shape);
     return out;
@@ -499,6 +511,15 @@ BBox boundingBox(const Shape& shape)
                        box.add(w.start);
                        box.add(w.end);
                    },
+                   [&](const Slab& sl) {
+                       for (const Polyline& loop : sl.loops)
+                           box.add(boundingBox(loop));
+                   },
+                   [&](const Roof& r) {
+                       box.add(boundingBox(r.footprint));
+                       for (const Shape& s : roofPlan(r))
+                           box.add(boundingBox(s));
+                   },
                },
                shape);
     return box;
@@ -660,6 +681,23 @@ Shape transformed(const Shape& shape, const Transform& t)
                               }
                               return r;
                           },
+                          [&](const Slab& sl) -> Shape {
+                              Slab r = sl;
+                              for (Polyline& loop : r.loops)
+                                  loop = std::get<Polyline>(transformed(loop, t));
+                              r.thickness = sl.thickness * t.scaleFactor();
+                              r.offset = sl.offset * t.scaleFactor();
+                              return r;
+                          },
+                          [&](const Roof& roof) -> Shape {
+                              Roof r = roof;
+                              const double s = t.scaleFactor();
+                              r.footprint = std::get<Polyline>(transformed(roof.footprint, t));
+                              r.base = roof.base * s;
+                              r.overhang = roof.overhang * s;
+                              r.thickness = roof.thickness * s;
+                              return r;
+                          },
                       },
                       shape);
 }
@@ -715,6 +753,15 @@ void collectSnapPoints(const Shape& shape, unsigned mask, std::vector<SnapPoint>
                        add(midpoint(w.start, w.end), SnapMidpoint);
                        for (Vec2 c : wallFaces(w).corners)
                            add(c, SnapEndpoint);
+                   },
+                   [&](const Slab& sl) {
+                       for (const Polyline& loop : sl.loops)
+                           collectSnapPoints(loop, mask, out);
+                   },
+                   [&](const Roof& r) {
+                       collectSnapPoints(r.footprint, mask & SnapEndpoint, out);
+                       for (const Shape& s : roofPlan(r))
+                           collectSnapPoints(s, mask & SnapEndpoint, out);
                    },
                },
                shape);

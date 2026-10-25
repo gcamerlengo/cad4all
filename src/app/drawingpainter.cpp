@@ -108,6 +108,18 @@ void DrawingPainter::drawShape(const Shape& shape)
         drawHatch(*h);
     } else if (const auto* w = std::get_if<Wall>(&shape)) {
         drawWall(*w, wallFaces(*w));
+    } else if (const auto* sl = std::get_if<Slab>(&shape)) {
+        for (const Polyline& loop : sl->loops)
+            drawShape(loop);
+    } else if (const auto* r = std::get_if<Roof>(&shape)) {
+        // Roofs are above the cut of the plan: dashed, as usual in plans.
+        p_.save();
+        QPen pen = p_.pen();
+        pen.setStyle(Qt::DashLine);
+        p_.setPen(pen);
+        for (const Shape& s : roofPlan(*r))
+            drawShape(s);
+        p_.restore();
     }
 }
 

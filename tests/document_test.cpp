@@ -91,3 +91,48 @@ TEST(Document, HiddenAndLockedLayers)
     // Hidden entities do not count for the extents.
     EXPECT_NEAR(doc.extents().width(), 1.0, 1e-12);
 }
+
+TEST(Document, StoriesKeepTheirOrderAndOwnTheEntities)
+{
+    Document doc;
+    ASSERT_EQ(doc.stories().size(), 1u);
+    const StoryId ground = doc.currentStory();
+    EXPECT_EQ(doc.story(ground)->name, "Piano terra");
+
+    const StoryId first = doc.addStory({0, "Primo piano", 3000, 3000});
+    const StoryId basement = doc.addStory({0, "Interrato", -2800, 2800});
+    ASSERT_NE(first, 0);
+    ASSERT_NE(basement, 0);
+    EXPECT_EQ(doc.addStory({0, "Primo piano", 6000, 3000}), 0);  // name taken
+    EXPECT_EQ(doc.addStory({0, "", 6000, 3000}), 0);
+    ASSERT_EQ(doc.stories().size(), 3u);
+    EXPECT_EQ(doc.stories().front().id, basement);
+    EXPECT_EQ(doc.storyBelow(ground)->id, basement);
+    EXPECT_EQ(doc.storyAbove(ground)->id, first);
+    EXPECT_EQ(doc.storyAbove(first), nullptr);
+
+    const EntityId a = doc.add(Line{{0, 0}, {1, 0}});
+    ASSERT_TRUE(doc.setCurrentStory(first));
+    const EntityId b = doc.add(Line{{0, 0}, {0, 1}});
+    EXPECT_EQ(doc.entity(a)->story, ground);
+    EXPECT_EQ(doc.entity(b)->story, first);
+    // The plan shows the current story, the 3D view every story.
+    EXPECT_FALSE(doc.isVisible(*doc.entity(a)));
+    EXPECT_FALSE(doc.isEditable(*doc.entity(a)));
+    EXPECT_TRUE(doc.isLayerVisible(*doc.entity(a)));
+    EXPECT_TRUE(doc.isVisible(*doc.entity(b)));
+
+    // Raising a story keeps the order by elevation.
+    Story s = *doc.story(basement);
+    s.elevation = 9000;
+    ASSERT_TRUE(doc.updateStory(basement, s));
+    EXPECT_EQ(doc.stories().back().id, basement);
+
+    EXPECT_FALSE(doc.removeStory(first));  // not empty
+    EXPECT_TRUE(doc.removeStory(basement));
+    EXPECT_FALSE(doc.setCurrentStory(basement));
+    doc.remove(b);
+    EXPECT_TRUE(doc.removeStory(first));
+    EXPECT_EQ(doc.currentStory(), ground);
+    EXPECT_FALSE(doc.removeStory(ground));  // the last one
+}

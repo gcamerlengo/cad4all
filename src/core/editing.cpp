@@ -899,6 +899,17 @@ Shape stretchShape(const Shape& shape, const BBox& window, Vec2 offset)
             loop = std::get<Polyline>(stretchShape(loop, window, offset));
         return r;
     }
+    if (const auto* sl = std::get_if<Slab>(&shape)) {
+        Slab r = *sl;
+        for (Polyline& loop : r.loops)
+            loop = std::get<Polyline>(stretchShape(loop, window, offset));
+        return r;
+    }
+    if (const auto* roof = std::get_if<Roof>(&shape)) {
+        Roof r = *roof;
+        r.footprint = std::get<Polyline>(stretchShape(roof->footprint, window, offset));
+        return r;
+    }
     if (const auto* w = std::get_if<Wall>(&shape)) {
         Wall r = *w;
         r.start = move(w->start);

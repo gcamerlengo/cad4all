@@ -1344,9 +1344,22 @@ QByteArray toDxf(const Document& doc)
     QByteArray blocks;
     int dimCount = 0;
     DxfWriter entities;
-    // DXF has no walls: they go out as the lines and arcs they draw in plan.
+    // DXF has no walls, slabs or roofs: they go out as what they draw in plan.
     const std::map<EntityId, WallFaces> walls = joinedWalls(doc);
+    // Only the current story: the others would lie on top of it.
     for (const auto& [id, e] : doc.entities()) {
+        if (e.story != doc.currentStory())
+            continue;
+        if (const auto* slab = std::get_if<Slab>(&e.shape)) {
+            for (const Polyline& loop : slab->loops)
+                entities.shape(e.layer, loop, dimCount, blocks);
+            continue;
+        }
+        if (const auto* roof = std::get_if<Roof>(&e.shape)) {
+            for (const Shape& s : roofPlan(*roof))
+                entities.shape(e.layer, s, dimCount, blocks);
+            continue;
+        }
         if (const auto* wall = std::get_if<Wall>(&e.shape)) {
             for (const Shape& s : wallPlan(*wall, walls.at(id)))
                 entities.shape(e.layer, s, dimCount, blocks);

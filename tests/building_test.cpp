@@ -189,3 +189,98 @@ TEST(Building, MirrorSwapsSidesAndDoorSwing)
     EXPECT_NEAR(boundingBox(m).max.y, 200.0, 1e-9);
     EXPECT_NEAR(boundingBox(w).min.y, -200.0, 1e-9);
 }
+
+namespace {
+
+Roof rectRoof(std::vector<bool> gables = {})
+{
+    Roof r;
+    r.footprint = Polyline{{{0, 0}, {8000, 0}, {8000, 4000}, {0, 4000}}, true};
+    r.gables = std::move(gables);
+    r.pitch = std::atan(0.5);  // rises 1 every 2
+    r.base = 3000;
+    r.overhang = 0;
+    return r;
+}
+
+} // namespace
+
+TEST(Building, HipRoofHasFourFacesAndARidge)
+{
+    const Roof r = rectRoof();
+    const auto g = roofGeometry(r);
+    ASSERT_TRUE(g);
+    EXPECT_EQ(g->faces.size(), 4u);
+    // Ridge at mid depth, 2000 in from the long sides.
+    EXPECT_NEAR(roofHeight(r, {4000, 2000}), 3000 + 1000, 1e-6);
+    EXPECT_NEAR(roofHeight(r, {4000, 0}), 3000, 1e-6);
+    EXPECT_NEAR(roofHeight(r, {500, 2000}), 3000 + 250, 1e-6);  // near the hip end
+    // Outline, the ridge and four hips.
+    const auto plan = roofPlan(r);
+    EXPECT_EQ(only<Line>(plan).size(), 5u);
+    EXPECT_EQ(only<Polyline>(plan).size(), 1u);
+}
+
+TEST(Building, GableRoofSlopesOnTheLongSides)
+{
+    const Roof r = rectRoof({false, true, false, true});
+    const auto g = roofGeometry(r);
+    ASSERT_TRUE(g);
+    EXPECT_EQ(g->faces.size(), 2u);
+    EXPECT_NEAR(roofHeight(r, {100, 2000}), 4000, 1e-6);  // the ridge runs to the gable
+    const auto a = areas(buildingModel(std::vector<Wall>{}));
+    EXPECT_TRUE(a.empty());
+
+    Document doc;
+    doc.add(r);
+    const auto m = areas(buildingModel(doc));
+    // Two slopes, 8000 long and sqrt(2000² + 1000²) wide, top and bottom.
+    EXPECT_GT(m.at(Model3D::Material::Roof), 2 * 2 * 8000 * std::hypot(2000.0, 1000.0) * 0.99);
+    // The two gable triangles close the ends.
+    EXPECT_GT(m.at(Model3D::Material::Wall), 2 * 4000 * 1000 / 2.0 * 0.9);
+}
+
+TEST(Building, RoofNeedsAConvexFootprint)
+{
+    Roof r;
+    r.footprint = Polyline{{{0, 0}, {4000, 0}, {4000, 2000}, {2000, 2000}, {2000, 4000}, {0, 4000}}, true};
+    EXPECT_FALSE(roofGeometry(r));
+    r.footprint.points.resize(2);
+    EXPECT_FALSE(roofGeometry(r));
+}
+
+TEST(Building, FlatRoofIsOneSlab)
+{
+    Roof r = rectRoof({true, true, true, true});
+    r.overhang = 500;
+    const auto g = roofGeometry(r);
+    ASSERT_TRUE(g);
+    ASSERT_EQ(g->faces.size(), 1u);
+    const BBox box = boundingBox(Polyline{g->outline, true});
+    EXPECT_NEAR(box.min.x, -500, 1e-9);
+    EXPECT_NEAR(box.max.y, 4500, 1e-9);
+}
+
+TEST(Building, SlabsAndStoriesIn3D)
+{
+    Document doc;
+    Slab slab;
+    slab.loops = {Polyline{{{0, 0}, {5000, 0}, {5000, 4000}, {0, 4000}}, true},
+                  Polyline{{{1000, 1000}, {2000, 1000}, {2000, 2000}, {1000, 2000}}, true}};
+    slab.thickness = 200;
+    doc.add(slab);
+    Model3D m = buildingModel(doc);
+    // Top and bottom less the hole, the outer and inner sides.
+    EXPECT_NEAR(areas(m)[Model3D::Material::Wall], 2 * (20e6 - 1e6) + (18000 + 4000) * 200, 1.0);
+    auto [lo, hi] = m.bounds();
+    EXPECT_DOUBLE_EQ(hi.z, 0.0);
+    EXPECT_DOUBLE_EQ(lo.z, -200.0);
+
+    // A wall on the first floor stands on its elevation.
+    doc.setCurrentStory(doc.addStory({0, "Primo piano", 3000, 3000}));
+    doc.add(wall({0, 0}, {5000, 0}));
+    m = buildingModel(doc);
+    std::tie(lo, hi) = m.bounds();
+    EXPECT_DOUBLE_EQ(hi.z, 3000.0 + 2700.0);
+    EXPECT_DOUBLE_EQ(lo.z, -200.0);
+}
