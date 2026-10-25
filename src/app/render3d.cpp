@@ -235,7 +235,9 @@ QImage renderModel(const Model3D& model, const Camera3D& camera, QSize size, dou
     for (const auto& t : model.triangles) {
         if (t.material == Model3D::Material::Glass)
             continue;
-        const QColor& base = t.material == Model3D::Material::Wood ? style.wood : style.wall;
+        const QColor& base = t.material == Model3D::Material::Wood   ? style.wood
+                             : t.material == Model3D::Material::Roof ? style.roof
+                                                                     : style.wall;
         r.triangle(img, t.v, shaded(base, light(t)), 1.0);
     }
     for (const auto& e : model.edges)

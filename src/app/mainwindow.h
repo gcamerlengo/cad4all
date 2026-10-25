@@ -42,6 +42,7 @@ private:
     bool save();
     bool saveAs();
     void exportDxf();
+    void exportModel();
     void plot();
     void showView3d();
     void updateStories();

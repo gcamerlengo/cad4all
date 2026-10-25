@@ -910,6 +910,11 @@ Shape stretchShape(const Shape& shape, const BBox& window, Vec2 offset)
         r.footprint = std::get<Polyline>(stretchShape(roof->footprint, window, offset));
         return r;
     }
+    if (const auto* st = std::get_if<Stair>(&shape)) {
+        Stair r = *st;
+        r.start = move(st->start);
+        return r;
+    }
     if (const auto* w = std::get_if<Wall>(&shape)) {
         Wall r = *w;
         r.start = move(w->start);

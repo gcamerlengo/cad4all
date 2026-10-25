@@ -158,6 +158,13 @@ QIcon make(const QString& name)
             accentPen(p);
             p.drawPolyline(QPolygonF({{2, 13.5}, {12, 4}, {22, 13.5}}));
         };
+    } else if (name == QLatin1String("stair")) {
+        painter = [](QPainter& p) {
+            p.drawPolyline(QPolygonF({{3, 20.5}, {3, 16}, {7.5, 16}, {7.5, 11.5}, {12, 11.5}, {12, 7}, {16.5, 7}, {16.5, 3}, {21, 3}}));
+            accentPen(p);
+            p.drawLine(QPointF(3, 20.5), QPointF(21, 20.5));
+            p.drawLine(QPointF(21, 3), QPointF(21, 20.5));
+        };
     } else if (name == QLatin1String("story")) {
         painter = [](QPainter& p) {
             p.drawRect(QRectF(4.5, 3.5, 15, 17));

@@ -1,0 +1,9 @@
+; Esempio di TETTO su una pianta a L (misure in millimetri).
+; Il tetto a padiglione segue i muri: colmi, displuvi e il compluvio nell'angolo interno.
+MURO S 300 A 2700 G C 0,0 14000,0 14000,6000 6000,6000 6000,12000 0,12000 C
+MURO S 120 6000,0 6000,6000 
+PORTA L 1000 9000,0 9600,600 
+PORTA L 800 6000,3000 6600,3600 
+FINESTRA L 1200 A 1400 D 900 2000,0 12000,0 14000,3000 10000,6000 3000,12000 6000,9000 0,3000 0,9000 
+SOLAIO S 300 M 
+TETTO P 25 S 600 M 

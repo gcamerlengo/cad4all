@@ -111,6 +111,12 @@ std::vector<Piece> pieces(const Shape& shape)
                            out.insert(out.end(), sub.begin(), sub.end());
                        }
                    },
+                   [&](const Stair& st) {
+                       for (const Shape& s : stairPlan(st)) {
+                           const auto sub = pieces(s);
+                           out.insert(out.end(), sub.begin(), sub.end());
+                       }
+                   },
                },
                shape);
     return out;
@@ -520,6 +526,10 @@ BBox boundingBox(const Shape& shape)
                        for (const Shape& s : roofPlan(r))
                            box.add(boundingBox(s));
                    },
+                   [&](const Stair& st) {
+                       for (const Shape& s : stairPlan(st))
+                           box.add(boundingBox(s));
+                   },
                },
                shape);
     return box;
@@ -698,6 +708,18 @@ Shape transformed(const Shape& shape, const Transform& t)
                               r.thickness = roof.thickness * s;
                               return r;
                           },
+                          [&](const Stair& stair) -> Shape {
+                              Stair r = stair;
+                              const double s = t.scaleFactor();
+                              r.start = t.apply(stair.start);
+                              r.angle = angleOf(t.applyVector(polar(1.0, stair.angle)));
+                              r.width = stair.width * s;
+                              r.height = stair.height * s;
+                              r.going = stair.going * s;
+                              if (t.isMirroring())
+                                  r.turnRight = !stair.turnRight;
+                              return r;
+                          },
                       },
                       shape);
 }
@@ -762,6 +784,11 @@ void collectSnapPoints(const Shape& shape, unsigned mask, std::vector<SnapPoint>
                        collectSnapPoints(r.footprint, mask & SnapEndpoint, out);
                        for (const Shape& s : roofPlan(r))
                            collectSnapPoints(s, mask & SnapEndpoint, out);
+                   },
+                   [&](const Stair& st) {
+                       for (const StairStep& step : stairSteps(st))
+                           for (Vec2 p : step.polygon)
+                               add(p, SnapEndpoint);
                    },
                },
                shape);

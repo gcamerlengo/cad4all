@@ -173,7 +173,24 @@ struct Roof {
     bool gable(size_t edge) const { return edge < gables.size() && gables[edge]; }
 };
 
-using Shape = std::variant<Line, Circle, Arc, Polyline, Text, Dimension, Hatch, Wall, Slab, Roof>;
+// Stair from its story up by `height`, in `risers` equal steps `going`
+// deep. `start` is the middle of the first step's front edge and `angle`
+// the direction of the first flight. An L stair turns once, a U stair turns
+// back, both on a square landing halfway up; `turnRight` says which way.
+struct Stair {
+    enum class Kind { Straight, L, U };
+
+    Vec2 start;
+    double angle = 0.0;  // radians
+    Kind kind = Kind::Straight;
+    bool turnRight = false;
+    double width = 1000.0;
+    double height = 3000.0;
+    int risers = 17;
+    double going = 280.0;
+};
+
+using Shape = std::variant<Line, Circle, Arc, Polyline, Text, Dimension, Hatch, Wall, Slab, Roof, Stair>;
 
 // Arc of a polyline segment from `from` to `to`: always counter-clockwise, so
 // a negative bulge gives an arc from `to` to `from`.

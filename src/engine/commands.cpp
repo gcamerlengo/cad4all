@@ -2852,6 +2852,26 @@ public:
 
     bool point(Vec2 p) override
     {
+        if (ask_ == Ask::HoleSlab) {
+            slab_ = pickSlab(p);
+            if (!slab_) {
+                engine->message(t("Nessun solaio trovato."));
+                return false;
+            }
+            ask_ = Ask::HoleOutline;
+            engine->setPrompt(t("Selezionare polilinea chiusa o cerchio per il foro:"));
+            return true;
+        }
+        if (ask_ == Ask::HoleOutline) {
+            const auto outline = pickClosedOutline(engine, p);
+            if (!outline)
+                return false;
+            Slab sl = std::get<Slab>(engine->document().entity(*slab_)->shape);
+            sl.loops.push_back(*outline);
+            engine->document().replace(*slab_, sl);
+            toDefault();
+            return true;
+        }
         if (ask_ != Ask::None)
             return false;
         switch (input_.mode()) {
@@ -2919,6 +2939,11 @@ public:
             engine->setPrompt(t("Specificare spessore del solaio <%1>:").arg(gSlabThickness));
             return true;
         }
+        if (isAny(w, {"F", "FORO", "HOLE"})) {
+            ask_ = Ask::HoleSlab;
+            engine->setPrompt(t("Selezionare solaio da forare:"));
+            return true;
+        }
         if (isAny(w, {"Q", "QUOTA", "ELEVATION"})) {
             ask_ = Ask::Offset;
             engine->setPrompt(t("Specificare quota superiore del solaio rispetto al piano <%1>:").arg(gSlabOffset));
@@ -2947,12 +2972,34 @@ public:
         engine->finish();
     }
 
-    bool wantsObjectPick() const override { return ask_ == Ask::None && input_.mode() == OutlineInput::Mode::Objects; }
+    bool wantsObjectPick() const override
+    {
+        return ask_ == Ask::HoleSlab || ask_ == Ask::HoleOutline
+            || (ask_ == Ask::None && input_.mode() == OutlineInput::Mode::Objects);
+    }
     void preview(Vec2 cursor, std::vector<Shape>& out) const override { input_.preview(cursor, out); }
     std::optional<Vec2> base() const override { return input_.base(); }
 
 private:
-    enum class Ask { None, Thickness, Offset };
+    enum class Ask { None, Thickness, Offset, HoleSlab, HoleOutline };
+
+    // Only slabs: under the walls their edges are where the walls are.
+    std::optional<EntityId> pickSlab(Vec2 p) const
+    {
+        const Document& doc = engine->document();
+        std::optional<EntityId> best;
+        double bestDist = engine->pickTolerance();
+        for (const auto& [id, e] : doc.entities()) {
+            if (!std::holds_alternative<Slab>(e.shape) || !doc.isEditable(e))
+                continue;
+            const double d = distanceTo(e.shape, p);
+            if (d <= bestDist) {
+                bestDist = d;
+                best = id;
+            }
+        }
+        return best;
+    }
 
     void add(std::vector<Polyline> loops)
     {
@@ -2986,56 +3033,33 @@ private:
     {
         ask_ = Ask::None;
         input_.reset();
-        engine->setPrompt(t("Specificare punto interno o [Muri/Oggetti/Disegna/Spessore/Quota]:"));
+        engine->setPrompt(t("Specificare punto interno o [Muri/Oggetti/Disegna/Foro/Spessore/Quota]:"));
     }
 
     OutlineInput input_;
     Ask ask_ = Ask::None;
+    std::optional<EntityId> slab_;
 };
 
-enum class RoofType { Hip, Gable, Shed, Flat };
-
-RoofType gRoofType = RoofType::Hip;
+RoofStyle gRoofType = RoofStyle::Hip;
 double gRoofPitch = 30.0;  // degrees
 double gRoofOverhang = 500.0;
 double gRoofThickness = 250.0;
 std::optional<double> gRoofBase;  // unset: the top of the walls
 
-QString roofTypeName(RoofType type)
+QString roofTypeName(RoofStyle type)
 {
     switch (type) {
-    case RoofType::Gable:
+    case RoofStyle::Gable:
         return t("Capanna");
-    case RoofType::Shed:
+    case RoofStyle::Shed:
         return t("Falda");
-    case RoofType::Flat:
+    case RoofStyle::Flat:
         return t("Piano");
-    case RoofType::Hip:
+    case RoofStyle::Hip:
         break;
     }
     return t("Padiglione");
-}
-
-// Which edges are gable ends for a roof type: a gable roof slopes on the
-// longest edge and the edges parallel to it, a shed roof only on the
-// longest edge.
-std::vector<bool> roofGables(const std::vector<Vec2>& pts, RoofType type)
-{
-    const size_t n = pts.size();
-    std::vector<bool> gables(n, type == RoofType::Flat);
-    if (type == RoofType::Hip || type == RoofType::Flat)
-        return gables;
-    size_t longest = 0;
-    for (size_t i = 0; i < n; ++i)
-        if (distance(pts[i], pts[(i + 1) % n]) > distance(pts[longest], pts[(longest + 1) % n]))
-            longest = i;
-    const Vec2 dir = normalized(pts[(longest + 1) % n] - pts[longest]);
-    for (size_t i = 0; i < n; ++i) {
-        const Vec2 d = normalized(pts[(i + 1) % n] - pts[i]);
-        const bool parallel = std::abs(cross(d, dir)) < 1e-6;
-        gables[i] = type == RoofType::Gable ? !parallel : i != longest;
-    }
-    return gables;
 }
 
 // ROOF: hip, gable, shed or flat roof over the walls, a closed polyline or a
@@ -3105,13 +3129,13 @@ public:
     {
         if (ask_ == Ask::Type) {
             if (isAny(w, {"P", "PADIGLIONE", "HIP"}))
-                gRoofType = RoofType::Hip;
+                gRoofType = RoofStyle::Hip;
             else if (isAny(w, {"C", "CAPANNA", "GABLE"}))
-                gRoofType = RoofType::Gable;
+                gRoofType = RoofStyle::Gable;
             else if (isAny(w, {"F", "FALDA", "SHED"}))
-                gRoofType = RoofType::Shed;
+                gRoofType = RoofStyle::Shed;
             else if (isAny(w, {"PI", "PIANO", "FLAT"}))
-                gRoofType = RoofType::Flat;
+                gRoofType = RoofStyle::Flat;
             else
                 return false;
             toDefault();
@@ -3209,8 +3233,8 @@ private:
         r.thickness = gRoofThickness;
         r.base = roofBase();
         if (outline.hasArcs() || !roofGeometry(r)) {
-            engine->message(t("Il contorno del tetto deve essere un poligono convesso (rettangolo, trapezio...): "
-                              "per una pianta a L disegnare un tetto per ogni parte."));
+            engine->message(t("Il contorno del tetto deve essere convesso (rettangolo, trapezio...) "
+                              "oppure fatto solo di angoli retti (pianta a L, a T, a U...)."));
             toDefault();
             return;
         }
@@ -3245,6 +3269,186 @@ private:
     }
 
     OutlineInput input_;
+    Ask ask_ = Ask::None;
+};
+
+Stair::Kind gStairKind = Stair::Kind::Straight;
+bool gStairTurnRight = false;
+double gStairWidth = 1000.0;
+double gStairGoing = 280.0;
+std::optional<double> gStairHeight;  // unset: the height of the story
+constexpr double kMaxRiser = 180.0;
+
+QString stairKindName(Stair::Kind kind)
+{
+    switch (kind) {
+    case Stair::Kind::L:
+        return t("L");
+    case Stair::Kind::U:
+        return t("U");
+    case Stair::Kind::Straight:
+        break;
+    }
+    return t("Dritta");
+}
+
+// STAIR: a straight, L or U stair up to the next story.
+class StairCommand : public Command {
+public:
+    void start() override
+    {
+        const int n = risers();
+        engine->message(t("Scala corrente: %1, larghezza %2, pedata %3, %4 alzate da %5 per salire %6")
+                            .arg(stairKindName(gStairKind))
+                            .arg(gStairWidth)
+                            .arg(gStairGoing)
+                            .arg(n)
+                            .arg(QString::fromStdString(formatMeasurement(height() / n)))
+                            .arg(height()));
+        toStart();
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (ask_ != Ask::None)
+            return false;
+        if (!start_) {
+            start_ = p;
+            engine->setPrompt(t("Specificare direzione della prima rampa:"));
+            return true;
+        }
+        if (almostEqual(p, *start_))
+            return false;
+        engine->document().add(stairTo(p));
+        engine->finish();
+        return true;
+    }
+
+    bool number(double value) override
+    {
+        switch (ask_) {
+        case Ask::Width:
+            if (value <= 0.0)
+                return false;
+            gStairWidth = value;
+            break;
+        case Ask::Height:
+            if (value <= 0.0)
+                return false;
+            gStairHeight = value;
+            break;
+        case Ask::Going:
+            if (value <= 0.0)
+                return false;
+            gStairGoing = value;
+            break;
+        default:
+            return false;
+        }
+        toStart();
+        return true;
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (ask_ == Ask::Kind) {
+            if (isAny(w, {"D", "DRITTA", "STRAIGHT"}))
+                gStairKind = Stair::Kind::Straight;
+            else if (isAny(w, {"L"}))
+                gStairKind = Stair::Kind::L;
+            else if (isAny(w, {"U"}))
+                gStairKind = Stair::Kind::U;
+            else
+                return false;
+            toStart();
+            return true;
+        }
+        if (ask_ == Ask::Turn) {
+            if (isAny(w, {"S", "SINISTRA", "LEFT"}))
+                gStairTurnRight = false;
+            else if (isAny(w, {"D", "DESTRA", "RIGHT"}))
+                gStairTurnRight = true;
+            else
+                return false;
+            toStart();
+            return true;
+        }
+        if (ask_ != Ask::None || start_)
+            return false;
+        if (isAny(w, {"T", "TIPO", "TYPE"})) {
+            ask_ = Ask::Kind;
+            engine->setPrompt(t("Specificare tipo di scala [Dritta/L/U] <%1>:").arg(stairKindName(gStairKind)));
+        } else if (isAny(w, {"V", "VERSO", "TURN"})) {
+            ask_ = Ask::Turn;
+            engine->setPrompt(t("Specificare verso della svolta [Sinistra/Destra] <%1>:")
+                                  .arg(gStairTurnRight ? t("Destra") : t("Sinistra")));
+        } else if (isAny(w, {"L", "LARGHEZZA", "WIDTH"})) {
+            ask_ = Ask::Width;
+            engine->setPrompt(t("Specificare larghezza della scala <%1>:").arg(gStairWidth));
+        } else if (isAny(w, {"A", "ALTEZZA", "HEIGHT"})) {
+            ask_ = Ask::Height;
+            engine->setPrompt(t("Specificare altezza da salire <%1>:").arg(height()));
+        } else if (isAny(w, {"P", "PEDATA", "GOING"})) {
+            ask_ = Ask::Going;
+            engine->setPrompt(t("Specificare pedata <%1>:").arg(gStairGoing));
+        } else {
+            return false;
+        }
+        return true;
+    }
+
+    void enter() override
+    {
+        if (ask_ != Ask::None)
+            toStart();
+        else
+            engine->finish();
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (start_ && !almostEqual(cursor, *start_))
+            out.push_back(stairTo(cursor));
+    }
+
+    std::optional<Vec2> base() const override { return start_; }
+
+private:
+    enum class Ask { None, Kind, Turn, Width, Height, Going };
+
+    // Up to the next story, unless set.
+    double height() const
+    {
+        if (gStairHeight)
+            return *gStairHeight;
+        const Document& doc = engine->document();
+        const Story* s = doc.story(doc.currentStory());
+        return s ? s->height : 3000.0;
+    }
+
+    int risers() const { return std::max(2, static_cast<int>(std::ceil(height() / kMaxRiser - 1e-9))); }
+
+    Stair stairTo(Vec2 direction) const
+    {
+        Stair s;
+        s.start = *start_;
+        s.angle = angleOf(direction - *start_);
+        s.kind = gStairKind;
+        s.turnRight = gStairTurnRight;
+        s.width = gStairWidth;
+        s.height = height();
+        s.risers = risers();
+        s.going = gStairGoing;
+        return s;
+    }
+
+    void toStart()
+    {
+        ask_ = Ask::None;
+        engine->setPrompt(t("Specificare punto iniziale (centro del primo gradino) o [Tipo/Verso/Larghezza/Altezza/Pedata]:"));
+    }
+
+    std::optional<Vec2> start_;
     Ask ask_ = Ask::None;
 };
 
@@ -3332,6 +3536,7 @@ std::unique_ptr<Command> makeWindowCommand() { return std::make_unique<OpeningCo
 std::unique_ptr<Command> makeWallEditCommand() { return std::make_unique<WallEditCommand>(); }
 std::unique_ptr<Command> makeStoryCommand() { return std::make_unique<StoryCommand>(); }
 std::unique_ptr<Command> makeSlabCommand() { return std::make_unique<SlabCommand>(); }
+std::unique_ptr<Command> makeStairCommand() { return std::make_unique<StairCommand>(); }
 std::unique_ptr<Command> makeRoofCommand() { return std::make_unique<RoofCommand>(); }
 std::unique_ptr<Command> makeView3dCommand() { return std::make_unique<View3dCommand>(); }
 std::unique_ptr<Command> makeZoomCommand() { return std::make_unique<ZoomCommand>(); }

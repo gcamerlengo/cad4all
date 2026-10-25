@@ -224,6 +224,19 @@ QJsonObject shapeToJson(const Shape& shape)
         o[QStringLiteral("base")] = r->base;
         o[QStringLiteral("overhang")] = r->overhang;
         o[QStringLiteral("thickness")] = r->thickness;
+    } else if (const auto* st = std::get_if<Stair>(&shape)) {
+        o[QStringLiteral("type")] = QStringLiteral("stair");
+        o[QStringLiteral("start")] = toJson(st->start);
+        o[QStringLiteral("angle")] = st->angle;
+        o[QStringLiteral("kind")] = st->kind == Stair::Kind::L ? QStringLiteral("L")
+                                    : st->kind == Stair::Kind::U ? QStringLiteral("U")
+                                                                 : QStringLiteral("straight");
+        if (st->turnRight)
+            o[QStringLiteral("turnRight")] = true;
+        o[QStringLiteral("width")] = st->width;
+        o[QStringLiteral("height")] = st->height;
+        o[QStringLiteral("risers")] = st->risers;
+        o[QStringLiteral("going")] = st->going;
     }
     return o;
 }
@@ -345,6 +358,19 @@ std::optional<Shape> shapeFromJson(const QJsonObject& o)
         r.thickness = o[QStringLiteral("thickness")].toDouble(-1.0);
         if (r.footprint.points.size() >= 3 && r.thickness > 0.0)
             return r;
+    } else if (type == QLatin1String("stair")) {
+        Stair st;
+        const QString kind = o[QStringLiteral("kind")].toString();
+        st.kind = kind == QLatin1String("L") ? Stair::Kind::L : kind == QLatin1String("U") ? Stair::Kind::U : Stair::Kind::Straight;
+        st.angle = o[QStringLiteral("angle")].toDouble();
+        st.turnRight = o[QStringLiteral("turnRight")].toBool();
+        st.width = o[QStringLiteral("width")].toDouble(-1.0);
+        st.height = o[QStringLiteral("height")].toDouble(-1.0);
+        st.risers = o[QStringLiteral("risers")].toInt(0);
+        st.going = o[QStringLiteral("going")].toDouble(-1.0);
+        if (fromJson(o[QStringLiteral("start")], st.start) && st.width > 0.0 && st.height > 0.0 && st.risers >= 2
+            && st.going > 0.0)
+            return st;
     }
     return std::nullopt;
 }

@@ -120,6 +120,9 @@ void DrawingPainter::drawShape(const Shape& shape)
         for (const Shape& s : roofPlan(*r))
             drawShape(s);
         p_.restore();
+    } else if (const auto* st = std::get_if<Stair>(&shape)) {
+        for (const Shape& s : stairPlan(*st))
+            drawShape(s);
     }
 }
 

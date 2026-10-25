@@ -21,7 +21,7 @@ int main(int argc, char* argv[])
     parser.addPositionalArgument(QStringLiteral("disegno"), QStringLiteral("Disegno .c4a, .dxf o .dwg da aprire."));
     const QCommandLineOption scriptOption(QStringLiteral("script"), QStringLiteral("Esegue uno script di comandi (.scr)."), QStringLiteral("file"));
     const QCommandLineOption screenshotOption(QStringLiteral("screenshot"), QStringLiteral("Salva un'immagine della finestra ed esce."), QStringLiteral("png"));
-    const QCommandLineOption exportOption(QStringLiteral("export"), QStringLiteral("Salva il disegno (.c4a, .dxf o .pdf) dopo lo script."), QStringLiteral("file"));
+    const QCommandLineOption exportOption(QStringLiteral("export"), QStringLiteral("Salva il disegno (.c4a, .dxf, .pdf) o il modello 3D (.obj, .stl) dopo lo script."), QStringLiteral("file"));
     parser.addOption(scriptOption);
     parser.addOption(exportOption);
     parser.addOption(screenshotOption);

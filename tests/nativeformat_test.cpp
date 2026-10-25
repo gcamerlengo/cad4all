@@ -185,3 +185,30 @@ TEST(NativeFormat, FileWithoutStoriesUsesTheGroundFloor)
     ASSERT_EQ(loaded.stories().size(), 1u);
     EXPECT_EQ(loaded.entities().begin()->second.story, loaded.currentStory());
 }
+
+TEST(NativeFormat, StairRoundTrip)
+{
+    Document doc;
+    Stair s;
+    s.start = {100, 200};
+    s.angle = 0.5;
+    s.kind = Stair::Kind::U;
+    s.turnRight = true;
+    s.width = 1100;
+    s.height = 2900;
+    s.risers = 16;
+    s.going = 290;
+    doc.add(s);
+    Document loaded;
+    ASSERT_TRUE(io::fromNativeJson(io::toNativeJson(doc), loaded));
+    ASSERT_EQ(loaded.entities().size(), 1u);
+    const auto& r = std::get<Stair>(loaded.entities().begin()->second.shape);
+    EXPECT_EQ(r.start, s.start);
+    EXPECT_DOUBLE_EQ(r.angle, 0.5);
+    EXPECT_EQ(r.kind, Stair::Kind::U);
+    EXPECT_TRUE(r.turnRight);
+    EXPECT_DOUBLE_EQ(r.width, 1100);
+    EXPECT_DOUBLE_EQ(r.height, 2900);
+    EXPECT_EQ(r.risers, 16);
+    EXPECT_DOUBLE_EQ(r.going, 290);
+}

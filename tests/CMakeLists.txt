@@ -21,6 +21,7 @@ add_executable(cad4all_tests
     building_test.cpp
     commands_test.cpp
     editing_test.cpp
+    meshexport_test.cpp
 )
 target_link_libraries(cad4all_tests PRIVATE cad4all_core cad4all_io cad4all_engine GTest::gtest_main)
 if(CAD4ALL_WITH_DWG)
