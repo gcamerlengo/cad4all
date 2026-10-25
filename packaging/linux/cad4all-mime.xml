@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-cad4all">
+    <comment>CAD4All drawing</comment>
+    <comment xml:lang="it">Disegno CAD4All</comment>
+    <sub-class-of type="application/json"/>
+    <glob pattern="*.c4a"/>
+  </mime-type>
+</mime-info>

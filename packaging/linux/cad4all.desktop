@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Desktop Entry]
+Type=Application
+Name=CAD4All
+GenericName=CAD 2D e 3D
+GenericName[en]=2D and 3D CAD
+Comment=CAD 2D e 3D parametrico per tecnici
+Comment[en]=Parametric 2D and 3D CAD for technicians
+Exec=CAD4All %f
+Icon=cad4all
+Terminal=false
+Categories=Graphics;Engineering;
+MimeType=application/x-cad4all;image/vnd.dxf;
+Keywords=CAD;DWG;DXF;architettura;disegno;

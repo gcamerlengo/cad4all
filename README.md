@@ -23,7 +23,7 @@ Versione 0.1. Funziona già:
 - **Interfaccia:** ribbon come AutoCAD, oppure strumenti, Info Box e navigatore come ArchiCAD, con pianta e 3D in un pannello, affiancate o a schede.
 - **File:** formato nativo `.c4a` (JSON leggibile), apertura dei DWG di AutoCAD, apertura e salvataggio DXF, stampa su stampante e in PDF in scala, esportazione del modello 3D in OBJ e STL, annulla e ripristina illimitati, script di comandi `.scr`.
 
-In arrivo: installatori per Windows, macOS e Linux; tetti su piante con angoli diversi dal retto.
+In arrivo: firma digitale degli installatori; tetti su piante con angoli diversi dal retto.
 
 ## Comandi
 
@@ -74,6 +74,18 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 
 Tasti: F3 snap ad oggetto, F7 griglia, F8 orto. Rotella per lo zoom, tasto centrale per spostare la vista, doppio clic del tasto centrale per lo zoom estensioni.
 
+## Installare
+
+Gli installatori si scaricano dalla pagina Releases del progetto, oppure dagli artifact dell'ultima esecuzione di GitHub Actions:
+
+- **Windows:** `CAD4All-<versione>-Windows-setup.exe` installa il programma per l'utente (o per tutti, scegliendolo), crea la voce nel menu Start e, a scelta, l'icona sul desktop e l'apertura dei disegni `.c4a` con doppio clic; si disinstalla da Impostazioni > App. C'è anche la cartella `portatile-Windows`, che parte senza installare nulla.
+- **macOS:** `CAD4All-<versione>-macOS.dmg`: si trascina CAD4All in Applicazioni. Il Finder apre con CAD4All i `.c4a` e propone CAD4All per i `.dxf` e i `.dwg`.
+- **Linux:** `CAD4All-<versione>-Linux-x86_64.AppImage`: si rende eseguibile (`chmod +x`) e si avvia, su qualsiasi distribuzione recente.
+
+Gli installatori non sono ancora firmati: alla prima apertura Windows mostra "PC protetto da Windows" (Ulteriori informazioni > Esegui comunque) e macOS chiede di aprire l'app con il tasto destro > Apri. Con i certificati di Apple e Microsoft questi avvisi spariscono.
+
+Per pubblicare una versione basta un tag: `git tag v0.1.0 && git push origin v0.1.0` crea la release con i tre installatori.
+
 ## Compilare
 
 Servono CMake 3.28 o successivo, un compilatore C e C++20, Qt 6.4 o successivo e git. Alla prima configurazione CMake scarica e compila LibreDWG per la lettura dei DWG (un paio di minuti); per farne a meno: `-DCAD4ALL_WITH_DWG=OFF`.
@@ -85,7 +97,7 @@ ctest --test-dir build --output-on-failure
 ./build/src/app/CAD4All
 ```
 
-Su Ubuntu 24.04 le dipendenze si installano con `sudo apt install cmake ninja-build qt6-base-dev libgtest-dev`. Su Windows e macOS basta l'installer ufficiale di Qt. Ad ogni modifica GitHub Actions compila e prova il programma sui tre sistemi e conserva i pacchetti di Windows e macOS.
+Su Ubuntu 24.04 le dipendenze si installano con `sudo apt install cmake ninja-build qt6-base-dev libgtest-dev`. Su Windows e macOS basta l'installer ufficiale di Qt. Ad ogni modifica GitHub Actions compila e prova il programma sui tre sistemi e prepara gli installatori.
 
 Per provare uno script: `CAD4All --script docs/esempi/pianta.scr` oppure `docs/esempi/modifica.scr` `docs/esempi/quote.scr`, `docs/esempi/cima-stira.scr`, `docs/esempi/polilinee.scr` e `docs/esempi/tratteggi.scr`.
 
