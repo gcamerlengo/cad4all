@@ -9,7 +9,7 @@
 
 namespace cad::io {
 
-inline constexpr int kNativeFormatVersion = 1;
+inline constexpr int kNativeFormatVersion = 2;
 
 QByteArray toNativeJson(const Document& doc);
 // Replaces the content of `doc`. On failure `doc` is left untouched.

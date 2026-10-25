@@ -54,7 +54,7 @@ WallFaces wallFaces(const Wall& w);
 // One entry per wall: L corners mitred, T junctions trimmed to the face of
 // the wall they meet, collinear walls continued.
 std::vector<WallFaces> joinWalls(const std::vector<Wall>& walls);
-// The joined faces of every wall of the drawing.
+// The joined faces of every wall of the drawing (walls join only on their own story).
 std::map<EntityId, WallFaces> joinedWalls(const Document& doc);
 
 // What the wall draws in plan: the faces with gaps at the openings, the
@@ -92,7 +92,7 @@ inline Vec3 normalized(Vec3 v)
 
 // Triangles and visible edges of the building, z up from the base of the walls.
 struct Model3D {
-    enum class Material { Wall, Glass, Wood };
+    enum class Material { Wall, Glass, Wood, Roof };
     struct Triangle {
         std::array<Vec3, 3> v;
         Material material = Material::Wall;
@@ -106,8 +106,26 @@ struct Model3D {
     std::pair<Vec3, Vec3> bounds() const;
 };
 
+// A roof broken down: its corners, its outline grown by the overhang and
+// one plan face per sloping edge (edge -1: the single face of a flat roof).
+struct RoofFace {
+    std::vector<Vec2> polygon;
+    int edge = -1;
+};
+struct RoofGeometry {
+    std::vector<Vec2> footprint;
+    std::vector<Vec2> outline;
+    std::vector<RoofFace> faces;
+};
+// Nullopt when the footprint is not a convex polygon with at least three corners.
+std::optional<RoofGeometry> roofGeometry(const Roof& roof);
+// Height of the underside of the roof at `p`, above its story.
+double roofHeight(const Roof& roof, Vec2 p);
+// What the roof draws in plan: its outline and the ridges and hips.
+std::vector<Shape> roofPlan(const Roof& roof);
+
 Model3D buildingModel(const std::vector<Wall>& walls);
-// The walls of the visible layers.
+// Walls, slabs and roofs of the visible layers, each story at its elevation.
 Model3D buildingModel(const Document& doc);
 
 } // namespace cad

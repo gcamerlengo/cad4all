@@ -14,6 +14,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QComboBox>
 #include <QCloseEvent>
 #include <QDockWidget>
 #include <QFile>
@@ -89,6 +90,7 @@ MainWindow::MainWindow()
     connect(&engine_, &CommandEngine::settingsChanged, this, &MainWindow::updateToggles);
     connect(&engine_, &CommandEngine::plotRequested, this, &MainWindow::plot, Qt::QueuedConnection);
     connect(&engine_, &CommandEngine::changed, this, [this] {
+        updateStories();
         view3d_->refresh();
         if (view3d_->hasModel() && !view3dShown_)
             showView3d();
@@ -119,6 +121,50 @@ QAction* MainWindow::commandAction(const QString& text, const QString& command, 
         commandLine_->input()->setFocus();
     });
     return action;
+}
+
+// The combo box lists the stories from the top, like a section of the building.
+void MainWindow::updateStories()
+{
+    if (!storyCombo_)
+        return;
+    QStringList names;
+    for (auto it = doc_.stories().rbegin(); it != doc_.stories().rend(); ++it)
+        names << tr("%1  (%2)").arg(QString::fromStdString(it->name)).arg(it->elevation);
+    QStringList shown;
+    for (int i = 0; i < storyCombo_->count(); ++i)
+        shown << storyCombo_->itemText(i);
+    if (names != shown) {
+        const QSignalBlocker block(storyCombo_);
+        storyCombo_->clear();
+        int k = 0;
+        for (auto it = doc_.stories().rbegin(); it != doc_.stories().rend(); ++it)
+            storyCombo_->addItem(names[k++], it->id);
+    }
+    const QSignalBlocker block(storyCombo_);
+    storyCombo_->setCurrentIndex(storyCombo_->findData(doc_.currentStory()));
+}
+
+void MainWindow::setStory(StoryId id)
+{
+    if (id == doc_.currentStory())
+        return;
+    // A command half done on one story makes no sense on another.
+    engine_.cancel();
+    if (doc_.setCurrentStory(id)) {
+        const Story* s = doc_.story(id);
+        commandLine_->appendMessage(tr("Piano corrente: %1 (quota %2)").arg(QString::fromStdString(s->name)).arg(s->elevation));
+    }
+    engine_.documentChanged();
+    view_->update();
+    commandLine_->input()->setFocus();
+}
+
+void MainWindow::changeStory(int step)
+{
+    const Story* s = step > 0 ? doc_.storyAbove(doc_.currentStory()) : doc_.storyBelow(doc_.currentStory());
+    if (s)
+        setStory(s->id);
 }
 
 void MainWindow::showView3d()
@@ -181,10 +227,29 @@ void MainWindow::createActions()
         commandAction(tr("Muro"), QStringLiteral("WALL"), icons::make(QStringLiteral("wall"))),
         commandAction(tr("Porta"), QStringLiteral("DOOR"), icons::make(QStringLiteral("door"))),
         commandAction(tr("Finestra"), QStringLiteral("WINDOW"), icons::make(QStringLiteral("window"))),
+        commandAction(tr("Solaio"), QStringLiteral("SLAB"), icons::make(QStringLiteral("slab"))),
+        commandAction(tr("Tetto"), QStringLiteral("ROOF"), icons::make(QStringLiteral("roof"))),
     };
     architecture->addActions(architectureActions);
     architectureBar->addActions(architectureActions);
     architecture->addAction(commandAction(tr("Modifica muro"), QStringLiteral("WALLEDIT"), QIcon()));
+    architecture->addSeparator();
+    QAction* stories = commandAction(tr("Piani..."), QStringLiteral("STORY"), icons::make(QStringLiteral("story")));
+    architecture->addAction(stories);
+    QAction* storyUp = architecture->addAction(tr("Piano s&uperiore"), this, [this] { changeStory(+1); });
+    storyUp->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_PageUp));
+    QAction* storyDown = architecture->addAction(tr("Piano &inferiore"), this, [this] { changeStory(-1); });
+    storyDown->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_PageDown));
+    architectureBar->addSeparator();
+    architectureBar->addAction(stories);
+    storyCombo_ = new QComboBox(this);
+    storyCombo_->setToolTip(tr("Piano corrente"));
+    storyCombo_->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    architectureBar->addWidget(storyCombo_);
+    connect(storyCombo_, &QComboBox::activated, this, [this](int index) {
+        setStory(storyCombo_->itemData(index).toInt());
+    });
+    updateStories();
     architecture->addSeparator();
     QAction* show3d = architecture->addAction(icons::make(QStringLiteral("view3d")), tr("Vista &3D"), this, &MainWindow::showView3d);
     show3d->setToolTip(tr("Vista 3D (VISTA3D)"));

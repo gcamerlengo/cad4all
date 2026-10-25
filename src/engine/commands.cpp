@@ -2527,6 +2527,727 @@ private:
     bool removing_ = false;
 };
 
+// ---------------------------------------------------------------- stories, slabs, roofs
+
+QString storyList(const Document& doc)
+{
+    QStringList items;
+    for (auto it = doc.stories().rbegin(); it != doc.stories().rend(); ++it)
+        items << t("%1 (quota %2, altezza %3)%4")
+                     .arg(QString::fromStdString(it->name))
+                     .arg(it->elevation)
+                     .arg(it->height)
+                     .arg(it->id == doc.currentStory() ? t(", corrente") : QString());
+    return t("Piani: %1").arg(items.join(QStringLiteral("; ")));
+}
+
+// STORY: the floors of the building. The current one is the one drawn in plan.
+class StoryCommand : public Command {
+public:
+    void start() override
+    {
+        engine->message(storyList(engine->document()));
+        toOption();
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (ask_ != Ask::None)
+            return false;
+        Document& doc = engine->document();
+        if (isAny(w, {"N", "NUOVO", "NEW"})) {
+            ask_ = Ask::NewName;
+            engine->setPrompt(t("Specificare nome del nuovo piano <%1>:").arg(defaultName()));
+        } else if (isAny(w, {"C", "CORRENTE", "SET"})) {
+            ask_ = Ask::Current;
+            engine->setPrompt(t("Specificare nome del piano da rendere corrente:"));
+        } else if (isAny(w, {"S", "SU", "UP"})) {
+            if (const Story* up = doc.storyAbove(doc.currentStory()))
+                setCurrent(up->id);
+            else
+                engine->message(t("Non c'è un piano sopra."));
+        } else if (isAny(w, {"G", "GIU", "GIÙ", "DOWN"})) {
+            if (const Story* down = doc.storyBelow(doc.currentStory()))
+                setCurrent(down->id);
+            else
+                engine->message(t("Non c'è un piano sotto."));
+        } else if (isAny(w, {"R", "RINOMINA", "RENAME"})) {
+            ask_ = Ask::Rename;
+            engine->setPrompt(t("Specificare nuovo nome del piano:"));
+        } else if (isAny(w, {"Q", "QUOTA", "ELEVATION"})) {
+            ask_ = Ask::Elevation;
+            engine->setPrompt(t("Specificare quota del piano <%1>:").arg(current().elevation));
+        } else if (isAny(w, {"A", "ALTEZZA", "HEIGHT"})) {
+            ask_ = Ask::Height;
+            engine->setPrompt(t("Specificare altezza del piano <%1>:").arg(current().height));
+        } else if (isAny(w, {"E", "ELIMINA", "DELETE"})) {
+            const Story s = current();
+            if (doc.removeStory(s.id)) {
+                engine->clearSelection();
+                engine->message(t("Piano %1 eliminato.").arg(QString::fromStdString(s.name)));
+            } else {
+                engine->message(t("Si può eliminare solo un piano vuoto, e non l'ultimo."));
+            }
+            toOption();
+        } else if (w == QLatin1String("?")) {
+            engine->message(storyList(doc));
+        } else {
+            return false;
+        }
+        return true;
+    }
+
+    bool number(double value) override
+    {
+        Story s = current();
+        if (ask_ == Ask::Elevation)
+            s.elevation = value;
+        else if (ask_ == Ask::Height && value > 0.0)
+            s.height = value;
+        else
+            return false;
+        engine->document().updateStory(s.id, s);
+        toOption();
+        return true;
+    }
+
+    bool wantsText() const override { return ask_ == Ask::NewName || ask_ == Ask::Current || ask_ == Ask::Rename; }
+
+    void text(const QString& raw) override
+    {
+        const std::string name = raw.trimmed().toStdString();
+        Document& doc = engine->document();
+        switch (ask_) {
+        case Ask::NewName:
+            addStory(name);
+            break;
+        case Ask::Current:
+            if (const Story* s = findStory(raw.trimmed()))
+                setCurrent(s->id);
+            else
+                engine->message(t("Piano non trovato: %1. %2").arg(raw.trimmed(), storyList(doc)));
+            break;
+        case Ask::Rename: {
+            Story s = current();
+            s.name = name;
+            if (!doc.updateStory(s.id, s))
+                engine->message(t("Nome non valido o già usato."));
+            break;
+        }
+        default:
+            return;
+        }
+        toOption();
+    }
+
+    void enter() override
+    {
+        if (ask_ == Ask::NewName) {
+            addStory(defaultName().toStdString());
+            toOption();
+        } else if (ask_ != Ask::None) {
+            toOption();
+        } else {
+            engine->finish();
+        }
+    }
+
+private:
+    enum class Ask { None, NewName, Current, Rename, Elevation, Height };
+
+    Story current() const { return *engine->document().story(engine->document().currentStory()); }
+
+    // By name, ignoring case.
+    const Story* findStory(const QString& name) const
+    {
+        for (const Story& s : engine->document().stories())
+            if (QString::fromStdString(s.name).compare(name, Qt::CaseInsensitive) == 0)
+                return &s;
+        return nullptr;
+    }
+
+    QString defaultName() const
+    {
+        const Document& doc = engine->document();
+        for (int k = static_cast<int>(doc.stories().size());; ++k) {
+            const QString name = t("Piano %1").arg(k);
+            if (!doc.storyNamed(name.toStdString()))
+                return name;
+        }
+    }
+
+    // New stories go on top of the highest one.
+    void addStory(const std::string& name)
+    {
+        Document& doc = engine->document();
+        const Story& top = doc.stories().back();
+        const StoryId id = doc.addStory({0, name, top.elevation + top.height, top.height});
+        if (!id) {
+            engine->message(t("Nome non valido o già usato."));
+            return;
+        }
+        setCurrent(id);
+    }
+
+    void setCurrent(StoryId id)
+    {
+        engine->document().setCurrentStory(id);
+        engine->clearSelection();
+        const Story s = current();
+        engine->message(t("Piano corrente: %1 (quota %2)").arg(QString::fromStdString(s.name)).arg(s.elevation));
+    }
+
+    void toOption()
+    {
+        ask_ = Ask::None;
+        engine->setPrompt(t("Specificare opzione [Nuovo/Corrente/Su/Giù/Rinomina/Quota/Altezza/Elimina/?]:"));
+    }
+
+    Ask ask_ = Ask::None;
+};
+
+// What closes rooms on the current story for SLAB and ROOF: the whole
+// footprints of the walls (doors do not open them) and the other curves.
+std::vector<Shape> roomBoundaries(CommandEngine* engine)
+{
+    const Document& doc = engine->document();
+    const auto walls = joinedWalls(doc);
+    std::vector<Shape> out;
+    for (const auto& [id, e] : doc.entities()) {
+        if (!doc.isVisible(e))
+            continue;
+        if (std::holds_alternative<Wall>(e.shape))
+            out.push_back(wallOutline(walls.at(id)));
+        else if (std::holds_alternative<Line>(e.shape) || std::holds_alternative<Arc>(e.shape)
+                 || std::holds_alternative<Circle>(e.shape) || std::holds_alternative<Polyline>(e.shape))
+            out.push_back(e.shape);
+    }
+    return out;
+}
+
+// The outer outline of the walls of the current story (one per separate building).
+std::vector<Polyline> wallsOutline(CommandEngine* engine)
+{
+    std::vector<Shape> walls;
+    const Document& doc = engine->document();
+    const auto joined = joinedWalls(doc);
+    BBox box;
+    for (const auto& [id, e] : doc.entities()) {
+        if (std::holds_alternative<Wall>(e.shape) && doc.isVisible(e)) {
+            walls.push_back(wallOutline(joined.at(id)));
+            box.add(boundingBox(walls.back()));
+        }
+    }
+    if (walls.empty())
+        return {};
+    // A frame around the walls: from inside it, the walls are its islands.
+    const double m = std::max(box.width(), box.height()) * 0.1 + 1.0;
+    const BBox frame = box.inflated(m);
+    walls.push_back(Polyline{{frame.min, {frame.max.x, frame.min.y}, frame.max, {frame.min.x, frame.max.y}}, true});
+    auto loops = findHatchBoundary(walls, frame.min + Vec2{m / 2.0, m / 2.0});
+    if (!loops.empty())
+        loops.erase(loops.begin());
+    return loops;
+}
+
+// A closed outline picked by the user: closed polyline or circle.
+std::optional<Polyline> pickClosedOutline(CommandEngine* engine, Vec2 p)
+{
+    const auto id = pickObject(engine, p);
+    if (!id)
+        return std::nullopt;
+    const Shape& s = engine->document().entity(*id)->shape;
+    if (const auto* pl = std::get_if<Polyline>(&s); pl && pl->closed && pl->points.size() >= 3)
+        return *pl;
+    if (const auto* c = std::get_if<Circle>(&s))
+        return Polyline{{c->center + Vec2{c->radius, 0}, c->center - Vec2{c->radius, 0}}, true, {1.0, 1.0}};
+    engine->message(t("L'oggetto selezionato non è una polilinea chiusa o un cerchio."));
+    return std::nullopt;
+}
+
+// Shared by SLAB and ROOF: the outline is picked inside a room, taken from
+// the walls, chosen among closed objects or drawn point by point.
+class OutlineInput {
+public:
+    enum class Mode { Default, Objects, Drawing };
+
+    Mode mode() const { return mode_; }
+    const std::vector<Vec2>& points() const { return points_; }
+
+    bool option(const QString& w)
+    {
+        if (isAny(w, {"O", "OGGETTI", "OBJECTS"})) {
+            mode_ = Mode::Objects;
+            return true;
+        }
+        if (isAny(w, {"D", "DISEGNA", "DRAW"})) {
+            mode_ = Mode::Drawing;
+            points_.clear();
+            return true;
+        }
+        return false;
+    }
+
+    // A point of the drawn outline. True when accepted.
+    bool addPoint(Vec2 p)
+    {
+        if (!points_.empty() && almostEqual(p, points_.back()))
+            return false;
+        points_.push_back(p);
+        return true;
+    }
+
+    void undoPoint()
+    {
+        if (!points_.empty())
+            points_.pop_back();
+    }
+
+    std::optional<Polyline> drawn() const
+    {
+        if (points_.size() < 3)
+            return std::nullopt;
+        return Polyline{points_, true};
+    }
+
+    void reset()
+    {
+        mode_ = Mode::Default;
+        points_.clear();
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const
+    {
+        if (mode_ != Mode::Drawing || points_.empty())
+            return;
+        Polyline pl{points_, points_.size() >= 2};
+        pl.points.push_back(cursor);
+        out.push_back(pl);
+    }
+
+    std::optional<Vec2> base() const
+    {
+        if (mode_ != Mode::Drawing || points_.empty())
+            return std::nullopt;
+        return points_.back();
+    }
+
+private:
+    Mode mode_ = Mode::Default;
+    std::vector<Vec2> points_;
+};
+
+double gSlabThickness = 300.0;
+double gSlabOffset = 0.0;
+
+// SLAB: a floor slab inside a room, under all the walls, along a closed
+// object or drawn.
+class SlabCommand : public Command {
+public:
+    void start() override
+    {
+        engine->message(t("Solaio corrente: spessore %1, quota superiore %2 rispetto al piano").arg(gSlabThickness).arg(gSlabOffset));
+        toDefault();
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (ask_ != Ask::None)
+            return false;
+        switch (input_.mode()) {
+        case OutlineInput::Mode::Drawing:
+            if (!input_.addPoint(p))
+                return false;
+            updateDrawPrompt();
+            return true;
+        case OutlineInput::Mode::Objects:
+            if (const auto outline = pickClosedOutline(engine, p)) {
+                add({*outline});
+                return true;
+            }
+            return false;
+        case OutlineInput::Mode::Default:
+            break;
+        }
+        auto loops = findHatchBoundary(roomBoundaries(engine), p);
+        if (loops.empty()) {
+            engine->message(t("Nessun contorno chiuso trovato attorno al punto."));
+            return false;
+        }
+        add(std::move(loops));
+        return true;
+    }
+
+    bool number(double value) override
+    {
+        if (ask_ == Ask::Thickness && value > 0.0)
+            gSlabThickness = value;
+        else if (ask_ == Ask::Offset)
+            gSlabOffset = value;
+        else
+            return false;
+        toDefault();
+        return true;
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (ask_ != Ask::None)
+            return false;
+        if (input_.mode() == OutlineInput::Mode::Drawing) {
+            if (isAny(w, {"AN", "ANNULLA", "U", "UNDO"})) {
+                input_.undoPoint();
+                updateDrawPrompt();
+                return true;
+            }
+            if (isCloseWord(w)) {
+                closeDrawn();
+                return true;
+            }
+            return false;
+        }
+        if (isAny(w, {"M", "MURI", "WALLS"})) {
+            const auto loops = wallsOutline(engine);
+            if (loops.empty())
+                engine->message(t("Nessun muro su questo piano."));
+            for (const Polyline& loop : loops)
+                add({loop});
+            return true;
+        }
+        if (isAny(w, {"S", "SPESSORE", "THICKNESS"})) {
+            ask_ = Ask::Thickness;
+            engine->setPrompt(t("Specificare spessore del solaio <%1>:").arg(gSlabThickness));
+            return true;
+        }
+        if (isAny(w, {"Q", "QUOTA", "ELEVATION"})) {
+            ask_ = Ask::Offset;
+            engine->setPrompt(t("Specificare quota superiore del solaio rispetto al piano <%1>:").arg(gSlabOffset));
+            return true;
+        }
+        if (input_.option(w)) {
+            if (input_.mode() == OutlineInput::Mode::Objects)
+                engine->setPrompt(t("Selezionare polilinea chiusa o cerchio:"));
+            else
+                updateDrawPrompt();
+            return true;
+        }
+        return false;
+    }
+
+    void enter() override
+    {
+        if (ask_ != Ask::None || input_.mode() == OutlineInput::Mode::Objects) {
+            toDefault();
+            return;
+        }
+        if (input_.mode() == OutlineInput::Mode::Drawing) {
+            closeDrawn();
+            return;
+        }
+        engine->finish();
+    }
+
+    bool wantsObjectPick() const override { return ask_ == Ask::None && input_.mode() == OutlineInput::Mode::Objects; }
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override { input_.preview(cursor, out); }
+    std::optional<Vec2> base() const override { return input_.base(); }
+
+private:
+    enum class Ask { None, Thickness, Offset };
+
+    void add(std::vector<Polyline> loops)
+    {
+        Slab sl;
+        sl.loops = std::move(loops);
+        sl.thickness = gSlabThickness;
+        sl.offset = gSlabOffset;
+        engine->document().add(sl);
+        toDefault();
+    }
+
+    void closeDrawn()
+    {
+        if (const auto outline = input_.drawn())
+            add({*outline});
+        else
+            toDefault();
+    }
+
+    void updateDrawPrompt()
+    {
+        if (input_.points().empty())
+            engine->setPrompt(t("Specificare primo punto del contorno:"));
+        else if (input_.points().size() >= 3)
+            engine->setPrompt(t("Specificare punto successivo o [Chiudi/ANnulla]:"));
+        else
+            engine->setPrompt(t("Specificare punto successivo o [ANnulla]:"));
+    }
+
+    void toDefault()
+    {
+        ask_ = Ask::None;
+        input_.reset();
+        engine->setPrompt(t("Specificare punto interno o [Muri/Oggetti/Disegna/Spessore/Quota]:"));
+    }
+
+    OutlineInput input_;
+    Ask ask_ = Ask::None;
+};
+
+enum class RoofType { Hip, Gable, Shed, Flat };
+
+RoofType gRoofType = RoofType::Hip;
+double gRoofPitch = 30.0;  // degrees
+double gRoofOverhang = 500.0;
+double gRoofThickness = 250.0;
+std::optional<double> gRoofBase;  // unset: the top of the walls
+
+QString roofTypeName(RoofType type)
+{
+    switch (type) {
+    case RoofType::Gable:
+        return t("Capanna");
+    case RoofType::Shed:
+        return t("Falda");
+    case RoofType::Flat:
+        return t("Piano");
+    case RoofType::Hip:
+        break;
+    }
+    return t("Padiglione");
+}
+
+// Which edges are gable ends for a roof type: a gable roof slopes on the
+// longest edge and the edges parallel to it, a shed roof only on the
+// longest edge.
+std::vector<bool> roofGables(const std::vector<Vec2>& pts, RoofType type)
+{
+    const size_t n = pts.size();
+    std::vector<bool> gables(n, type == RoofType::Flat);
+    if (type == RoofType::Hip || type == RoofType::Flat)
+        return gables;
+    size_t longest = 0;
+    for (size_t i = 0; i < n; ++i)
+        if (distance(pts[i], pts[(i + 1) % n]) > distance(pts[longest], pts[(longest + 1) % n]))
+            longest = i;
+    const Vec2 dir = normalized(pts[(longest + 1) % n] - pts[longest]);
+    for (size_t i = 0; i < n; ++i) {
+        const Vec2 d = normalized(pts[(i + 1) % n] - pts[i]);
+        const bool parallel = std::abs(cross(d, dir)) < 1e-6;
+        gables[i] = type == RoofType::Gable ? !parallel : i != longest;
+    }
+    return gables;
+}
+
+// ROOF: hip, gable, shed or flat roof over the walls, a closed polyline or a
+// drawn outline.
+class RoofCommand : public Command {
+public:
+    void start() override
+    {
+        engine->message(t("Tetto corrente: %1, pendenza %2°, sporto %3, spessore %4, imposta %5")
+                            .arg(roofTypeName(gRoofType))
+                            .arg(gRoofPitch)
+                            .arg(gRoofOverhang)
+                            .arg(gRoofThickness)
+                            .arg(gRoofBase ? QString::number(*gRoofBase) : t("in cima ai muri")));
+        toDefault();
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (ask_ != Ask::None)
+            return false;
+        if (input_.mode() == OutlineInput::Mode::Objects) {
+            if (const auto outline = pickClosedOutline(engine, p)) {
+                add(*outline);
+                return true;
+            }
+            return false;
+        }
+        // Without an option, the points draw the outline.
+        if (input_.mode() == OutlineInput::Mode::Default)
+            input_.option(QStringLiteral("D"));
+        if (!input_.addPoint(p))
+            return false;
+        updateDrawPrompt();
+        return true;
+    }
+
+    bool number(double value) override
+    {
+        switch (ask_) {
+        case Ask::Pitch:
+            if (value < 0.0 || value >= 80.0)
+                return false;
+            gRoofPitch = value;
+            break;
+        case Ask::Overhang:
+            if (value < 0.0)
+                return false;
+            gRoofOverhang = value;
+            break;
+        case Ask::Thickness:
+            if (value <= 0.0)
+                return false;
+            gRoofThickness = value;
+            break;
+        case Ask::Base:
+            gRoofBase = value;
+            break;
+        default:
+            return false;
+        }
+        toDefault();
+        return true;
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (ask_ == Ask::Type) {
+            if (isAny(w, {"P", "PADIGLIONE", "HIP"}))
+                gRoofType = RoofType::Hip;
+            else if (isAny(w, {"C", "CAPANNA", "GABLE"}))
+                gRoofType = RoofType::Gable;
+            else if (isAny(w, {"F", "FALDA", "SHED"}))
+                gRoofType = RoofType::Shed;
+            else if (isAny(w, {"PI", "PIANO", "FLAT"}))
+                gRoofType = RoofType::Flat;
+            else
+                return false;
+            toDefault();
+            return true;
+        }
+        if (ask_ != Ask::None)
+            return false;
+        if (input_.mode() == OutlineInput::Mode::Drawing) {
+            if (isAny(w, {"AN", "ANNULLA", "U", "UNDO"})) {
+                input_.undoPoint();
+                updateDrawPrompt();
+                return true;
+            }
+            if (isCloseWord(w)) {
+                closeDrawn();
+                return true;
+            }
+            return false;
+        }
+        if (isAny(w, {"M", "MURI", "WALLS"})) {
+            const auto loops = wallsOutline(engine);
+            if (loops.empty())
+                engine->message(t("Nessun muro su questo piano."));
+            for (const Polyline& loop : loops)
+                add(loop);
+            return true;
+        }
+        if (isAny(w, {"T", "TIPO", "TYPE"})) {
+            ask_ = Ask::Type;
+            engine->setPrompt(t("Specificare tipo di tetto [Padiglione/Capanna/Falda/PIano] <%1>:").arg(roofTypeName(gRoofType)));
+        } else if (isAny(w, {"P", "PENDENZA", "PITCH"})) {
+            ask_ = Ask::Pitch;
+            engine->setPrompt(t("Specificare pendenza in gradi <%1>:").arg(gRoofPitch));
+        } else if (isAny(w, {"S", "SPORTO", "OVERHANG"})) {
+            ask_ = Ask::Overhang;
+            engine->setPrompt(t("Specificare sporto <%1>:").arg(gRoofOverhang));
+        } else if (isAny(w, {"SP", "SPESSORE", "THICKNESS"})) {
+            ask_ = Ask::Thickness;
+            engine->setPrompt(t("Specificare spessore del tetto <%1>:").arg(gRoofThickness));
+        } else if (isAny(w, {"I", "IMPOSTA", "BASE"})) {
+            ask_ = Ask::Base;
+            engine->setPrompt(t("Specificare altezza d'imposta sopra il piano <%1>:").arg(roofBase()));
+        } else if (input_.option(w)) {
+            if (input_.mode() == OutlineInput::Mode::Objects)
+                engine->setPrompt(t("Selezionare polilinea chiusa:"));
+            else
+                updateDrawPrompt();
+        } else {
+            return false;
+        }
+        return true;
+    }
+
+    void enter() override
+    {
+        if (ask_ != Ask::None || input_.mode() == OutlineInput::Mode::Objects) {
+            toDefault();
+            return;
+        }
+        if (input_.mode() == OutlineInput::Mode::Drawing) {
+            closeDrawn();
+            return;
+        }
+        engine->finish();
+    }
+
+    bool wantsObjectPick() const override { return ask_ == Ask::None && input_.mode() == OutlineInput::Mode::Objects; }
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override { input_.preview(cursor, out); }
+    std::optional<Vec2> base() const override { return input_.base(); }
+
+private:
+    enum class Ask { None, Type, Pitch, Overhang, Thickness, Base };
+
+    // The slopes start at the top of the highest wall of the story, unless set.
+    double roofBase() const
+    {
+        if (gRoofBase)
+            return *gRoofBase;
+        double top = 0.0;
+        const Document& doc = engine->document();
+        for (const auto& [id, e] : doc.entities())
+            if (const auto* w = std::get_if<Wall>(&e.shape); w && doc.isVisible(e))
+                top = std::max(top, w->height);
+        return top > 0.0 ? top : 2700.0;
+    }
+
+    void add(const Polyline& outline)
+    {
+        Roof r;
+        r.footprint = outline;
+        r.footprint.closed = true;
+        r.footprint.bulges.clear();
+        r.pitch = degToRad(gRoofPitch);
+        r.overhang = gRoofOverhang;
+        r.thickness = gRoofThickness;
+        r.base = roofBase();
+        if (outline.hasArcs() || !roofGeometry(r)) {
+            engine->message(t("Il contorno del tetto deve essere un poligono convesso (rettangolo, trapezio...): "
+                              "per una pianta a L disegnare un tetto per ogni parte."));
+            toDefault();
+            return;
+        }
+        r.gables = roofGables(roofGeometry(r)->footprint, gRoofType);
+        engine->document().add(r);
+        toDefault();
+    }
+
+    void closeDrawn()
+    {
+        if (const auto outline = input_.drawn())
+            add(*outline);
+        else
+            toDefault();
+    }
+
+    void updateDrawPrompt()
+    {
+        if (input_.points().empty())
+            engine->setPrompt(t("Specificare primo punto del contorno:"));
+        else if (input_.points().size() >= 3)
+            engine->setPrompt(t("Specificare punto successivo o [Chiudi/ANnulla]:"));
+        else
+            engine->setPrompt(t("Specificare punto successivo o [ANnulla]:"));
+    }
+
+    void toDefault()
+    {
+        ask_ = Ask::None;
+        input_.reset();
+        engine->setPrompt(t("Specificare primo punto del contorno o [Muri/Oggetti/Tipo/Pendenza/Sporto/SPessore/Imposta]:"));
+    }
+
+    OutlineInput input_;
+    Ask ask_ = Ask::None;
+};
+
 class View3dCommand : public Command {
 public:
     void start() override
@@ -2609,6 +3330,9 @@ std::unique_ptr<Command> makeWallCommand() { return std::make_unique<WallCommand
 std::unique_ptr<Command> makeDoorCommand() { return std::make_unique<OpeningCommand>(Opening::Kind::Door); }
 std::unique_ptr<Command> makeWindowCommand() { return std::make_unique<OpeningCommand>(Opening::Kind::Window); }
 std::unique_ptr<Command> makeWallEditCommand() { return std::make_unique<WallEditCommand>(); }
+std::unique_ptr<Command> makeStoryCommand() { return std::make_unique<StoryCommand>(); }
+std::unique_ptr<Command> makeSlabCommand() { return std::make_unique<SlabCommand>(); }
+std::unique_ptr<Command> makeRoofCommand() { return std::make_unique<RoofCommand>(); }
 std::unique_ptr<Command> makeView3dCommand() { return std::make_unique<View3dCommand>(); }
 std::unique_ptr<Command> makeZoomCommand() { return std::make_unique<ZoomCommand>(); }
 std::unique_ptr<Command> makeLayerCommand() { return std::make_unique<LayerCommand>(); }

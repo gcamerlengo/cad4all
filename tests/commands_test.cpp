@@ -551,3 +551,75 @@ TEST_F(Commands, EditingCommandsAcceptWalls)
     type({"SCALA", "0,0", "2"});
     EXPECT_DOUBLE_EQ(shapes<Wall>()[0].thickness, 600);
 }
+
+TEST_F(Commands, StoriesFromTheCommandLine)
+{
+    type({"PIANO", "N", "Primo piano", "Q", "3200", "A", "2900", "N", ""});
+    ASSERT_EQ(doc.stories().size(), 3u);
+    EXPECT_EQ(doc.stories()[1].name, "Primo piano");
+    EXPECT_DOUBLE_EQ(doc.stories()[1].elevation, 3200);
+    EXPECT_DOUBLE_EQ(doc.stories()[1].height, 2900);
+    // The next one goes on top, with a default name.
+    EXPECT_EQ(doc.stories()[2].name, "Piano 2");
+    EXPECT_DOUBLE_EQ(doc.stories()[2].elevation, 6100);
+    EXPECT_EQ(doc.currentStory(), doc.stories()[2].id);
+    type({"G", "G"});
+    EXPECT_EQ(doc.currentStory(), doc.stories()[0].id);
+    type({"C", "piano 2", "E"});
+    EXPECT_EQ(doc.stories().size(), 2u);
+    type({"R", "Sottotetto", ""});
+    EXPECT_FALSE(engine.isActive());
+    EXPECT_EQ(doc.story(doc.currentStory())->name, "Sottotetto");
+}
+
+TEST_F(Commands, SlabInsideARoomAndUnderTheWalls)
+{
+    type({"MURO", "S", "200", "0,0", "6000,0", "6000,4000", "0,4000", "C"});
+    // A door does not open the room.
+    engine.setPickTolerance(10);
+    type({"PORTA", "3000,50", "3000,500", ""});
+    ASSERT_EQ(shapes<Wall>()[0].openings.size(), 1u);
+    type({"SOLAIO", "S", "250", "3000,2000", ""});
+    auto slabs = shapes<Slab>();
+    ASSERT_EQ(slabs.size(), 1u);
+    EXPECT_DOUBLE_EQ(slabs[0].thickness, 250);
+    BBox box = boundingBox(slabs[0]);
+    EXPECT_NEAR(box.min.x, 100, 1e-6);
+    EXPECT_NEAR(box.max.y, 3900, 1e-6);
+
+    type({"SOLAIO", "M", ""});
+    slabs = shapes<Slab>();
+    ASSERT_EQ(slabs.size(), 2u);
+    box = boundingBox(slabs[1]);
+    EXPECT_NEAR(box.min.x, -100, 1e-6);
+    EXPECT_NEAR(box.max.y, 4100, 1e-6);
+
+    type({"SOLAIO", "D", "0,0", "1000,0", "1000,1000", "C", ""});
+    EXPECT_EQ(shapes<Slab>().size(), 3u);
+    type({"SOLAIO", "S", "300", ""});
+}
+
+TEST_F(Commands, RoofOverTheWalls)
+{
+    type({"MURO", "S", "300", "0,0", "8000,0", "8000,5000", "0,5000", "C"});
+    type({"TETTO", "T", "C", "P", "35", "S", "400", "M", ""});
+    auto roofs = shapes<Roof>();
+    ASSERT_EQ(roofs.size(), 1u);
+    const Roof& r = roofs[0];
+    EXPECT_NEAR(r.pitch, degToRad(35.0), 1e-12);
+    EXPECT_DOUBLE_EQ(r.overhang, 400);
+    EXPECT_DOUBLE_EQ(r.base, 2700);  // the top of the walls
+    const auto g = roofGeometry(r);
+    ASSERT_TRUE(g);
+    EXPECT_EQ(g->faces.size(), 2u);  // gable roof
+    const BBox box = boundingBox(Polyline{g->footprint, true});
+    EXPECT_NEAR(box.min.x, -150, 1e-6);
+    EXPECT_NEAR(box.max.y, 5150, 1e-6);
+
+    // Drawn outline, an L is refused.
+    type({"TETTO", "T", "P", "0,0", "4000,0", "4000,2000", "2000,2000", "2000,4000", "0,4000", "C", ""});
+    EXPECT_EQ(shapes<Roof>().size(), 1u);
+    type({"TETTO", "0,0", "4000,0", "4000,2000", ""});
+    EXPECT_EQ(shapes<Roof>().size(), 2u);
+    type({"TETTO", "P", "30", "S", "500", ""});
+}

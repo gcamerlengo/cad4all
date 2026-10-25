@@ -9,6 +9,7 @@
 class CadView;
 class CommandLine;
 class LayerPanel;
+class QComboBox;
 class QDockWidget;
 class QLabel;
 class QToolButton;
@@ -43,6 +44,9 @@ private:
     void exportDxf();
     void plot();
     void showView3d();
+    void updateStories();
+    void setStory(cad::StoryId id);
+    void changeStory(int step);
     bool maybeSave();
     void runScriptDialog();
     void updateTitle();
@@ -57,6 +61,7 @@ private:
     QDockWidget* layerDock_;
     View3D* view3d_;
     QDockWidget* view3dDock_;
+    QComboBox* storyCombo_ = nullptr;
     // The 3D view opens by itself with the first wall, once.
     bool view3dShown_ = false;
     QLabel* coordinates_;

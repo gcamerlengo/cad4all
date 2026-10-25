@@ -15,6 +15,9 @@ void Document::reset()
     layers_.clear();
     layers_.push_back(Layer::named("0"));
     currentLayer_ = "0";
+    stories_.clear();
+    nextStory_ = 1;
+    currentStory_ = addStory({0, "Piano terra", 0.0, 3000.0});
     entities_.clear();
     nextId_ = 1;
     clearHistory();
@@ -61,16 +64,113 @@ bool Document::setCurrentLayer(const std::string& name)
     return true;
 }
 
-bool Document::isVisible(const Entity& e) const
+bool Document::isLayerVisible(const Entity& e) const
 {
     const Layer* l = layer(e.layer);
     return !l || l->visible;
 }
 
+bool Document::isVisible(const Entity& e) const
+{
+    return e.story == currentStory_ && isLayerVisible(e);
+}
+
 bool Document::isEditable(const Entity& e) const
 {
     const Layer* l = layer(e.layer);
-    return !l || (l->visible && !l->locked);
+    return isVisible(e) && (!l || !l->locked);
+}
+
+const Story* Document::story(StoryId id) const
+{
+    auto it = std::find_if(stories_.begin(), stories_.end(), [&](const Story& s) { return s.id == id; });
+    return it == stories_.end() ? nullptr : &*it;
+}
+
+const Story* Document::storyNamed(const std::string& name) const
+{
+    auto it = std::find_if(stories_.begin(), stories_.end(), [&](const Story& s) { return s.name == name; });
+    return it == stories_.end() ? nullptr : &*it;
+}
+
+namespace {
+
+void sortStories(std::vector<Story>& stories)
+{
+    std::stable_sort(stories.begin(), stories.end(), [](const Story& a, const Story& b) { return a.elevation < b.elevation; });
+}
+
+} // namespace
+
+StoryId Document::addStory(Story story)
+{
+    if (story.name.empty() || storyNamed(story.name))
+        return 0;
+    // Files keep their ids, so entities find their story again.
+    if (story.id <= 0 || this->story(story.id))
+        story.id = nextStory_;
+    nextStory_ = std::max(nextStory_, story.id + 1);
+    stories_.push_back(story);
+    sortStories(stories_);
+    modified_ = true;
+    touch();
+    return story.id;
+}
+
+bool Document::updateStory(StoryId id, const Story& value)
+{
+    auto it = std::find_if(stories_.begin(), stories_.end(), [&](const Story& s) { return s.id == id; });
+    if (it == stories_.end() || value.name.empty())
+        return false;
+    const Story* sameName = storyNamed(value.name);
+    if (sameName && sameName->id != id)
+        return false;
+    Story updated = value;
+    updated.id = id;
+    *it = updated;
+    sortStories(stories_);
+    modified_ = true;
+    touch();
+    return true;
+}
+
+bool Document::removeStory(StoryId id)
+{
+    if (stories_.size() <= 1 || !story(id))
+        return false;
+    if (std::any_of(entities_.begin(), entities_.end(), [&](const auto& kv) { return kv.second.story == id; }))
+        return false;
+    std::erase_if(stories_, [&](const Story& s) { return s.id == id; });
+    if (currentStory_ == id)
+        currentStory_ = stories_.front().id;
+    modified_ = true;
+    touch();
+    return true;
+}
+
+bool Document::setCurrentStory(StoryId id)
+{
+    if (!story(id))
+        return false;
+    currentStory_ = id;
+    touch();
+    return true;
+}
+
+const Story* Document::storyBelow(StoryId id) const
+{
+    for (size_t i = 1; i < stories_.size(); ++i)
+        if (stories_[i].id == id)
+            return &stories_[i - 1];
+    return nullptr;
+}
+
+const Story* Document::storyAbove(StoryId id) const
+{
+    for (size_t i = 0; i + 1 < stories_.size(); ++i)
+        if (stories_[i].id == id)
+            return &stories_[i + 1];
+    return nullptr;
 }
 
 const Entity* Document::entity(EntityId id) const
@@ -94,6 +194,8 @@ EntityId Document::add(Entity entity)
     nextId_ = std::max(nextId_, entity.id + 1);
     if (!layer(entity.layer))
         addLayer(Layer::named(entity.layer));
+    if (!story(entity.story))
+        entity.story = currentStory_;
     const EntityId id = entity.id;
     record({id, std::nullopt, std::move(entity)});
     return id;

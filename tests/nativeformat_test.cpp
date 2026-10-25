@@ -129,3 +129,59 @@ TEST(NativeFormat, WallRoundTrip)
     EXPECT_EQ(r.openings[1].kind, Opening::Kind::Window);
     EXPECT_DOUBLE_EQ(r.openings[1].sill, 900);
 }
+
+TEST(NativeFormat, StoriesSlabsAndRoofsRoundTrip)
+{
+    Document doc;
+    const StoryId first = doc.addStory({0, "Primo piano", 3000, 2800});
+    doc.add(Slab{{Polyline{{{0, 0}, {5000, 0}, {5000, 4000}}, true}}, 250, -50});
+    doc.setCurrentStory(first);
+    Roof roof;
+    roof.footprint = Polyline{{{0, 0}, {6000, 0}, {6000, 4000}, {0, 4000}}, true};
+    roof.gables = {false, true, false, true};
+    roof.pitch = 0.4;
+    roof.base = 2600;
+    roof.overhang = 600;
+    roof.thickness = 300;
+    doc.add(roof);
+
+    Document loaded;
+    QString error;
+    ASSERT_TRUE(io::fromNativeJson(io::toNativeJson(doc), loaded, &error)) << error.toStdString();
+    ASSERT_EQ(loaded.stories().size(), 2u);
+    EXPECT_EQ(loaded.stories()[0].name, "Piano terra");
+    EXPECT_EQ(loaded.stories()[1].name, "Primo piano");
+    EXPECT_DOUBLE_EQ(loaded.stories()[1].elevation, 3000);
+    EXPECT_DOUBLE_EQ(loaded.stories()[1].height, 2800);
+    EXPECT_EQ(loaded.currentStory(), loaded.stories()[1].id);
+
+    ASSERT_EQ(loaded.entities().size(), 2u);
+    auto it = loaded.entities().begin();
+    EXPECT_EQ(it->second.story, loaded.stories()[0].id);
+    const auto& slab = std::get<Slab>(it->second.shape);
+    ASSERT_EQ(slab.loops.size(), 1u);
+    EXPECT_EQ(slab.loops[0].points.size(), 3u);
+    EXPECT_DOUBLE_EQ(slab.thickness, 250);
+    EXPECT_DOUBLE_EQ(slab.offset, -50);
+    ++it;
+    EXPECT_EQ(it->second.story, loaded.stories()[1].id);
+    const auto& r = std::get<Roof>(it->second.shape);
+    EXPECT_EQ(r.footprint.points.size(), 4u);
+    EXPECT_EQ(r.gables, roof.gables);
+    EXPECT_DOUBLE_EQ(r.pitch, 0.4);
+    EXPECT_DOUBLE_EQ(r.base, 2600);
+    EXPECT_DOUBLE_EQ(r.overhang, 600);
+    EXPECT_DOUBLE_EQ(r.thickness, 300);
+}
+
+TEST(NativeFormat, FileWithoutStoriesUsesTheGroundFloor)
+{
+    Document doc;
+    doc.add(Line{{0, 0}, {1, 0}});
+    // An older file: no stories and no story on the entities.
+    QByteArray json = io::toNativeJson(doc);
+    Document loaded;
+    ASSERT_TRUE(io::fromNativeJson(json, loaded));
+    ASSERT_EQ(loaded.stories().size(), 1u);
+    EXPECT_EQ(loaded.entities().begin()->second.story, loaded.currentStory());
+}

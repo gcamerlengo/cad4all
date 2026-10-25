@@ -205,6 +205,25 @@ QJsonObject shapeToJson(const Shape& shape)
         }
         if (!openings.isEmpty())
             o[QStringLiteral("openings")] = openings;
+    } else if (const auto* sl = std::get_if<Slab>(&shape)) {
+        o[QStringLiteral("type")] = QStringLiteral("slab");
+        QJsonArray loops;
+        for (const Polyline& loop : sl->loops)
+            loops.append(polylineToJson(loop));
+        o[QStringLiteral("loops")] = loops;
+        o[QStringLiteral("thickness")] = sl->thickness;
+        o[QStringLiteral("offset")] = sl->offset;
+    } else if (const auto* r = std::get_if<Roof>(&shape)) {
+        o[QStringLiteral("type")] = QStringLiteral("roof");
+        o[QStringLiteral("footprint")] = polylineToJson(r->footprint);
+        QJsonArray gables;
+        for (size_t i = 0; i < r->footprint.points.size(); ++i)
+            gables.append(r->gable(i));
+        o[QStringLiteral("gables")] = gables;
+        o[QStringLiteral("pitch")] = r->pitch;
+        o[QStringLiteral("base")] = r->base;
+        o[QStringLiteral("overhang")] = r->overhang;
+        o[QStringLiteral("thickness")] = r->thickness;
     }
     return o;
 }
@@ -299,6 +318,33 @@ std::optional<Shape> shapeFromJson(const QJsonObject& o)
         if (fromJson(o[QStringLiteral("start")], w.start) && fromJson(o[QStringLiteral("end")], w.end) && w.thickness > 0.0
             && w.height > 0.0)
             return w;
+    } else if (type == QLatin1String("slab")) {
+        Slab sl;
+        for (const QJsonValue& v : o[QStringLiteral("loops")].toArray()) {
+            if (auto loop = polylineFromJson(v.toObject())) {
+                loop->closed = true;
+                sl.loops.push_back(std::move(*loop));
+            }
+        }
+        sl.thickness = o[QStringLiteral("thickness")].toDouble(-1.0);
+        sl.offset = o[QStringLiteral("offset")].toDouble();
+        if (!sl.loops.empty() && sl.thickness > 0.0)
+            return sl;
+    } else if (type == QLatin1String("roof")) {
+        Roof r;
+        const auto footprint = polylineFromJson(o[QStringLiteral("footprint")].toObject());
+        if (!footprint)
+            return std::nullopt;
+        r.footprint = *footprint;
+        r.footprint.closed = true;
+        for (const QJsonValue& v : o[QStringLiteral("gables")].toArray())
+            r.gables.push_back(v.toBool());
+        r.pitch = o[QStringLiteral("pitch")].toDouble(r.pitch);
+        r.base = o[QStringLiteral("base")].toDouble(r.base);
+        r.overhang = o[QStringLiteral("overhang")].toDouble(r.overhang);
+        r.thickness = o[QStringLiteral("thickness")].toDouble(-1.0);
+        if (r.footprint.points.size() >= 3 && r.thickness > 0.0)
+            return r;
     }
     return std::nullopt;
 }
@@ -323,10 +369,21 @@ QByteArray toNativeJson(const Document& doc)
         layers.append(o);
     }
 
+    QJsonArray stories;
+    for (const Story& st : doc.stories()) {
+        QJsonObject o;
+        o[QStringLiteral("id")] = st.id;
+        o[QStringLiteral("name")] = QString::fromStdString(st.name);
+        o[QStringLiteral("elevation")] = st.elevation;
+        o[QStringLiteral("height")] = st.height;
+        stories.append(o);
+    }
+
     QJsonArray entities;
     for (const auto& [id, e] : doc.entities()) {
         QJsonObject o = shapeToJson(e.shape);
         o[QStringLiteral("layer")] = QString::fromStdString(e.layer);
+        o[QStringLiteral("story")] = e.story;
         entities.append(o);
     }
 
@@ -335,6 +392,8 @@ QByteArray toNativeJson(const Document& doc)
     root[QStringLiteral("version")] = kNativeFormatVersion;
     root[QStringLiteral("currentLayer")] = QString::fromStdString(doc.currentLayer());
     root[QStringLiteral("layers")] = layers;
+    root[QStringLiteral("stories")] = stories;
+    root[QStringLiteral("currentStory")] = doc.currentStory();
     root[QStringLiteral("entities")] = entities;
     return QJsonDocument(root).toJson(QJsonDocument::Indented);
 }
@@ -371,6 +430,28 @@ bool fromNativeJson(const QByteArray& data, Document& doc, QString* error)
             loaded.addLayer(l);
     }
 
+    // Stories keep their ids, which the entities refer to. The new document
+    // comes with a default story (id 1): it takes the values of the file's
+    // story 1, or goes if the file has no such story.
+    const QJsonArray stories = root.value(QStringLiteral("stories")).toArray();
+    bool hasFirst = stories.isEmpty();
+    if (!stories.isEmpty())
+        loaded.updateStory(1, {1, "\x01", 0.0, 3000.0});
+    for (const QJsonValue& v : stories) {
+        const QJsonObject o = v.toObject();
+        Story st;
+        st.id = o.value(QStringLiteral("id")).toInt();
+        st.name = o.value(QStringLiteral("name")).toString().toStdString();
+        st.elevation = o.value(QStringLiteral("elevation")).toDouble();
+        st.height = o.value(QStringLiteral("height")).toDouble(3000.0);
+        if (st.id == 1) {
+            hasFirst = true;
+            loaded.updateStory(1, st);
+        } else {
+            loaded.addStory(st);
+        }
+    }
+
     int skipped = 0;
     for (const QJsonValue& v : root.value(QStringLiteral("entities")).toArray()) {
         const QJsonObject o = v.toObject();
@@ -382,8 +463,15 @@ bool fromNativeJson(const QByteArray& data, Document& doc, QString* error)
         Entity e;
         e.layer = o.value(QStringLiteral("layer")).toString(QStringLiteral("0")).toStdString();
         e.shape = *shape;
+        e.story = o.value(QStringLiteral("story")).toInt(1);
+        if (!loaded.story(e.story))
+            e.story = loaded.stories().front().id;
         loaded.add(std::move(e));
     }
+    if (!hasFirst)
+        loaded.removeStory(1);
+    if (!loaded.setCurrentStory(root.value(QStringLiteral("currentStory")).toInt(1)))
+        loaded.setCurrentStory(loaded.stories().front().id);
     loaded.setCurrentLayer(root.value(QStringLiteral("currentLayer")).toString(QStringLiteral("0")).toStdString());
     loaded.clearHistory();
     loaded.setModified(false);

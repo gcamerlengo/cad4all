@@ -149,7 +149,31 @@ struct Wall {
     std::vector<Opening> openings;
 };
 
-using Shape = std::variant<Line, Circle, Arc, Polyline, Text, Dimension, Hatch, Wall>;
+// Floor slab: the area inside `loops` (even-odd, so a loop inside another is
+// a hole) with its top `offset` above the elevation of its story.
+struct Slab {
+    std::vector<Polyline> loops;
+    double thickness = 300.0;
+    double offset = 0.0;
+};
+
+// Roof over a convex footprint with straight edges, usually the outer faces
+// of the walls. Every edge slopes up into the roof at `pitch`, except the
+// gable ends (vertical, closed by a wall up to the roof); the slopes start
+// `base` above the story along the footprint and the roof sticks out by
+// `overhang` all around. No sloping edge makes a flat roof.
+struct Roof {
+    Polyline footprint;
+    std::vector<bool> gables;  // per edge of the footprint; missing = sloping
+    double pitch = 0.5235987755982988;  // radians (30 degrees)
+    double base = 2700.0;
+    double overhang = 500.0;
+    double thickness = 250.0;
+
+    bool gable(size_t edge) const { return edge < gables.size() && gables[edge]; }
+};
+
+using Shape = std::variant<Line, Circle, Arc, Polyline, Text, Dimension, Hatch, Wall, Slab, Roof>;
 
 // Arc of a polyline segment from `from` to `to`: always counter-clockwise, so
 // a negative bulge gives an arc from `to` to `from`.

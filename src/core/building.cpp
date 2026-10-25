@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "building.h"
 
+#include "hatch.h"
+
 #include <algorithm>
 #include <limits>
 
@@ -9,6 +11,15 @@ namespace cad {
 namespace {
 
 constexpr double kHuge = std::numeric_limits<double>::max() / 4.0;
+
+// Signed area, positive when counter-clockwise.
+double polygonArea(const std::vector<Vec2>& poly)
+{
+    double a = 0.0;
+    for (size_t k = 0; k < poly.size(); ++k)
+        a += cross(poly[k], poly[(k + 1) % poly.size()]);
+    return a / 2.0;
+}
 
 bool degenerate(const Wall& w) { return wallLength(w) < kEps || w.thickness <= kEps; }
 
@@ -139,22 +150,26 @@ std::vector<std::pair<double, double>> openingRanges(const Wall& w)
 }
 
 // Keeps the part of a convex polygon between two distances along the wall axis.
+// Keeps the part of a convex polygon where `inside` is not negative.
+template <class F>
+std::vector<Vec2> clip(const std::vector<Vec2>& in, F inside)
+{
+    std::vector<Vec2> out;
+    for (size_t k = 0; k < in.size(); ++k) {
+        const Vec2 a = in[k];
+        const Vec2 b = in[(k + 1) % in.size()];
+        const double fa = inside(a);
+        const double fb = inside(b);
+        if (fa >= 0.0)
+            out.push_back(a);
+        if ((fa >= 0.0) != (fb >= 0.0))
+            out.push_back(a + (b - a) * (fa / (fa - fb)));
+    }
+    return out;
+}
+
 std::vector<Vec2> clipAlongWall(std::vector<Vec2> poly, const Wall& w, double tmin, double tmax)
 {
-    auto clip = [&](const std::vector<Vec2>& in, auto inside) {
-        std::vector<Vec2> out;
-        for (size_t k = 0; k < in.size(); ++k) {
-            const Vec2 a = in[k];
-            const Vec2 b = in[(k + 1) % in.size()];
-            const double fa = inside(a);
-            const double fb = inside(b);
-            if (fa >= 0.0)
-                out.push_back(a);
-            if ((fa >= 0.0) != (fb >= 0.0))
-                out.push_back(a + (b - a) * (fa / (fa - fb)));
-        }
-        return out;
-    };
     if (tmin > -kHuge)
         poly = clip(poly, [&](Vec2 p) { return wallParam(w, p) - tmin; });
     if (tmax < kHuge && !poly.empty())
@@ -172,10 +187,10 @@ public:
         m_.triangles.push_back({{a, c, d}, mat});
     }
 
-    void polygon(const std::vector<Vec2>& pts, double z)
+    void polygon(const std::vector<Vec2>& pts, double z, Model3D::Material mat = Model3D::Material::Wall)
     {
         for (size_t k = 1; k + 1 < pts.size(); ++k)
-            m_.triangles.push_back({{Vec3(pts[0], z), Vec3(pts[k], z), Vec3(pts[k + 1], z)}, Model3D::Material::Wall});
+            m_.triangles.push_back({{Vec3(pts[0], z), Vec3(pts[k], z), Vec3(pts[k + 1], z)}, mat});
     }
 
     void edge(Vec3 a, Vec3 b)
@@ -201,6 +216,8 @@ public:
     }
 
     void wall(const Wall& w, const WallFaces& f);
+    void slab(const Slab& s);
+    void roof(const Roof& r);
 
 private:
     Model3D& m_;
@@ -326,6 +343,122 @@ void ModelBuilder::wall(const Wall& w, const WallFaces& f)
     }
 }
 
+
+void ModelBuilder::slab(const Slab& sl)
+{
+    const double top = sl.offset;
+    const double bottom = sl.offset - sl.thickness;
+    if (sl.thickness <= kEps || sl.loops.empty())
+        return;
+    Hatch area;
+    area.loops = sl.loops;
+    for (const auto& t : hatchTrapezoids(area)) {
+        for (double z : {top, bottom}) {
+            quad(Vec3(t[0], z), Vec3(t[1], z), Vec3(t[2], z), Vec3(t[3], z));
+        }
+    }
+    for (const auto& poly : flattenLoops(sl.loops)) {
+        const size_t n = poly.size();
+        for (size_t k = 0; k < n; ++k) {
+            const Vec2 a = poly[k];
+            const Vec2 b = poly[(k + 1) % n];
+            quad(Vec3(a, bottom), Vec3(b, bottom), Vec3(b, top), Vec3(a, top));
+            edge(Vec3(a, top), Vec3(b, top));
+            edge(Vec3(a, bottom), Vec3(b, bottom));
+            // Vertical edges only at real corners, not along flattened arcs.
+            const Vec2 before = normalized(a - poly[(k + n - 1) % n]);
+            const Vec2 after = normalized(b - a);
+            if (dot(before, after) < std::cos(degToRad(15.0)))
+                edge(Vec3(a, bottom), Vec3(a, top));
+        }
+    }
+}
+
+void ModelBuilder::roof(const Roof& r)
+{
+    const auto g = roofGeometry(r);
+    if (!g || r.thickness <= kEps)
+        return;
+    const bool flat = g->faces.size() == 1 && g->faces[0].edge < 0;
+    const double rise = flat ? r.thickness : r.thickness / std::cos(r.pitch);
+    auto under = [&](Vec2 p) { return roofHeight(r, p); };
+
+    for (const RoofFace& f : g->faces) {
+        std::vector<Vec3> bottom, top;
+        for (Vec2 v : f.polygon) {
+            bottom.push_back(Vec3(v, under(v)));
+            top.push_back(Vec3(v, under(v) + rise));
+        }
+        for (size_t k = 1; k + 1 < top.size(); ++k) {
+            m_.triangles.push_back({{bottom[0], bottom[k], bottom[k + 1]}, Model3D::Material::Roof});
+            m_.triangles.push_back({{top[0], top[k], top[k + 1]}, Model3D::Material::Roof});
+        }
+        for (size_t k = 0; k < top.size(); ++k)
+            edge(top[k], top[(k + 1) % top.size()]);
+    }
+
+    // The edge of the roof all around, split where the faces meet it.
+    const size_t n = g->outline.size();
+    for (size_t k = 0; k < n; ++k) {
+        const Vec2 a = g->outline[k];
+        const Vec2 b = g->outline[(k + 1) % n];
+        const double len = distance(a, b);
+        if (len < kEps)
+            continue;
+        std::vector<double> cuts{0.0, 1.0};
+        for (const RoofFace& f : g->faces)
+            for (Vec2 v : f.polygon)
+                if (distanceToSegment(v, a, b) < 1e-6 * std::max(1.0, len))
+                    cuts.push_back(std::clamp(dot(v - a, b - a) / (len * len), 0.0, 1.0));
+        std::sort(cuts.begin(), cuts.end());
+        for (size_t c = 0; c + 1 < cuts.size(); ++c) {
+            if (cuts[c + 1] - cuts[c] < 1e-9)
+                continue;
+            const Vec2 p = a + (b - a) * cuts[c];
+            const Vec2 q = a + (b - a) * cuts[c + 1];
+            quad(Vec3(p, under(p)), Vec3(q, under(q)), Vec3(q, under(q) + rise), Vec3(p, under(p) + rise),
+                 Model3D::Material::Roof);
+            edge(Vec3(p, under(p)), Vec3(q, under(q)));
+        }
+        edge(Vec3(a, under(a)), Vec3(a, under(a) + rise));
+    }
+
+    // Gable ends: the wall goes up to the underside of the roof.
+    const size_t m = g->footprint.size();
+    for (size_t i = 0; i < m; ++i) {
+        if (!r.gable(i) || flat)
+            continue;
+        const Vec2 a = g->footprint[i];
+        const Vec2 b = g->footprint[(i + 1) % m];
+        for (const RoofFace& f : g->faces) {
+            // The part of the edge under this face.
+            double t0 = 0.0, t1 = 1.0;
+            const auto& poly = f.polygon;
+            const double sign = polygonArea(poly) > 0.0 ? 1.0 : -1.0;
+            for (size_t k = 0; k < poly.size() && t0 < t1; ++k) {
+                const Vec2 p = poly[k];
+                const Vec2 e = poly[(k + 1) % poly.size()] - p;
+                // Inside: on the left of each edge of a counter-clockwise polygon.
+                const double fa = sign * cross(e, a - p);
+                const double fb = sign * cross(e, b - p);
+                if (fa < 0.0 && fb < 0.0)
+                    t1 = -1.0;
+                else if (fa < 0.0)
+                    t0 = std::max(t0, fa / (fa - fb));
+                else if (fb < 0.0)
+                    t1 = std::min(t1, fa / (fa - fb));
+            }
+            if (t1 - t0 < 1e-9)
+                continue;
+            const Vec2 p = a + (b - a) * t0;
+            const Vec2 q = a + (b - a) * t1;
+            if (under(p) - r.base < kEps && under(q) - r.base < kEps)
+                continue;
+            quad(Vec3(p, r.base), Vec3(q, r.base), Vec3(q, under(q)), Vec3(p, under(p)));
+        }
+    }
+}
+
 } // namespace
 
 Vec2 wallDirection(const Wall& w) { return normalized(w.end - w.start); }
@@ -416,18 +549,20 @@ std::vector<WallFaces> joinWalls(const std::vector<Wall>& walls)
 
 std::map<EntityId, WallFaces> joinedWalls(const Document& doc)
 {
-    std::vector<EntityId> ids;
-    std::vector<Wall> walls;
+    std::map<StoryId, std::pair<std::vector<EntityId>, std::vector<Wall>>> byStory;
     for (const auto& [id, e] : doc.entities()) {
         if (const auto* w = std::get_if<Wall>(&e.shape)) {
+            auto& [ids, walls] = byStory[e.story];
             ids.push_back(id);
             walls.push_back(*w);
         }
     }
-    const std::vector<WallFaces> faces = joinWalls(walls);
     std::map<EntityId, WallFaces> out;
-    for (size_t i = 0; i < ids.size(); ++i)
-        out.emplace(ids[i], faces[i]);
+    for (const auto& [story, group] : byStory) {
+        const std::vector<WallFaces> faces = joinWalls(group.second);
+        for (size_t i = 0; i < faces.size(); ++i)
+            out.emplace(group.first[i], faces[i]);
+    }
     return out;
 }
 
@@ -504,6 +639,131 @@ std::vector<std::vector<Vec2>> wallSolidParts(const Wall& w, const WallFaces& f)
     return out;
 }
 
+std::optional<RoofGeometry> roofGeometry(const Roof& r)
+{
+    // Corners without repeats; the edge indices of `gables` refer to these.
+    std::vector<Vec2> pts = r.footprint.points;
+    if (pts.size() >= 2 && almostEqual(pts.front(), pts.back(), 1e-9))
+        pts.pop_back();
+    if (pts.size() < 3)
+        return std::nullopt;
+    const size_t n = pts.size();
+    const double area = polygonArea(pts);
+    if (std::abs(area) < kEps)
+        return std::nullopt;
+    const double turn = area > 0.0 ? 1.0 : -1.0;
+    double scale = 0.0;
+    for (Vec2 p : pts)
+        scale = std::max(scale, distance(p, pts[0]));
+    for (size_t k = 0; k < n; ++k) {
+        const Vec2 e1 = pts[(k + 1) % n] - pts[k];
+        const Vec2 e2 = pts[(k + 2) % n] - pts[(k + 1) % n];
+        if (length(e1) < kEps || turn * cross(e1, e2) < -1e-9 * scale * scale)
+            return std::nullopt;  // repeated corner or not convex
+    }
+
+    RoofGeometry g;
+    g.footprint = pts;
+    std::vector<Vec2> inward(n);
+    for (size_t i = 0; i < n; ++i)
+        inward[i] = perpendicular(normalized(pts[(i + 1) % n] - pts[i])) * turn;
+    for (size_t k = 0; k < n; ++k) {
+        const size_t prev = (k + n - 1) % n;
+        const FaceLine a{pts[prev] - inward[prev] * r.overhang, normalized(pts[k] - pts[prev])};
+        const FaceLine b{pts[k] - inward[k] * r.overhang, normalized(pts[(k + 1) % n] - pts[k])};
+        g.outline.push_back(intersectLines(a, b).value_or(pts[k] - inward[k] * r.overhang));
+    }
+
+    std::vector<size_t> sloped;
+    for (size_t i = 0; i < n; ++i)
+        if (!r.gable(i))
+            sloped.push_back(i);
+    if (sloped.empty()) {
+        g.faces.push_back({g.outline, -1});
+        return g;
+    }
+    // Each face is where its edge is the nearest of the sloping ones: with
+    // one pitch for all, that is where its plane is the lowest.
+    auto dist = [&](size_t i, Vec2 p) { return dot(p - pts[i], inward[i]); };
+    for (size_t i : sloped) {
+        std::vector<Vec2> face = g.outline;
+        for (size_t j : sloped) {
+            if (j == i || face.size() < 3)
+                continue;
+            // Two edges on the same line share one face: the first keeps it.
+            const bool sameLine = dot(inward[i], inward[j]) > 1.0 - 1e-12 && std::abs(dist(j, pts[i])) < 1e-9 * scale;
+            if (sameLine) {
+                if (j < i)
+                    face.clear();
+                continue;
+            }
+            face = clip(face, [&](Vec2 p) { return dist(j, p) - dist(i, p); });
+        }
+        if (face.size() >= 3 && std::abs(polygonArea(face)) > 1e-12 * scale * scale)
+            g.faces.push_back({face, static_cast<int>(i)});
+    }
+    return g;
+}
+
+double roofHeight(const Roof& r, Vec2 p)
+{
+    const auto g = roofGeometry(r);
+    if (!g)
+        return r.base;
+    const size_t n = g->footprint.size();
+    const double turn = polygonArea(g->footprint) > 0.0 ? 1.0 : -1.0;
+    double best = std::numeric_limits<double>::infinity();
+    for (size_t i = 0; i < n; ++i) {
+        if (r.gable(i))
+            continue;
+        const Vec2 a = g->footprint[i];
+        const Vec2 inward = perpendicular(normalized(g->footprint[(i + 1) % n] - a)) * turn;
+        best = std::min(best, dot(p - a, inward));
+    }
+    if (!std::isfinite(best))
+        return r.base;
+    return r.base + std::tan(r.pitch) * best;
+}
+
+std::vector<Shape> roofPlan(const Roof& r)
+{
+    std::vector<Shape> out;
+    const auto g = roofGeometry(r);
+    if (!g) {
+        // Not a valid roof: the footprint shows what is wrong.
+        Polyline p = r.footprint;
+        p.closed = true;
+        out.push_back(p);
+        return out;
+    }
+    out.push_back(Polyline{g->outline, true});
+    // Ridges and hips: the face edges inside the outline, once each.
+    const size_t n = g->outline.size();
+    auto onOutline = [&](Vec2 p) {
+        for (size_t k = 0; k < n; ++k)
+            if (distanceToSegment(p, g->outline[k], g->outline[(k + 1) % n]) < 1e-6 * std::max(1.0, r.overhang + 1.0))
+                return true;
+        return false;
+    };
+    std::vector<Line> inner;
+    for (const RoofFace& f : g->faces) {
+        for (size_t k = 0; k < f.polygon.size(); ++k) {
+            const Line l{f.polygon[k], f.polygon[(k + 1) % f.polygon.size()]};
+            if (distance(l.a, l.b) < 1e-9 || onOutline(midpoint(l.a, l.b)))
+                continue;
+            const bool seen = std::any_of(inner.begin(), inner.end(), [&](const Line& o) {
+                return (almostEqual(o.a, l.a, 1e-6) && almostEqual(o.b, l.b, 1e-6))
+                    || (almostEqual(o.a, l.b, 1e-6) && almostEqual(o.b, l.a, 1e-6));
+            });
+            if (!seen)
+                inner.push_back(l);
+        }
+    }
+    for (const Line& l : inner)
+        out.push_back(l);
+    return out;
+}
+
 std::pair<Vec3, Vec3> Model3D::bounds() const
 {
     const double inf = std::numeric_limits<double>::infinity();
@@ -534,11 +794,35 @@ namespace cad {
 
 Model3D buildingModel(const Document& doc)
 {
-    std::vector<Wall> walls;
-    for (const auto& [id, e] : doc.entities())
-        if (const auto* w = std::get_if<Wall>(&e.shape); w && doc.isVisible(e))
-            walls.push_back(*w);
-    return buildingModel(walls);
+    Model3D model;
+    for (const Story& story : doc.stories()) {
+        std::vector<Wall> walls;
+        Model3D part;
+        ModelBuilder builder(part);
+        for (const auto& [id, e] : doc.entities()) {
+            if (e.story != story.id || !doc.isLayerVisible(e))
+                continue;
+            if (const auto* w = std::get_if<Wall>(&e.shape))
+                walls.push_back(*w);
+            else if (const auto* sl = std::get_if<Slab>(&e.shape))
+                builder.slab(*sl);
+            else if (const auto* r = std::get_if<Roof>(&e.shape))
+                builder.roof(*r);
+        }
+        const std::vector<WallFaces> faces = joinWalls(walls);
+        for (size_t i = 0; i < walls.size(); ++i)
+            builder.wall(walls[i], faces[i]);
+        // Raised to the story.
+        const Vec3 up{0.0, 0.0, story.elevation};
+        for (auto& t : part.triangles) {
+            for (Vec3& v : t.v)
+                v = v + up;
+            model.triangles.push_back(t);
+        }
+        for (auto& e : part.edges)
+            model.edges.push_back({e[0] + up, e[1] + up});
+    }
+    return model;
 }
 
 } // namespace cad
