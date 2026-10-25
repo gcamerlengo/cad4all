@@ -166,6 +166,8 @@ File > Stampa (Ctrl+P, o il comando STAMPA) stampa su una stampante o salva un P
 | `src/app` | Interfaccia Qt: vista di disegno, vista 3D, riga di comando, ribbon, strumenti, Info Box, navigatore, pannello layer, stampa |
 | `tests` | Test automatici (GoogleTest) |
 
-## Licenza
+## Autore e licenza
 
-CAD4All è software libero: puoi ridistribuirlo e modificarlo secondo i termini della GNU General Public License, versione 3 o successiva. Il testo completo è nel file [LICENSE](LICENSE).
+Copyright © 2026 Gianluca Camerlengo, <g.camerlengo@gmail.com>.
+
+CAD4All è software libero: puoi ridistribuirlo e modificarlo secondo i termini della GNU General Public License, versione 3 o successiva. Il testo completo è nel file [LICENSE](LICENSE) e nel programma, in Aiuto > Licenza.

@@ -22,19 +22,24 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QCloseEvent>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDockWidget>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFontDatabase>
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QSettings>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTabWidget>
 #include <QToolBar>
 #include <QToolButton>
+#include <QVBoxLayout>
 
 #include <algorithm>
 
@@ -536,6 +541,9 @@ void MainWindow::createActions()
     gridButton_->setText(tr("GRIGLIA"));
 
     QMenu* help = menuBar()->addMenu(tr("&Aiuto"));
+    help->addAction(tr("&Licenza"), this, &MainWindow::showLicence);
+    help->addAction(tr("Informazioni su &Qt"), qApp, &QApplication::aboutQt);
+    help->addSeparator();
     help->addAction(tr("&Informazioni su CAD4All"), this, &MainWindow::about);
 }
 
@@ -898,10 +906,41 @@ bool MainWindow::runScript(const QString& path)
 
 void MainWindow::about()
 {
+    const QString author = QStringLiteral(CAD4ALL_AUTHOR);
+    const QString email = QStringLiteral(CAD4ALL_EMAIL);
     QMessageBox::about(this, tr("Informazioni su CAD4All"),
                        tr("<h3>CAD4All %1</h3>"
                           "<p>CAD 2D e 3D parametrico per tecnici.</p>"
-                          "<p>Software libero distribuito con licenza GNU GPL versione 3 o successiva. "
-                          "Non c'è alcuna garanzia.</p>")
-                           .arg(QApplication::applicationVersion()));
+                          "<p>Copyright © %2 %3<br><a href=\"mailto:%4\">%4</a><br>"
+                          "<a href=\"%5\">%5</a></p>"
+                          "<p>Software libero distribuito con licenza GNU GPL versione 3 o successiva "
+                          "(Aiuto &gt; Licenza). Non c'è alcuna garanzia.</p>")
+                           .arg(QApplication::applicationVersion(), QStringLiteral(CAD4ALL_YEARS), author, email,
+                                QStringLiteral(CAD4ALL_HOMEPAGE)));
+}
+
+void MainWindow::showLicence()
+{
+    QFile file(QStringLiteral(":/LICENSE"));
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return;
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Licenza di CAD4All"));
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* intro = new QLabel(tr("CAD4All è software libero: puoi ridistribuirlo e modificarlo secondo i termini della "
+                                "GNU General Public License, versione 3 o successiva. Copyright © %1 %2.")
+                                 .arg(QStringLiteral(CAD4ALL_YEARS), QStringLiteral(CAD4ALL_AUTHOR)),
+                             &dialog);
+    intro->setWordWrap(true);
+    layout->addWidget(intro);
+    auto* text = new QPlainTextEdit(QString::fromUtf8(file.readAll()), &dialog);
+    text->setReadOnly(true);
+    text->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    text->setLineWrapMode(QPlainTextEdit::NoWrap);
+    layout->addWidget(text);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+    dialog.resize(720, 600);
+    dialog.exec();
 }

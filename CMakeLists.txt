@@ -7,6 +7,11 @@ project(CAD4All
     HOMEPAGE_URL "https://github.com/gcamerlengo/cad4all"
     LANGUAGES CXX)
 
+# Shown in Aiuto > Informazioni, in the program's properties and in the installers.
+set(CAD4ALL_AUTHOR "Gianluca Camerlengo")
+set(CAD4ALL_EMAIL "g.camerlengo@gmail.com")
+set(CAD4ALL_YEARS "2026")
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

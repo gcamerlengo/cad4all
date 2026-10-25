@@ -16,7 +16,23 @@ qt_add_executable(cad4all
     navigator.h navigator.cpp
 )
 target_link_libraries(cad4all PRIVATE cad4all_core cad4all_io cad4all_engine Qt6::Widgets Qt6::PrintSupport)
-target_compile_definitions(cad4all PRIVATE CAD4ALL_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(cad4all PRIVATE
+    CAD4ALL_VERSION="${PROJECT_VERSION}"
+    CAD4ALL_AUTHOR="${CAD4ALL_AUTHOR}"
+    CAD4ALL_EMAIL="${CAD4ALL_EMAIL}"
+    CAD4ALL_YEARS="${CAD4ALL_YEARS}"
+    CAD4ALL_HOMEPAGE="${PROJECT_HOMEPAGE_URL}")
+
+# The licence text, shown by Aiuto > Licenza.
+qt_add_resources(cad4all licence
+    PREFIX /
+    BASE ${PROJECT_SOURCE_DIR}
+    FILES ${PROJECT_SOURCE_DIR}/LICENSE)
+
+if(WIN32)
+    configure_file(cad4all.rc.in ${CMAKE_CURRENT_BINARY_DIR}/cad4all.rc @ONLY)
+    target_sources(cad4all PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/cad4all.rc)
+endif()
 
 set_target_properties(cad4all PROPERTIES
     OUTPUT_NAME CAD4All
@@ -26,6 +42,7 @@ set_target_properties(cad4all PROPERTIES
     MACOSX_BUNDLE_BUNDLE_NAME CAD4All
     MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
+    MACOSX_BUNDLE_COPYRIGHT "Copyright © ${CAD4ALL_YEARS} ${CAD4ALL_AUTHOR}"
 )
 
 include(GNUInstallDirs)

@@ -84,6 +84,7 @@ private:
     void updateTitle();
     void updateToggles();
     void about();
+    void showLicence();
 
     cad::Document doc_;
     cad::CommandEngine engine_;
