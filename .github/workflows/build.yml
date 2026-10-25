@@ -2,7 +2,8 @@
 # installers: setup .exe for Windows, .dmg for macOS, AppImage for Linux.
 # They stay as downloadable artifacts. A release published on GitHub
 # (Releases > Draft a new release, tag v0.1.0) or a pushed v* tag gets the
-# three installers attached.
+# three installers attached; so does the release of the version in
+# CMakeLists.txt if it was published empty, at the next push to main.
 name: Build
 
 on:
@@ -136,12 +137,16 @@ jobs:
 
   release:
     name: Release
-    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     needs: build
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: CMakeLists.txt
+          sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@v4
         with:
           pattern: CAD4All-*
@@ -153,6 +158,16 @@ jobs:
           TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: |
           files=(installers/*-setup.exe installers/*.dmg installers/*.AppImage)
+          if [ "$GITHUB_REF" = refs/heads/main ]; then
+            # On main: only a release of this version that has no files yet,
+            # such as one published before its installers could be built.
+            TAG="v$(sed -n 's/^ *VERSION \([0-9.]*\)$/\1/p' CMakeLists.txt | head -1)"
+            assets=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length' 2>/dev/null || echo none)
+            if [ "$assets" != 0 ]; then
+              echo "Release $TAG: nothing to fill ($assets)."
+              exit 0
+            fi
+          fi
           # A release made on the website already exists: add the files to it.
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "${files[@]}"
