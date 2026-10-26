@@ -3,6 +3,7 @@
 add_library(cad4all_engine STATIC
     commandengine.h commandengine.cpp
     commands.h commands.cpp
+    objectproperties.h objectproperties.cpp
     properties.h properties.cpp
     stylenames.h stylenames.cpp
 )

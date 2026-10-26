@@ -331,7 +331,8 @@ std::optional<EntityId> CommandEngine::pick(Vec2 p, double tolerance) const
 {
     std::optional<EntityId> best;
     double bestDist = tolerance;
-    for (const auto& [id, e] : doc_.entities()) {
+    for (EntityId id : doc_.entitiesIn(BBox::fromCorners(p, p).inflated(tolerance))) {
+        const Entity& e = *doc_.entity(id);
         if (!doc_.isEditable(e) || !boundingBox(e.shape).inflated(tolerance).contains(p))
             continue;
         const double d = distanceTo(e.shape, p);
@@ -346,7 +347,8 @@ std::optional<EntityId> CommandEngine::pick(Vec2 p, double tolerance) const
 std::vector<EntityId> CommandEngine::pickBox(const BBox& box, bool crossing) const
 {
     std::vector<EntityId> out;
-    for (const auto& [id, e] : doc_.entities()) {
+    for (EntityId id : doc_.entitiesIn(box)) {
+        const Entity& e = *doc_.entity(id);
         if (!doc_.isEditable(e))
             continue;
         const bool hit = crossing ? crossesBox(e.shape, box) : box.contains(boundingBox(e.shape));
@@ -375,10 +377,10 @@ std::optional<SnapPoint> CommandEngine::findSnap(Vec2 p, double tolerance) const
     if (!osnap_ || !current_ || current_->wantsSelection() || current_->wantsObjectPick())
         return std::nullopt;
 
-    // Only entities near the cursor take part; this keeps snapping fast on
-    // large drawings without a spatial index (to be added with DXF import).
+    // Only entities near the cursor take part, found through the spatial index.
     std::vector<const Entity*> near;
-    for (const auto& [id, e] : doc_.entities()) {
+    for (EntityId id : doc_.entitiesIn(BBox::fromCorners(p, p).inflated(tolerance))) {
+        const Entity& e = *doc_.entity(id);
         if (doc_.isVisible(e) && boundingBox(e.shape).inflated(tolerance).contains(p))
             near.push_back(&e);
     }
@@ -494,8 +496,10 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("ZOOM"), {QStringLiteral("Z")}, [] { return makeZoomCommand(); });
     add(QStringLiteral("PLOT"), {QStringLiteral("STAMPA"), QStringLiteral("PRINT")}, [] { return makePlotCommand(); });
     add(QStringLiteral("LAYER"), {QStringLiteral("LA")}, [] { return makeLayerCommand(); });
+    add(QStringLiteral("PROPERTIES"), {QStringLiteral("PROPRIETA"), QStringLiteral("PROPRIETÀ"), QStringLiteral("PR"), QStringLiteral("MO")}, [] { return makePropertiesCommand(); });
     add(QStringLiteral("-LAYER"), {QStringLiteral("-LA")}, [] { return makeLayerLineCommand(); });
     add(QStringLiteral("UNITS"), {QStringLiteral("UNITA"), QStringLiteral("UNITÀ"), QStringLiteral("UN")}, [] { return makeUnitsCommand(); });
+    add(QStringLiteral("LEVEL"), {QStringLiteral("QUOTALIVELLO"), QStringLiteral("LIVELLO"), QStringLiteral("QL")}, [] { return makeLevelCommand(); });
     add(QStringLiteral("SECTION"), {QStringLiteral("SEZIONE"), QStringLiteral("SZ")}, [] { return makeSectionCommand(); });
     add(QStringLiteral("ELEVATION"), {QStringLiteral("PROSPETTO"), QStringLiteral("PS")}, [] { return makeElevationCommand(); });
     add(QStringLiteral("LAYOUT"), {QStringLiteral("TAVOLA"), QStringLiteral("LO")}, [] { return makeLayoutCommand(); });

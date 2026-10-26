@@ -16,6 +16,7 @@ qt_add_executable(cad4all
     ribbon.h ribbon.cpp
     toolbox.h toolbox.cpp
     infobox.h infobox.cpp
+    propertiespalette.h propertiespalette.cpp
     navigator.h navigator.cpp
     theme.h theme.cpp
 )

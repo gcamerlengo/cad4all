@@ -152,6 +152,8 @@ QLineEdit#commandInput { padding: 5px 6px; }
 QLabel#toolboxSection { color: @dim; }
 QDockWidget QToolButton { padding: 2px 4px; }
 QLabel#infoBoxTitle { color: @text; }
+QLabel#propertiesTitle { color: @text; font-weight: bold; padding: 2px 0px 4px 0px; }
+QLabel#propertiesGroup { color: @accent; font-weight: bold; padding-top: 6px; border-bottom: 1px solid @border; }
 )";
 
 QString colorText(const QColor& c, int alphaPercent = 100)

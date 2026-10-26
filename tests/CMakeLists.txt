@@ -24,6 +24,7 @@ add_executable(cad4all_tests
     editing_test.cpp
     meshexport_test.cpp
     properties_test.cpp
+    objectproperties_test.cpp
     recovery_test.cpp
     style_test.cpp
     block_test.cpp
@@ -48,6 +49,7 @@ if(CAD4ALL_BUILD_APP)
         ui_test.cpp
         ${app_dir}/infobox.cpp ${app_dir}/toolbox.cpp ${app_dir}/navigator.cpp ${app_dir}/icons.cpp ${app_dir}/stylecontrols.cpp
         ${app_dir}/layerpanel.cpp ${app_dir}/theme.cpp ${app_dir}/planwizard.cpp ${app_dir}/drawingpainter.cpp
+        ${app_dir}/propertiespalette.cpp ${app_dir}/propertiespalette.h
         ${app_dir}/planwizard.h ${app_dir}/drawingpainter.h
         ${app_dir}/infobox.h ${app_dir}/toolbox.h ${app_dir}/navigator.h ${app_dir}/stylecontrols.h
         ${app_dir}/layerpanel.h ${app_dir}/theme.h

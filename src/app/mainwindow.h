@@ -14,6 +14,7 @@ class CadView;
 class CommandLine;
 class InfoBox;
 class LayerPanel;
+class PropertiesPalette;
 class LayoutPanel;
 class Navigator;
 class QActionGroup;
@@ -106,6 +107,9 @@ private:
     CadView* view_;
     CommandLine* commandLine_;
     LayerPanel* layerPanel_;
+    PropertiesPalette* properties_;
+    QDockWidget* propertiesDock_;
+    void showProperties();
     QDockWidget* layerDock_;
     LayoutPanel* layoutPanel_;
     QDockWidget* layoutDock_;

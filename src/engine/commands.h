@@ -36,6 +36,7 @@ std::unique_ptr<Command> makeMTextCommand();
 std::unique_ptr<Command> makeDimLinearCommand(bool aligned);
 std::unique_ptr<Command> makeDimRadialCommand(bool diameter);
 std::unique_ptr<Command> makeDimAngularCommand();
+std::unique_ptr<Command> makePropertiesCommand();
 std::unique_ptr<Command> makeUnitsCommand();
 std::unique_ptr<Command> makeLayerLineCommand();
 // Decimals of the lengths the commands report (the drawing's UNITS precision).
@@ -56,6 +57,7 @@ std::unique_ptr<Command> makeView3dCommand();
 std::unique_ptr<Command> makeZoomCommand();
 std::unique_ptr<Command> makeLayerCommand();
 std::unique_ptr<Command> makeLayoutCommand();
+std::unique_ptr<Command> makeLevelCommand();
 std::unique_ptr<Command> makeSectionCommand();
 std::unique_ptr<Command> makeElevationCommand();
 std::unique_ptr<Command> makePlotCommand();

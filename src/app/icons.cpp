@@ -372,6 +372,23 @@ QIcon make(const QString& name)
             p.drawPolyline(QPolygonF({{15.5, 6}, {18, 6}, {18, 8.5}}));
             p.drawPolyline(QPolygonF({{6, 15.5}, {6, 18}, {8.5, 18}}));
         };
+    } else if (name == QLatin1String("level")) {
+        painter = [](QPainter& p) {
+            p.drawLine(QPointF(2, 16), QPointF(22, 16));
+            accentPen(p);
+            p.drawPolygon(QPolygonF({{8, 16}, {4, 10}, {12, 10}}));
+            p.drawLine(QPointF(14, 8), QPointF(22, 8));
+            p.drawLine(QPointF(14, 11.5), QPointF(20, 11.5));
+        };
+    } else if (name == QLatin1String("properties")) {
+        painter = [](QPainter& p) {
+            p.drawRoundedRect(QRectF(3, 3, 18, 18), 2, 2);
+            accentPen(p);
+            for (const double y : {8.0, 12.0, 16.0}) {
+                p.drawLine(QPointF(6, y), QPointF(9, y));
+                p.drawLine(QPointF(11, y), QPointF(18, y));
+            }
+        };
     } else if (name == QLatin1String("dimAngular")) {
         painter = [](QPainter& p) {
             p.drawLine(QPointF(3, 21), QPointF(22, 21));

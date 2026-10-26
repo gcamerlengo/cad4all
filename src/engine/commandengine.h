@@ -111,6 +111,7 @@ public:
     void requestZoomPrevious() { emit zoomPreviousRequested(); }
     void requestZoomFactor(double factor) { emit zoomFactorRequested(factor); }
     void requestLayerManager() { emit layerManagerRequested(); }
+    void requestProperties() { emit propertiesRequested(); }
     void requestLayouts() { emit layoutsRequested(); }
     void requestPlot() { emit plotRequested(); }
     void requestView3d() { emit view3dRequested(); }
@@ -128,6 +129,7 @@ signals:
     void zoomPreviousRequested();
     void zoomFactorRequested(double factor);
     void layerManagerRequested();
+    void propertiesRequested();
     void layoutsRequested();
     void plotRequested();
     void view3dRequested();
