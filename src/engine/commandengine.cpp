@@ -480,6 +480,7 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("SLAB"), {QStringLiteral("SOLAIO"), QStringLiteral("SO")}, [] { return makeSlabCommand(); });
     add(QStringLiteral("ROOF"), {QStringLiteral("TETTO"), QStringLiteral("TE")}, [] { return makeRoofCommand(); });
     add(QStringLiteral("STAIR"), {QStringLiteral("SCALINATA"), QStringLiteral("SN")}, [] { return makeStairCommand(); });
+    add(QStringLiteral("PLANTO3D"), {QStringLiteral("PIANTA3D"), QStringLiteral("P3D")}, [] { return makePlanTo3dCommand(); });
     add(QStringLiteral("VIEW3D"), {QStringLiteral("VISTA3D"), QStringLiteral("3D")}, [] { return makeView3dCommand(); });
     add(QStringLiteral("DIST"), {QStringLiteral("DI")}, [] { return makeDistanceCommand(); });
     add(QStringLiteral("AREA"), {QStringLiteral("AA")}, [] { return makeAreaCommand(); });

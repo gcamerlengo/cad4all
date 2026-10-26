@@ -12,6 +12,7 @@ class Command;
 
 std::unique_ptr<Command> makeLineCommand();
 std::unique_ptr<Command> makePointCommand();
+std::unique_ptr<Command> makePlanTo3dCommand();
 std::unique_ptr<Command> makePolylineCommand();
 std::unique_ptr<Command> makeCircleCommand();
 std::unique_ptr<Command> makeArcCommand();
