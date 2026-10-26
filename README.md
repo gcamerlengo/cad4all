@@ -34,9 +34,10 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | LINEA / LINE | L | Annulla, Chiudi |
 | PUNTO / POINT | | un punto a ogni clic, Invio per finire; si aggancia con lo snap Nodo |
 | PLINEA / PLINE | PL | Arco (archi tangenti), Linea, Chiudi, ANnulla |
-| CERCHIO / CIRCLE | C | Diametro |
+| CERCHIO / CIRCLE | C | Diametro, 3P (per tre punti), 2P (estremi del diametro) |
 | ARCO / ARC | A | tre punti |
 | RETTANGOLO / RECTANG | REC | |
+| POLIGONO / POLYGON | POL | numero di lati, centro e Inscritto o Circoscritto al cerchio, o Lato (due estremi di un lato) |
 | ELLISSE / ELLIPSE | EL | estremi di un asse e metà dell'altro, o Centro |
 | SPLINE | SPL | punti per cui passa la curva, Chiudi |
 | TRATTEGGIO / HATCH | H, BH | punto interno o Oggetti, Motivo (? per l'elenco), Scala, ANgolo; Invio crea il tratteggio |
@@ -60,6 +61,7 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | OFFSET | O | distanza o Punto, Esci |
 | TAGLIA / TRIM | TR | clic sulla parte da togliere, Esci |
 | ESTENDI / EXTEND | EX | clic vicino all'estremità da allungare, Esci |
+| SPEZZA / BREAK | BR | il clic sull'oggetto è il primo punto, poi il secondo (Primo punto per sceglierlo di nuovo; @ spezza in un punto solo); linee, archi, cerchi e polilinee |
 | RACCORDO / FILLET | F | Raggio (0 = spigolo vivo), Polilinea (tutti gli angoli); tra linee, archi e cerchi |
 | CIMA / CHAMFER | CHA | Distanza, Angolo, Polilinea (tutti gli angoli) |
 | STIRA / STRETCH | S | finestra interseca, poi punto base e secondo punto |
@@ -75,13 +77,18 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | QUOTALLINEATA / DIMALIGNED | DAL | Invio per selezionare una linea; Testo |
 | QUOTARAGGIO / DIMRADIUS | DRA | Testo |
 | QUOTADIAMETRO / DIMDIAMETER | DDI | Testo |
+| QUOTAANG / DIMANGULAR | DAN | due linee, un arco, due punti di un cerchio o Invio per vertice e due punti; la posizione dell'arco sceglie l'angolo (anche quello oltre 180°); Testo |
+| QUOTACONTINUA / DIMCONTINUE | DCO | continua dall'ultima quota lineare sulla stessa linea; Annulla, Selezione di un'altra quota |
+| QUOTALBASE / DIMBASELINE | DBA | quote dalla stessa origine, ognuna più esterna; Annulla, Selezione |
 | DIRETTRICE / LEADER | LE | punti dalla freccia alla nota, Invio, testo |
 | DIST | DI | due punti: distanza, angolo, delta X e Y |
 | AREA | AA | punti del contorno e Invio, o Oggetto (cerchio o polilinea chiusa) |
 | LISTA / LIST | LI | dati degli oggetti selezionati |
 | SCALAQUOTE / DIMSCALE | | moltiplica le dimensioni delle nuove quote (testo e frecce 2,5) |
-| ZOOM | Z | Estensioni |
+| ZOOM | Z | due angoli di una finestra, fattore (2 o 2X), Estensioni, Finestra, Precedente |
+| UNITA / UNITS | UN | unità del disegno (Millimetri, Centimetri, METri, Pollici, PIEdi, Senza unità; salvata nei DXF/DWG) e decimali di distanze e coordinate |
 | LAYER | LA | apre il pannello layer |
+| -LAYER | -LA | layer dalla riga di comando, anche negli script: ? (elenco), Crea (e rende corrente), Nuovo, Imposta, ON, OFF, COlore, Blocca, SBlocca; più nomi separati da virgola, * per tutti |
 | COLORE / COLOR | COL | colore dei nuovi oggetti: 1-255, nome (rosso, giallo, verde, ciano, blu, magenta, bianco), R,G,B o DaLayer |
 | TIPOLINEA / LINETYPE | LT | tipo di linea dei nuovi oggetti, ? per l'elenco, DaLayer |
 | SPESSLINEA / LWEIGHT | LW | spessore dei nuovi oggetti in mm, DaLayer o Predefinito |

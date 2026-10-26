@@ -4,6 +4,8 @@
 // selections, zoom and pan.
 #pragma once
 
+#include <vector>
+
 #include "commandengine.h"
 
 #include <QWidget>
@@ -17,6 +19,12 @@ public:
     explicit CadView(cad::CommandEngine& engine, QWidget* parent = nullptr);
 
     void zoomExtents();
+    // The area `box` fills the view, with a 5% margin.
+    void zoomWindow(const cad::BBox& box);
+    // Magnification times `factor`, about the centre of the view.
+    void zoomFactor(double factor);
+    // Back to the view before the last zoom command.
+    void zoomPrevious();
     bool gridVisible() const { return grid_; }
     void setGridVisible(bool on);
     // AutoCAD's LWDISPLAY: lines as thick as their lineweight, or all thin.
@@ -56,6 +64,9 @@ private:
     // View: world point at the widget centre and pixels per drawing unit.
     cad::Vec2 center_{0.0, 0.0};
     double scale_ = 20.0;
+    // Views before each zoom command, for ZOOM Precedente.
+    std::vector<std::pair<cad::Vec2, double>> previousViews_;
+    void rememberView();
     bool grid_ = true;
     bool lineweights_ = false;
 

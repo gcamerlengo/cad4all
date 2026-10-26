@@ -12,6 +12,8 @@ class Command;
 
 std::unique_ptr<Command> makeLineCommand();
 std::unique_ptr<Command> makePointCommand();
+std::unique_ptr<Command> makePolygonCommand();
+std::unique_ptr<Command> makeBreakCommand();
 std::unique_ptr<Command> makePlanTo3dCommand();
 std::unique_ptr<Command> makePolylineCommand();
 std::unique_ptr<Command> makeCircleCommand();
@@ -33,6 +35,12 @@ std::unique_ptr<Command> makeTextEditCommand();
 std::unique_ptr<Command> makeMTextCommand();
 std::unique_ptr<Command> makeDimLinearCommand(bool aligned);
 std::unique_ptr<Command> makeDimRadialCommand(bool diameter);
+std::unique_ptr<Command> makeDimAngularCommand();
+std::unique_ptr<Command> makeUnitsCommand();
+std::unique_ptr<Command> makeLayerLineCommand();
+// Decimals of the lengths the commands report (the drawing's UNITS precision).
+void setMeasurementPrecision(int decimals);
+std::unique_ptr<Command> makeDimChainCommand(bool baseline);
 std::unique_ptr<Command> makeDimScaleCommand();
 std::unique_ptr<Command> makeHatchCommand();
 std::unique_ptr<Command> makeHatchEditCommand();

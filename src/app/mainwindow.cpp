@@ -435,6 +435,7 @@ void MainWindow::createActions()
     commandAction(tr("Cerchio"), QStringLiteral("CIRCLE"), icons::make(QStringLiteral("circle")));
     commandAction(tr("Arco"), QStringLiteral("ARC"), icons::make(QStringLiteral("arc")));
     commandAction(tr("Rettangolo"), QStringLiteral("RECTANG"), icons::make(QStringLiteral("rectangle")));
+    commandAction(tr("Poligono"), QStringLiteral("POLYGON"), icons::make(QStringLiteral("polygon")));
     commandAction(tr("Ellisse"), QStringLiteral("ELLIPSE"), icons::make(QStringLiteral("ellipse")));
     commandAction(tr("Spline"), QStringLiteral("SPLINE"), icons::make(QStringLiteral("spline")));
     commandAction(tr("Tratteggio"), QStringLiteral("HATCH"), icons::make(QStringLiteral("hatch")));
@@ -458,6 +459,7 @@ void MainWindow::createActions()
     commandAction(tr("Offset"), QStringLiteral("OFFSET"), icons::make(QStringLiteral("offset")));
     commandAction(tr("Taglia"), QStringLiteral("TRIM"), icons::make(QStringLiteral("trim")));
     commandAction(tr("Estendi"), QStringLiteral("EXTEND"), icons::make(QStringLiteral("extend")));
+    commandAction(tr("Spezza"), QStringLiteral("BREAK"), icons::make(QStringLiteral("break")));
     commandAction(tr("Raccordo"), QStringLiteral("FILLET"), icons::make(QStringLiteral("fillet")));
     commandAction(tr("Cima"), QStringLiteral("CHAMFER"), icons::make(QStringLiteral("chamfer")));
     commandAction(tr("Stira"), QStringLiteral("STRETCH"), icons::make(QStringLiteral("stretch")));
@@ -480,7 +482,11 @@ void MainWindow::createActions()
     commandAction(tr("Quota allineata"), QStringLiteral("DIMALIGNED"), icons::make(QStringLiteral("dimAligned")));
     commandAction(tr("Quota raggio"), QStringLiteral("DIMRADIUS"), icons::make(QStringLiteral("dimRadius")));
     commandAction(tr("Quota diametro"), QStringLiteral("DIMDIAMETER"), icons::make(QStringLiteral("dimDiameter")));
+    commandAction(tr("Quota angolare"), QStringLiteral("DIMANGULAR"), icons::make(QStringLiteral("dimAngular")));
+    commandAction(tr("Quota continua"), QStringLiteral("DIMCONTINUE"), icons::make(QStringLiteral("dimContinue")));
+    commandAction(tr("Quota di base"), QStringLiteral("DIMBASELINE"), icons::make(QStringLiteral("dimBaseline")));
     commandAction(tr("Scala quote"), QStringLiteral("DIMSCALE"));
+    commandAction(tr("Unità del disegno"), QStringLiteral("UNITS"));
     // The short name on buttons; menus and the tooltip keep the full one.
     commandAction(tr("Corrispondenza proprietà"), QStringLiteral("MATCHPROP"), icons::make(QStringLiteral("matchProperties")))
         ->setIconText(tr("Copia proprietà"));
@@ -495,10 +501,10 @@ void MainWindow::createActions()
         }
         return list;
     };
-    const auto drawActions = actions({"LINE", "PLINE", "CIRCLE", "ARC", "RECTANG", "ELLIPSE", "SPLINE", "HATCH"});
+    const auto drawActions = actions({"LINE", "PLINE", "CIRCLE", "ARC", "RECTANG", "POLYGON", "ELLIPSE", "SPLINE", "HATCH"});
     const auto architectureActions = actions({"WALL", "DOOR", "WINDOW", "SLAB", "ROOF", "STAIR"});
-    const auto modifyActions = actions({"ERASE", "MOVE", "COPY", "ROTATE", "SCALE", "MIRROR", "OFFSET", "TRIM", "EXTEND", "FILLET", "CHAMFER", "STRETCH", "ARRAY", "EXPLODE", "JOIN"});
-    const auto annotateActions = actions({"TEXT", "MTEXT", "DIMLINEAR", "DIMALIGNED", "DIMRADIUS", "DIMDIAMETER"});
+    const auto modifyActions = actions({"ERASE", "MOVE", "COPY", "ROTATE", "SCALE", "MIRROR", "OFFSET", "TRIM", "EXTEND", "BREAK", "FILLET", "CHAMFER", "STRETCH", "ARRAY", "EXPLODE", "JOIN"});
+    const auto annotateActions = actions({"TEXT", "MTEXT", "DIMLINEAR", "DIMALIGNED", "DIMANGULAR", "DIMCONTINUE", "DIMBASELINE", "DIMRADIUS", "DIMDIAMETER"});
 
     // Menus
     QMenu* file = menuBar()->addMenu(tr("&File"));
@@ -542,7 +548,7 @@ void MainWindow::createActions()
     modify->addActions(modifyActions);
 
     modify->addSeparator();
-    modify->addActions(actions({"MATCHPROP", "CHPROP", "LTSCALE"}));
+    modify->addActions(actions({"MATCHPROP", "CHPROP", "LTSCALE", "UNITS"}));
     modify->addSeparator();
     QMenu* inquiry = modify->addMenu(tr("&Interroga"));
     inquiry->addActions(actions({"DIST", "AREA", "LIST"}));
@@ -735,8 +741,8 @@ void MainWindow::createRibbon()
     large(p, {"MTEXT", "TEXT"});
     small(p, {"TEXTEDIT", "LEADER"});
     p = ribbon_->addPanel(annotatePage, tr("Quote"));
-    large(p, {"DIMLINEAR", "DIMALIGNED"});
-    small(p, {"DIMRADIUS", "DIMDIAMETER", "DIMSCALE"});
+    large(p, {"DIMLINEAR", "DIMALIGNED", "DIMANGULAR"});
+    small(p, {"DIMCONTINUE", "DIMBASELINE", "DIMRADIUS", "DIMDIAMETER", "DIMSCALE", "UNITS"});
     p = ribbon_->addPanel(annotatePage, tr("Tratteggi"));
     large(p, {"HATCH"});
     small(p, {"HATCHEDIT"});
@@ -880,7 +886,8 @@ void MainWindow::createStatusBar()
         statusBar()->addPermanentWidget(b);
     }
     connect(view_, &CadView::cursorMoved, this, [this](Vec2 p) {
-        coordinates_->setText(QStringLiteral("X %1   Y %2").arg(p.x, 0, 'f', 2).arg(p.y, 0, 'f', 2));
+        const int decimals = doc_.precision();
+        coordinates_->setText(QStringLiteral("X %1   Y %2").arg(p.x, 0, 'f', decimals).arg(p.y, 0, 'f', decimals));
     });
     updateToggles();
 }

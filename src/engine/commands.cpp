@@ -226,12 +226,35 @@ private:
     bool arcMode_ = false;
 };
 
+// CIRCLE: centre and radius or diameter, or through three points (3P) or
+// the two ends of a diameter (2P).
 class CircleCommand : public Command {
 public:
-    void start() override { engine->setPrompt(t("Specificare centro del cerchio:")); }
+    void start() override { engine->setPrompt(t("Specificare centro del cerchio o [3P/2P]:")); }
 
     bool point(Vec2 p) override
     {
+        if (mode_ != Mode::Center) {
+            if (!points_.empty() && almostEqual(p, points_.back()))
+                return false;
+            points_.push_back(p);
+            if (points_.size() < (mode_ == Mode::ThreePoints ? 3u : 2u)) {
+                engine->setPrompt(points_.size() == 1
+                                      ? (mode_ == Mode::ThreePoints ? t("Specificare secondo punto sul cerchio:")
+                                                                    : t("Specificare secondo estremo del diametro del cerchio:"))
+                                      : t("Specificare terzo punto sul cerchio:"));
+                return true;
+            }
+            const auto c = throughPoints(points_);
+            if (!c) {
+                engine->message(t("I tre punti sono allineati: nessun cerchio passa per tutti."));
+                points_.pop_back();
+                return false;
+            }
+            engine->document().add(*c);
+            engine->finish();
+            return true;
+        }
         if (!center_) {
             center_ = p;
             engine->setPrompt(t("Specificare raggio del cerchio o [Diametro]:"));
@@ -250,6 +273,18 @@ public:
 
     bool keyword(const QString& w) override
     {
+        if (!center_ && mode_ == Mode::Center && points_.empty()) {
+            if (isAny(w, {"3P", "3"})) {
+                mode_ = Mode::ThreePoints;
+                engine->setPrompt(t("Specificare primo punto sul cerchio:"));
+                return true;
+            }
+            if (isAny(w, {"2P", "2"})) {
+                mode_ = Mode::TwoPoints;
+                engine->setPrompt(t("Specificare primo estremo del diametro del cerchio:"));
+                return true;
+            }
+        }
         if (center_ && !diameter_ && isAny(w, {"D", "DIAMETRO", "DIAMETER"})) {
             diameter_ = true;
             engine->setPrompt(t("Specificare diametro del cerchio:"));
@@ -260,6 +295,14 @@ public:
 
     void preview(Vec2 cursor, std::vector<Shape>& out) const override
     {
+        if (mode_ != Mode::Center) {
+            std::vector<Vec2> pts = points_;
+            pts.push_back(cursor);
+            if (pts.size() >= 2)
+                if (const auto c = throughPoints(pts))
+                    out.push_back(*c);
+            return;
+        }
         if (!center_)
             return;
         const double d = distance(*center_, cursor);
@@ -268,9 +311,28 @@ public:
         out.push_back(Line{*center_, cursor});
     }
 
-    std::optional<Vec2> base() const override { return center_; }
+    std::optional<Vec2> base() const override
+    {
+        if (mode_ != Mode::Center)
+            return points_.empty() ? std::nullopt : std::optional<Vec2>(points_.back());
+        return center_;
+    }
 
 private:
+    enum class Mode { Center, ThreePoints, TwoPoints };
+
+    // The circle through two points (a diameter) or three.
+    static std::optional<Circle> throughPoints(const std::vector<Vec2>& pts)
+    {
+        if (pts.size() == 2)
+            return distance(pts[0], pts[1]) > kEps ? std::optional<Circle>(Circle{midpoint(pts[0], pts[1]), distance(pts[0], pts[1]) / 2.0})
+                                                   : std::nullopt;
+        if (pts.size() == 3)
+            if (const auto arc = arcFromThreePoints(pts[0], pts[1], pts[2]))
+                return Circle{arc->center, arc->radius};
+        return std::nullopt;
+    }
+
     bool create(double radius)
     {
         if (radius <= kEps) {
@@ -282,8 +344,193 @@ private:
         return true;
     }
 
+    Mode mode_ = Mode::Center;
+    std::vector<Vec2> points_;
     std::optional<Vec2> center_;
     bool diameter_ = false;
+};
+
+// POLYGON: a regular polygon from its centre, inscribed in or circumscribed
+// about a circle, or from one edge (Lato), as a closed polyline.
+class PolygonCommand : public Command {
+public:
+    void start() override { engine->setPrompt(t("Specificare numero di lati <%1>:").arg(sSides)); }
+
+    bool number(double value) override
+    {
+        if (ask_ == Ask::Sides) {
+            const int n = static_cast<int>(std::lround(value));
+            if (std::abs(value - n) > 1e-9 || n < 3 || n > 1024) {
+                engine->message(t("Il numero di lati deve essere un intero tra 3 e 1024."));
+                return false;
+            }
+            sSides = n;
+            toCenter();
+            return true;
+        }
+        if (ask_ == Ask::Radius && value > kEps) {
+            // A typed radius gives a polygon with a horizontal bottom edge.
+            const double step = kTwoPi / sSides;
+            const double edgeMid = -kPi / 2.0;
+            const double vertexAngle = edgeMid + step / 2.0;
+            const double r = inscribed_ ? value : value / std::cos(step / 2.0);
+            add(polygon(center_, r, vertexAngle));
+            return true;
+        }
+        return false;
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (ask_ == Ask::Center && isAny(w, {"L", "LATO", "E", "EDGE"})) {
+            ask_ = Ask::EdgeFirst;
+            engine->setPrompt(t("Specificare primo estremo del lato:"));
+            return true;
+        }
+        if (ask_ == Ask::Kind) {
+            if (isAny(w, {"I", "INSCRITTO", "INSCRIBED"}))
+                inscribed_ = true;
+            else if (isAny(w, {"C", "CIRCOSCRITTO", "CIRCUMSCRIBED"}))
+                inscribed_ = false;
+            else
+                return false;
+            sInscribed = inscribed_;
+            toRadius();
+            return true;
+        }
+        return false;
+    }
+
+    void enter() override
+    {
+        if (ask_ == Ask::Sides) {
+            toCenter();
+            return;
+        }
+        if (ask_ == Ask::Kind) {
+            toRadius();
+            return;
+        }
+        engine->finish();
+    }
+
+    bool point(Vec2 p) override
+    {
+        switch (ask_) {
+        case Ask::Sides:
+            return false;
+        case Ask::Center:
+            center_ = p;
+            inscribed_ = sInscribed;
+            ask_ = Ask::Kind;
+            engine->setPrompt(t("Specificare un'opzione [Inscritto nel cerchio/Circoscritto attorno al cerchio] <%1>:")
+                                  .arg(sInscribed ? t("I") : t("C")));
+            return true;
+        case Ask::Kind:
+            return false;
+        case Ask::Radius:
+            if (const auto pl = fromRadiusPoint(p)) {
+                add(*pl);
+                return true;
+            }
+            return false;
+        case Ask::EdgeFirst:
+            edgeStart_ = p;
+            ask_ = Ask::EdgeSecond;
+            engine->setPrompt(t("Specificare secondo estremo del lato:"));
+            return true;
+        case Ask::EdgeSecond:
+            if (const auto pl = fromEdge(p)) {
+                add(*pl);
+                return true;
+            }
+            return false;
+        }
+        return false;
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        std::optional<Polyline> pl;
+        if (ask_ == Ask::Radius)
+            pl = fromRadiusPoint(cursor);
+        else if (ask_ == Ask::EdgeSecond)
+            pl = fromEdge(cursor);
+        if (pl)
+            out.push_back(*pl);
+    }
+
+    std::optional<Vec2> base() const override
+    {
+        if (ask_ == Ask::Radius)
+            return center_;
+        if (ask_ == Ask::EdgeSecond)
+            return edgeStart_;
+        return std::nullopt;
+    }
+
+private:
+    enum class Ask { Sides, Center, Kind, Radius, EdgeFirst, EdgeSecond };
+
+    static Polyline polygon(Vec2 center, double radius, double firstAngle)
+    {
+        Polyline pl;
+        pl.closed = true;
+        for (int i = 0; i < sSides; ++i)
+            pl.points.push_back(center + polar(radius, firstAngle + kTwoPi * i / sSides));
+        return pl;
+    }
+
+    // Inscribed: the point is a vertex. Circumscribed: the midpoint of an edge.
+    std::optional<Polyline> fromRadiusPoint(Vec2 p) const
+    {
+        const double d = distance(center_, p);
+        if (d <= kEps)
+            return std::nullopt;
+        const double step = kTwoPi / sSides;
+        const double a = angleOf(p - center_);
+        return inscribed_ ? polygon(center_, d, a) : polygon(center_, d / std::cos(step / 2.0), a + step / 2.0);
+    }
+
+    // The polygon lies on the left of the edge, going from its first end to its second.
+    std::optional<Polyline> fromEdge(Vec2 b) const
+    {
+        const double side = distance(edgeStart_, b);
+        if (side <= kEps)
+            return std::nullopt;
+        const double step = kTwoPi / sSides;
+        const double r = side / (2.0 * std::sin(step / 2.0));
+        const double apothem = r * std::cos(step / 2.0);
+        const Vec2 dir = (b - edgeStart_) / side;
+        const Vec2 center = midpoint(edgeStart_, b) + perpendicular(dir) * apothem;
+        Polyline pl = polygon(center, r, angleOf(edgeStart_ - center));
+        return pl;
+    }
+
+    void toCenter()
+    {
+        ask_ = Ask::Center;
+        engine->setPrompt(t("Specificare centro del poligono o [Lato]:"));
+    }
+
+    void toRadius()
+    {
+        ask_ = Ask::Radius;
+        engine->setPrompt(t("Specificare raggio del cerchio:"));
+    }
+
+    void add(const Polyline& pl)
+    {
+        engine->document().add(pl);
+        engine->finish();
+    }
+
+    static inline int sSides = 4;
+    static inline bool sInscribed = true;
+    Ask ask_ = Ask::Sides;
+    bool inscribed_ = true;
+    Vec2 center_;
+    Vec2 edgeStart_;
 };
 
 class ArcCommand : public Command {
@@ -679,6 +926,15 @@ std::vector<Shape> edgesExcept(const Document& doc, EntityId except)
 }
 
 // Picks one editable object under the pick box, telling the user when there is none.
+// Adds `shape` with the layer, style and story of `like`.
+EntityId addLike(Document& doc, const Entity& like, Shape shape)
+{
+    Entity e = like;
+    e.id = 0;
+    e.shape = std::move(shape);
+    return doc.add(std::move(e));
+}
+
 std::optional<EntityId> pickObject(CommandEngine* engine, Vec2 p)
 {
     const auto id = engine->pick(p, engine->pickTolerance());
@@ -1237,6 +1493,8 @@ double gTextHeight = 2.5;
 double gTextRotation = 0.0;  // degrees
 Text::Align gTextAlign = Text::Align::Left;
 double gDimScale = 1.0;
+// Decimals of the drawing's lengths (UNITS), set by the engine before each command.
+int gPrecision = 2;
 
 constexpr double kLineSpacing = 1.667;  // DTEXT line spacing, in text heights
 
@@ -1942,6 +2200,313 @@ private:
     Vec2 center_;
     double radius_ = 0.0;
     std::string text_;
+};
+
+// DIMANGULAR: the angle between two lines, of an arc, of two points on a
+// circle, or of three points (vertex and the two sides).
+class DimAngularCommand : public Command {
+public:
+    void start() override { engine->setPrompt(t("Selezionare arco, cerchio, linea o <specificare vertice>:")); }
+
+    void enter() override
+    {
+        if (step_ == Step::Pick) {
+            step_ = Step::Vertex;
+            engine->setPrompt(t("Specificare vertice dell'angolo:"));
+        } else if (step_ == Step::Text) {
+            toLocation();
+        } else {
+            engine->finish();
+        }
+    }
+
+    bool point(Vec2 p) override
+    {
+        switch (step_) {
+        case Step::Pick: return pickFirst(p);
+        case Step::SecondLine: {
+            const auto id = pickObject(engine, p);
+            if (!id)
+                return false;
+            const auto* l = std::get_if<Line>(&engine->document().entity(*id)->shape);
+            if (!l) {
+                engine->message(t("Selezionare una linea."));
+                return false;
+            }
+            Dimension probe;
+            probe.location = p;
+            if (!setAngularLines(probe, first_, *l)) {
+                engine->message(t("Le linee sono parallele."));
+                return false;
+            }
+            second_ = *l;
+            lines_ = true;
+            toLocation();
+            return true;
+        }
+        case Step::Vertex:
+            vertex_ = p;
+            step_ = Step::FirstSide;
+            engine->setPrompt(t("Specificare primo estremo dell'angolo:"));
+            return true;
+        case Step::FirstSide:
+            if (almostEqual(p, vertex_))
+                return false;
+            p1_ = p;
+            step_ = Step::SecondSide;
+            engine->setPrompt(t("Specificare secondo estremo dell'angolo:"));
+            return true;
+        case Step::SecondSide:
+            if (almostEqual(p, vertex_))
+                return false;
+            p2_ = p;
+            toLocation();
+            return true;
+        case Step::Location: {
+            const Dimension d = build(p);
+            engine->document().add(d);
+            reportDimension(engine, d);
+            engine->finish();
+            return true;
+        }
+        default:
+            return false;
+        }
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (step_ != Step::Location || !isAny(w, {"T", "TESTO", "TEXT"}))
+            return false;
+        step_ = Step::Text;
+        engine->setPrompt(t("Immettere testo di quota (<> = valore misurato):"));
+        return true;
+    }
+
+    bool wantsObjectPick() const override { return step_ == Step::Pick || step_ == Step::SecondLine; }
+    bool wantsText() const override { return step_ == Step::Text; }
+
+    void text(const QString& s) override
+    {
+        text_ = s.toStdString();
+        toLocation();
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (step_ == Step::FirstSide || step_ == Step::SecondSide)
+            out.push_back(Line{vertex_, cursor});
+        if (step_ == Step::SecondSide)
+            out.push_back(Line{vertex_, p1_});
+        else if (step_ == Step::Location)
+            out.push_back(build(cursor));
+    }
+
+    std::optional<Vec2> base() const override
+    {
+        return step_ == Step::FirstSide || step_ == Step::SecondSide ? std::optional<Vec2>(vertex_) : std::nullopt;
+    }
+
+private:
+    enum class Step { Pick, SecondLine, Vertex, FirstSide, SecondSide, Location, Text };
+
+    bool pickFirst(Vec2 p)
+    {
+        const auto id = pickObject(engine, p);
+        if (!id)
+            return false;
+        const Shape& shape = engine->document().entity(*id)->shape;
+        if (const auto* l = std::get_if<Line>(&shape)) {
+            first_ = *l;
+            step_ = Step::SecondLine;
+            engine->setPrompt(t("Selezionare seconda linea:"));
+        } else if (const auto* a = std::get_if<Arc>(&shape)) {
+            vertex_ = a->center;
+            p1_ = a->startPoint();
+            p2_ = a->endPoint();
+            toLocation();
+        } else if (const auto* c = std::get_if<Circle>(&shape)) {
+            // The pick point is the first side, as in AutoCAD.
+            vertex_ = c->center;
+            p1_ = c->center + normalized(p - c->center) * c->radius;
+            step_ = Step::SecondSide;
+            engine->setPrompt(t("Specificare secondo estremo dell'angolo:"));
+        } else {
+            engine->message(t("Selezionare un arco, un cerchio o una linea."));
+            return false;
+        }
+        return true;
+    }
+
+    void toLocation()
+    {
+        step_ = Step::Location;
+        engine->setPrompt(t("Specificare posizione dell'arco di quota o [Testo]:"));
+    }
+
+    Dimension build(Vec2 location) const
+    {
+        Dimension d = newDimension(Dimension::Kind::Angular);
+        d.location = location;
+        d.text = text_;
+        if (lines_) {
+            setAngularLines(d, first_, second_);
+        } else {
+            d.vertex = vertex_;
+            d.p1 = p1_;
+            d.p2 = p2_;
+        }
+        return d;
+    }
+
+    Step step_ = Step::Pick;
+    Line first_, second_;
+    bool lines_ = false;
+    Vec2 vertex_, p1_, p2_;
+    std::string text_;
+};
+
+// DIMCONTINUE and DIMBASELINE: more linear dimensions on from the last one
+// (or a chosen one), on the same dimension line or each a step further out.
+class DimChainCommand : public Command {
+public:
+    explicit DimChainCommand(bool baseline) : baseline_(baseline) {}
+
+    void start() override
+    {
+        const Document& doc = engine->document();
+        for (auto it = doc.entities().rbegin(); it != doc.entities().rend(); ++it) {
+            if (doc.isVisible(it->second) && setBase(it->second.shape))
+                break;
+        }
+        if (hasBase_)
+            toNext();
+        else
+            toSelect();
+    }
+
+    void enter() override
+    {
+        if (step_ == Step::Next && added_.empty() && !picked_)
+            toSelect();
+        else
+            engine->finish();
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (step_ == Step::Select) {
+            const auto id = pickObject(engine, p);
+            if (!id)
+                return false;
+            if (!setBase(engine->document().entity(*id)->shape)) {
+                engine->message(t("Selezionare una quota lineare o allineata."));
+                return false;
+            }
+            picked_ = true;
+            toNext();
+            return true;
+        }
+        if (step_ != Step::Next)
+            return false;
+        const Dimension d = build(p);
+        if (std::abs(d.measurement()) < kEps)
+            return false;
+        added_.push_back({engine->document().add(d), base_});
+        reportDimension(engine, d);
+        base_ = d;
+        return true;
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (step_ != Step::Next)
+            return false;
+        if (isAny(w, {"S", "SELEZIONE", "SELECT"})) {
+            toSelect();
+            return true;
+        }
+        if (isAny(w, {"A", "ANNULLA", "U", "UNDO"})) {
+            if (added_.empty()) {
+                engine->message(t("Nessuna quota da annullare."));
+                return true;
+            }
+            engine->document().remove(added_.back().first);
+            base_ = added_.back().second;
+            added_.pop_back();
+            return true;
+        }
+        return false;
+    }
+
+    bool wantsObjectPick() const override { return step_ == Step::Select; }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (step_ == Step::Next)
+            out.push_back(build(cursor));
+    }
+
+private:
+    enum class Step { Select, Next };
+
+    bool setBase(const Shape& shape)
+    {
+        const auto* d = std::get_if<Dimension>(&shape);
+        if (!d || (d->kind != Dimension::Kind::Linear && d->kind != Dimension::Kind::Aligned))
+            return false;
+        base_ = *d;
+        hasBase_ = true;
+        return true;
+    }
+
+    void toSelect()
+    {
+        step_ = Step::Select;
+        engine->setPrompt(baseline_ ? t("Selezionare quota di base:") : t("Selezionare quota continua:"));
+    }
+
+    void toNext()
+    {
+        step_ = Step::Next;
+        engine->setPrompt(t("Specificare origine seconda linea di estensione o [Annulla/Selezione] <Selezione>:"));
+    }
+
+    Vec2 direction() const
+    {
+        Vec2 dir = base_.kind == Dimension::Kind::Aligned ? normalized(base_.p2 - base_.p1) : polar(1.0, base_.angle);
+        return length(dir) < kEps ? Vec2{1.0, 0.0} : dir;
+    }
+
+    // Continued: from the base's second extension line, on its dimension
+    // line. Baseline: from its first extension line, one step (DIMDLI,
+    // 3.75 in ISO-25) further from the object.
+    Dimension build(Vec2 p) const
+    {
+        const Vec2 dir = direction();
+        const Vec2 n = perpendicular(dir);
+        Dimension d = newDimension(Dimension::Kind::Linear);
+        d.textHeight = base_.textHeight;
+        d.arrowSize = base_.arrowSize;
+        d.angle = angleOf(dir);
+        d.p2 = p;
+        if (baseline_) {
+            d.p1 = base_.p1;
+            const double side = dot(base_.location - base_.p1, n) < 0.0 ? -1.0 : 1.0;
+            d.location = base_.location + n * (side * 1.5 * base_.arrowSize);
+        } else {
+            d.p1 = base_.p2;
+            d.location = base_.location;
+        }
+        return d;
+    }
+
+    bool baseline_;
+    Step step_ = Step::Next;
+    Dimension base_;
+    bool hasBase_ = false;
+    bool picked_ = false;
+    std::vector<std::pair<EntityId, Dimension>> added_;
 };
 
 class DimScaleCommand : public Command {
@@ -3691,20 +4256,150 @@ public:
 
 // ---------------------------------------------------------------- view
 
-class ZoomCommand : public Command {
+// BREAK: removes the part of an object between two points. The point that
+// picks the object is the first one, unless Primo punto asks for another;
+// the same point twice (@ for the second) splits the object there.
+class BreakCommand : public Command {
 public:
-    void start() override
+    void start() override { engine->setPrompt(t("Selezionare oggetto:")); }
+
+    bool wantsObjectPick() const override { return ask_ == Ask::Object; }
+
+    bool point(Vec2 p) override
     {
-        engine->setPrompt(t("Zoom [Estensioni] <Estensioni>:  (rotella del mouse per zoom, tasto centrale per spostare la vista)"));
+        switch (ask_) {
+        case Ask::Object: {
+            const auto id = pickObject(engine, p);
+            if (!id)
+                return false;
+            const Shape& s = engine->document().entity(*id)->shape;
+            if (!std::holds_alternative<Line>(s) && !std::holds_alternative<Arc>(s) && !std::holds_alternative<Circle>(s)
+                && !std::holds_alternative<Polyline>(s)) {
+                engine->message(t("Questo oggetto non si può spezzare."));
+                return false;
+            }
+            id_ = *id;
+            first_ = nearestPoint(s, p);
+            ask_ = Ask::Second;
+            engine->setPrompt(t("Specificare secondo punto di interruzione o [Primo punto]:"));
+            return true;
+        }
+        case Ask::First:
+            first_ = p;
+            ask_ = Ask::Second;
+            engine->setPrompt(t("Specificare secondo punto di interruzione:"));
+            return true;
+        case Ask::Second:
+            return breakAt(p);
+        }
+        return false;
     }
 
     bool keyword(const QString& w) override
     {
+        if (ask_ == Ask::Second && isAny(w, {"P", "PRIMO", "F", "FIRST"})) {
+            ask_ = Ask::First;
+            engine->setPrompt(t("Specificare primo punto di interruzione:"));
+            return true;
+        }
+        return false;
+    }
+
+    std::optional<Vec2> base() const override
+    {
+        return ask_ == Ask::Second ? std::optional<Vec2>(first_) : std::nullopt;
+    }
+
+private:
+    enum class Ask { Object, First, Second };
+
+    bool breakAt(Vec2 second)
+    {
+        Document& doc = engine->document();
+        const Entity* e = doc.entity(id_);
+        if (!e)
+            return false;
+        const auto pieces = breakShape(e->shape, first_, second);
+        if (!pieces) {
+            engine->message(t("Impossibile spezzare l'oggetto in questi punti."));
+            return false;
+        }
+        const Entity original = *e;
+        doc.remove(id_);
+        for (const Shape& piece : *pieces)
+            addLike(doc, original, piece);
+        engine->finish();
+        return true;
+    }
+
+    Ask ask_ = Ask::Object;
+    EntityId id_ = 0;
+    Vec2 first_;
+};
+
+// ZOOM: extents, a window picked by two corners, the previous view, or a
+// factor ("2" doubles the magnification).
+class ZoomCommand : public Command {
+public:
+    void start() override
+    {
+        engine->setPrompt(t("Specificare angolo della finestra, fattore di scala o [Estensioni/Finestra/Precedente] <Estensioni>:"));
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (corner_)
+            return false;
         if (isAny(w, {"E", "ESTENSIONI", "EXTENTS", "T", "TUTTO", "ALL"})) {
             enter();
             return true;
         }
+        if (isAny(w, {"F", "FINESTRA", "W", "WINDOW"})) {
+            engine->setPrompt(t("Specificare primo angolo:"));
+            return true;
+        }
+        if (isAny(w, {"P", "PRECEDENTE", "PREVIOUS"})) {
+            engine->requestZoomPrevious();
+            engine->finish();
+            return true;
+        }
+        // 2X, as in AutoCAD, is the same as 2.
+        if (w.endsWith(QLatin1Char('X')) && w.size() > 1) {
+            bool ok = false;
+            const double f = w.chopped(1).toDouble(&ok);
+            return ok && number(f);
+        }
         return false;
+    }
+
+    bool number(double value) override
+    {
+        if (corner_ || value <= 0.0)
+            return false;
+        engine->requestZoomFactor(value);
+        engine->finish();
+        return true;
+    }
+
+    bool point(Vec2 p) override
+    {
+        if (!corner_) {
+            corner_ = p;
+            engine->setPrompt(t("Specificare angolo opposto:"));
+            return true;
+        }
+        const BBox box = BBox::fromCorners(*corner_, p);
+        if (box.width() <= kEps && box.height() <= kEps)
+            return false;
+        engine->requestZoomWindow(box);
+        engine->finish();
+        return true;
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (corner_)
+            out.push_back(Polyline{{*corner_, {cursor.x, corner_->y}, cursor, {corner_->x, cursor.y}}, true});
     }
 
     void enter() override
@@ -3712,6 +4407,9 @@ public:
         engine->requestZoomExtents();
         engine->finish();
     }
+
+private:
+    std::optional<Vec2> corner_;
 };
 
 class PlotCommand : public Command {
@@ -3730,6 +4428,248 @@ public:
         engine->requestLayerManager();
         engine->finish();
     }
+};
+
+// UNITS (command line version): the drawing unit, written to DXF as
+// $INSUNITS, and the decimals shown for lengths and coordinates.
+class UnitsCommand : public Command {
+public:
+    void start() override
+    {
+        engine->setPrompt(t("Specificare unità del disegno [Millimetri/Centimetri/METri/Pollici/PIEdi/Senza unità] <%1>:")
+                              .arg(QString::fromUtf8(unitName(engine->document().units()))));
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (step_ != Step::Unit)
+            return false;
+        int units = -1;
+        if (isAny(w, {"M", "MI", "MILLIMETRI", "MM"}))
+            units = 4;
+        else if (isAny(w, {"C", "CENTIMETRI", "CM"}))
+            units = 5;
+        else if (isAny(w, {"MET", "METRI"}))
+            units = 6;
+        else if (isAny(w, {"P", "POLLICI", "INCHES"}))
+            units = 1;
+        else if (isAny(w, {"PIE", "PIEDI", "FEET"}))
+            units = 2;
+        else if (isAny(w, {"S", "SENZA", "NESSUNA"}))
+            units = 0;
+        if (units < 0)
+            return false;
+        engine->document().setUnits(units);
+        toPrecision();
+        return true;
+    }
+
+    bool number(double v) override
+    {
+        if (step_ != Step::Precision || v < 0.0 || v > 8.0 || v != std::floor(v))
+            return false;
+        engine->document().setPrecision(int(v));
+        done();
+        return true;
+    }
+
+    void enter() override
+    {
+        if (step_ == Step::Unit)
+            toPrecision();
+        else
+            done();
+    }
+
+private:
+    enum class Step { Unit, Precision };
+
+    void toPrecision()
+    {
+        step_ = Step::Precision;
+        engine->setPrompt(t("Specificare numero di decimali (0-8) <%1>:").arg(engine->document().precision()));
+    }
+
+    void done()
+    {
+        const Document& doc = engine->document();
+        engine->message(t("Unità: %1, %2 decimali.").arg(QString::fromUtf8(unitName(doc.units()))).arg(doc.precision()));
+        gPrecision = doc.precision();
+        engine->finish();
+    }
+
+    Step step_ = Step::Unit;
+};
+
+// -LAYER: layers from the command line, as in scripts written for AutoCAD.
+class LayerLineCommand : public Command {
+public:
+    void start() override { toOption(); }
+
+    bool keyword(const QString& w) override
+    {
+        if (step_ != Step::Option)
+            return false;
+        if (w == QLatin1String("?")) {
+            list();
+            toOption();
+            return true;
+        }
+        if (isAny(w, {"C", "CREA", "M", "MAKE"}))
+            ask(Op::Make, t("Immettere nome del layer da creare e rendere corrente:"));
+        else if (isAny(w, {"N", "NUOVO", "NEW"}))
+            ask(Op::New, t("Immettere nomi dei nuovi layer (separati da virgola):"));
+        else if (isAny(w, {"I", "IMPOSTA", "S", "SET"}))
+            ask(Op::Set, t("Immettere nome del layer da rendere corrente:"));
+        else if (isAny(w, {"ON"}))
+            ask(Op::On, t("Immettere nomi dei layer da attivare (* = tutti):"));
+        else if (isAny(w, {"OFF"}))
+            ask(Op::Off, t("Immettere nomi dei layer da disattivare (* = tutti):"));
+        else if (isAny(w, {"CO", "COLORE", "COLOR"}))
+            ask(Op::Color, t("Specificare colore (1-255, nome o R,G,B):"));
+        else if (isAny(w, {"B", "BLOCCA", "LO", "LOCK"}))
+            ask(Op::Lock, t("Immettere nomi dei layer da bloccare (* = tutti):"));
+        else if (isAny(w, {"SB", "SBLOCCA", "U", "UNLOCK"}))
+            ask(Op::Unlock, t("Immettere nomi dei layer da sbloccare (* = tutti):"));
+        else
+            return false;
+        return true;
+    }
+
+    bool wantsText() const override { return step_ == Step::Names; }
+
+    void text(const QString& s) override
+    {
+        if (op_ == Op::Color && !color_) {
+            const auto c = parseColor(s);
+            if (!c || !*c) {
+                engine->message(t("Colore non valido: usare un numero da 1 a 255, un nome (rosso, giallo, verde, ciano, blu, magenta, bianco) o R,G,B."));
+                return;
+            }
+            color_ = **c;
+            engine->setPrompt(t("Immettere nomi dei layer per il colore %1 (* = tutti):").arg(colorName(**c)));
+            return;
+        }
+        apply(s);
+        engine->documentChanged();
+        toOption();
+    }
+
+    void enter() override
+    {
+        if (step_ == Step::Names)
+            toOption();
+        else
+            engine->finish();
+    }
+
+private:
+    enum class Step { Option, Names };
+    enum class Op { Make, New, Set, On, Off, Color, Lock, Unlock };
+
+    void toOption()
+    {
+        step_ = Step::Option;
+        color_.reset();
+        engine->setPrompt(t("Layer corrente: \"%1\"\nImmettere un'opzione [?/Crea/Nuovo/Imposta/ON/OFF/COlore/Blocca/SBlocca]:")
+                              .arg(QString::fromStdString(engine->document().currentLayer())));
+    }
+
+    void ask(Op op, const QString& prompt)
+    {
+        op_ = op;
+        step_ = Step::Names;
+        engine->setPrompt(prompt);
+    }
+
+    void list()
+    {
+        QStringList lines;
+        for (const Layer& l : engine->document().layers()) {
+            lines << t("%1: %2, %3, colore %4").arg(QString::fromStdString(l.name), l.visible ? t("attivo") : t("disattivato"),
+                                                   l.locked ? t("bloccato") : t("sbloccato"), colorName(l.color));
+        }
+        engine->message(lines.join(QLatin1Char('\n')));
+    }
+
+    // The layers named in `s` (comma separated, "*" for all) that exist.
+    std::vector<std::string> named(const QString& s) const
+    {
+        std::vector<std::string> out;
+        for (QString name : s.split(QLatin1Char(','))) {
+            name = name.trimmed();
+            if (name == QLatin1String("*")) {
+                for (const Layer& l : engine->document().layers())
+                    out.push_back(l.name);
+            } else if (const Layer* l = layerNamed(name)) {
+                out.push_back(l->name);
+            } else if (!name.isEmpty()) {
+                engine->message(t("Layer \"%1\" non trovato.").arg(name));
+            }
+        }
+        return out;
+    }
+
+    // Layer names are matched without regard to case, as in AutoCAD.
+    const Layer* layerNamed(const QString& name) const
+    {
+        for (const Layer& l : engine->document().layers())
+            if (QString::fromStdString(l.name).compare(name, Qt::CaseInsensitive) == 0)
+                return &l;
+        return nullptr;
+    }
+
+    void apply(const QString& s)
+    {
+        Document& doc = engine->document();
+        switch (op_) {
+        case Op::Make:
+        case Op::New:
+            for (QString name : op_ == Op::Make ? QStringList{s} : s.split(QLatin1Char(','))) {
+                name = name.trimmed();
+                if (name.isEmpty())
+                    continue;
+                if (!layerNamed(name) && !doc.addLayer(Layer::named(name.toStdString()))) {
+                    engine->message(t("Nome di layer non valido: \"%1\".").arg(name));
+                    continue;
+                }
+                if (op_ == Op::Make)
+                    doc.setCurrentLayer(layerNamed(name)->name);
+            }
+            return;
+        case Op::Set:
+            if (const Layer* l = layerNamed(s.trimmed())) {
+                if (!l->visible)
+                    engine->message(t("Attenzione: il layer \"%1\" è disattivato.").arg(QString::fromStdString(l->name)));
+                doc.setCurrentLayer(l->name);
+            } else {
+                engine->message(t("Layer \"%1\" non trovato.").arg(s.trimmed()));
+            }
+            return;
+        default:
+            break;
+        }
+        for (const std::string& name : named(s)) {
+            Layer l = *doc.layer(name);
+            switch (op_) {
+            case Op::On: l.visible = true; break;
+            case Op::Off:
+                if (name == doc.currentLayer())
+                    engine->message(t("Il layer corrente \"%1\" viene disattivato.").arg(QString::fromStdString(name)));
+                l.visible = false;
+                break;
+            case Op::Color: l.color = *color_; break;
+            case Op::Lock: l.locked = true; break;
+            case Op::Unlock: l.locked = false; break;
+            default: break;
+            }
+            doc.updateLayer(name, l);
+        }
+    }
+
+    Step step_ = Step::Option;
+    Op op_ = Op::Make;
+    std::optional<Color> color_;
 };
 
 // LAYOUT: the sheets for printing. A new sheet shows the current story,
@@ -4424,15 +5364,6 @@ private:
     double fill_ = 360.0;
 };
 
-// Adds `shape` with the layer, style and story of `like`.
-EntityId addLike(Document& doc, const Entity& like, Shape shape)
-{
-    Entity e = like;
-    e.id = 0;
-    e.shape = std::move(shape);
-    return doc.add(std::move(e));
-}
-
 // The objects of a block reference, one level down, each with its own look:
 // those on layer 0 go to the layer of the reference and BYBLOCK takes the
 // colour, linetype and lineweight of the reference.
@@ -4732,7 +5663,7 @@ private:
     bool writing_ = false;
 };
 
-QString fmt(double v) { return QString::fromStdString(formatMeasurement(v)); }
+QString fmt(double v) { return QString::fromStdString(formatMeasurement(v, gPrecision)); }
 
 QString xy(Vec2 p) { return QStringLiteral("X=%1 Y=%2").arg(fmt(p.x), fmt(p.y)); }
 
@@ -5717,6 +6648,8 @@ private:
 std::unique_ptr<Command> makeLineCommand() { return std::make_unique<LineCommand>(); }
 std::unique_ptr<Command> makePlanTo3dCommand() { return std::make_unique<PlanTo3dCommand>(); }
 std::unique_ptr<Command> makePointCommand() { return std::make_unique<PointCommand>(); }
+std::unique_ptr<Command> makePolygonCommand() { return std::make_unique<PolygonCommand>(); }
+std::unique_ptr<Command> makeBreakCommand() { return std::make_unique<BreakCommand>(); }
 std::unique_ptr<Command> makePolylineCommand() { return std::make_unique<PolylineCommand>(); }
 std::unique_ptr<Command> makeCircleCommand() { return std::make_unique<CircleCommand>(); }
 std::unique_ptr<Command> makeArcCommand() { return std::make_unique<ArcCommand>(); }
@@ -5737,6 +6670,11 @@ std::unique_ptr<Command> makeTextEditCommand() { return std::make_unique<TextEdi
 std::unique_ptr<Command> makeMTextCommand() { return std::make_unique<MTextCommand>(); }
 std::unique_ptr<Command> makeDimLinearCommand(bool aligned) { return std::make_unique<DimLinearCommand>(aligned); }
 std::unique_ptr<Command> makeDimRadialCommand(bool diameter) { return std::make_unique<DimRadialCommand>(diameter); }
+void setMeasurementPrecision(int decimals) { gPrecision = decimals; }
+std::unique_ptr<Command> makeUnitsCommand() { return std::make_unique<UnitsCommand>(); }
+std::unique_ptr<Command> makeLayerLineCommand() { return std::make_unique<LayerLineCommand>(); }
+std::unique_ptr<Command> makeDimAngularCommand() { return std::make_unique<DimAngularCommand>(); }
+std::unique_ptr<Command> makeDimChainCommand(bool baseline) { return std::make_unique<DimChainCommand>(baseline); }
 std::unique_ptr<Command> makeDimScaleCommand() { return std::make_unique<DimScaleCommand>(); }
 std::unique_ptr<Command> makePlotCommand() { return std::make_unique<PlotCommand>(); }
 std::unique_ptr<Command> makeHatchCommand() { return std::make_unique<HatchCommand>(); }

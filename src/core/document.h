@@ -70,6 +70,11 @@ struct EntityStyle {
 EntityStyle styleOf(const Entity& e);
 void applyStyle(Entity& e, const EntityStyle& style);
 
+// Millimetres in one drawing unit (INSUNITS), 0 when it has no unit.
+double unitInMillimetres(int units);
+// Its Italian name ("Millimetri"...).
+const char* unitName(int units);
+
 // Every change to the entities goes through add/remove/replace and is
 // recorded, so any group of changes can be undone as one step. Changes made
 // outside an explicit transaction become a transaction of their own.
@@ -115,6 +120,14 @@ public:
     // Multiplies every dash length (AutoCAD's LTSCALE).
     double linetypeScale() const { return linetypeScale_; }
     void setLinetypeScale(double scale);
+
+    // Drawing units, as AutoCAD's INSUNITS (0 none, 1 inches, 2 feet,
+    // 4 millimetres, 5 centimetres, 6 metres), and the decimals shown for
+    // lengths and coordinates (LUPREC, 0 to 8).
+    int units() const { return units_; }
+    void setUnits(int units);
+    int precision() const { return precision_; }
+    void setPrecision(int decimals);
 
     // What new objects get (CECOLOR, CELTYPE, CELWEIGHT); BYLAYER at first.
     const EntityStyle& currentStyle() const { return currentStyle_; }
@@ -212,6 +225,8 @@ private:
     StoryId nextStory_ = 1;
     std::vector<Linetype> linetypes_;
     double linetypeScale_ = 1.0;
+    int units_ = 4;
+    int precision_ = 2;
     EntityStyle currentStyle_;
     std::map<std::string, std::shared_ptr<const Block>> blocks_;
     std::vector<Layout> layouts_;

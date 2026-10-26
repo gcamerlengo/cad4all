@@ -497,6 +497,88 @@ TrimResult trimShape(const Shape& shape, const std::vector<Shape>& boundaries, V
     return {false, {}};  // texts and dimensions are not trimmed
 }
 
+std::optional<std::vector<Shape>> breakShape(const Shape& shape, Vec2 first, Vec2 second)
+{
+    std::vector<Shape> out;
+    if (const auto* l = std::get_if<Line>(&shape)) {
+        double t0 = std::clamp(lineParam(*l, first), 0.0, 1.0);
+        double t1 = std::clamp(lineParam(*l, second), 0.0, 1.0);
+        if (t0 > t1)
+            std::swap(t0, t1);
+        if (t0 > kParamEps)
+            out.push_back(Line{l->a, lerp(l->a, l->b, t0)});
+        if (t1 < 1.0 - kParamEps)
+            out.push_back(Line{lerp(l->a, l->b, t1), l->b});
+    } else if (const auto* c = std::get_if<Circle>(&shape)) {
+        const double a0 = normalizeAngle(angleOf(first - c->center));
+        const double a1 = normalizeAngle(angleOf(second - c->center));
+        const double gap = std::abs(a0 - a1);
+        if (gap <= kParamEps || gap >= kTwoPi - kParamEps)
+            return std::nullopt;
+        return std::vector<Shape>{Arc{c->center, c->radius, a1, a0}};
+    } else if (const auto* a = std::get_if<Arc>(&shape)) {
+        const double sweep = a->sweep();
+        auto param = [&](Vec2 v) {
+            const double s = normalizeAngle(angleOf(v - a->center) - a->startAngle);
+            // Outside the arc: its nearer end.
+            return s <= sweep ? s : (s - sweep < kTwoPi - s ? sweep : 0.0);
+        };
+        double s0 = param(first);
+        double s1 = param(second);
+        if (s0 > s1)
+            std::swap(s0, s1);
+        if (s0 > kParamEps)
+            out.push_back(Arc{a->center, a->radius, a->startAngle, normalizeAngle(a->startAngle + s0)});
+        if (s1 < sweep - kParamEps)
+            out.push_back(Arc{a->center, a->radius, normalizeAngle(a->startAngle + s1), a->endAngle});
+    } else if (const auto* source = std::get_if<Polyline>(&shape)) {
+        Polyline pl = cleaned(*source);
+        if (!hasLength(pl))
+            return std::nullopt;
+        pl.closed = pl.closed && pl.points.size() >= 3;
+        if (!pl.closed) {
+            const double last = static_cast<double>(pl.points.size() - 1);
+            double u0 = polylineParam(pl, first);
+            double u1 = polylineParam(pl, second);
+            if (u0 > u1)
+                std::swap(u0, u1);
+            if (u0 > kParamEps)
+                out.push_back(subPolyline(pl, 0.0, u0));
+            if (u1 < last - kParamEps)
+                out.push_back(subPolyline(pl, u1, last));
+            std::erase_if(out, [](const Shape& s) { return std::get<Polyline>(s).points.size() < 2; });
+        } else {
+            const size_t n = pl.points.size();
+            const double total = static_cast<double>(n);
+            auto param = [&](Vec2 v) {
+                const double u = polylineParam(pl, v);
+                return u >= total - kParamEps ? 0.0 : u;
+            };
+            const double u0 = param(first);
+            const double u1 = param(second);
+            if (std::abs(u0 - u1) <= kParamEps)
+                return std::nullopt;
+            // What stays runs from the second point round to the first.
+            Polyline laps;
+            for (int lap = 0; lap < 2; ++lap)
+                for (size_t i = 0; i < n; ++i) {
+                    laps.points.push_back(pl.points[i]);
+                    laps.setBulge(laps.points.size() - 1, pl.bulge(i));
+                }
+            laps.points.push_back(pl.points.front());
+            return std::vector<Shape>{subPolyline(laps, u1, u0 > u1 ? u0 : u0 + total)};
+        }
+    } else {
+        return std::nullopt;
+    }
+    // Broken at its very end, or at one point of nothing: nothing changes.
+    if (almostEqual(first, second, 0.0) && out.size() < 2)
+        return std::nullopt;
+    if (out.empty())
+        return std::nullopt;
+    return out;
+}
+
 std::optional<Shape> extendShape(const Shape& shape, const std::vector<Shape>& boundaries, Vec2 pick)
 {
     const double reach = rayLength(shape, boundaries);
@@ -947,6 +1029,7 @@ Shape stretchShape(const Shape& shape, const BBox& window, Vec2 offset)
             r.p2 = move(d->p2);
         }
         r.location = move(d->location);
+        r.vertex = move(d->vertex);
         return r;
     }
     return shape;
@@ -999,8 +1082,11 @@ std::vector<Vec2> gripPoints(const Shape& shape)
         return {t->position};
     if (const auto* m = std::get_if<MText>(&shape))
         return {m->position};
-    if (const auto* d = std::get_if<Dimension>(&shape))
+    if (const auto* d = std::get_if<Dimension>(&shape)) {
+        if (d->kind == Dimension::Kind::Angular)
+            return {d->p1, d->p2, d->location, d->vertex};
         return {d->p1, d->p2, d->location};
+    }
     if (const auto* w = std::get_if<Wall>(&shape))
         return {w->start, w->end, (w->start + w->end) * 0.5};
     if (const auto* ref = std::get_if<Insert>(&shape))
@@ -1078,7 +1164,7 @@ std::optional<Shape> moveGrip(const Shape& shape, size_t index, Vec2 to)
     }
     if (const auto* d = std::get_if<Dimension>(&shape)) {
         Dimension r = *d;
-        (index == 0 ? r.p1 : index == 1 ? r.p2 : r.location) = to;
+        (index == 0 ? r.p1 : index == 1 ? r.p2 : index == 2 ? r.location : r.vertex) = to;
         return r;
     }
     if (const auto* w = std::get_if<Wall>(&shape)) {
@@ -1164,6 +1250,8 @@ std::vector<Shape> explodeShape(const Shape& shape)
         const DimensionGeometry g = dimensionGeometry(*d);
         for (const Line& l : g.lines)
             out.push_back(l);
+        for (const Arc& a : g.arcs)
+            out.push_back(a);
         for (const auto& tri : g.arrows) {
             Hatch h;
             h.pattern = "SOLID";

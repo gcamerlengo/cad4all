@@ -107,6 +107,9 @@ public:
     // Ends the active command; safe to call from inside the command.
     void finish();
     void requestZoomExtents() { emit zoomExtentsRequested(); }
+    void requestZoomWindow(const BBox& box) { emit zoomWindowRequested(box); }
+    void requestZoomPrevious() { emit zoomPreviousRequested(); }
+    void requestZoomFactor(double factor) { emit zoomFactorRequested(factor); }
     void requestLayerManager() { emit layerManagerRequested(); }
     void requestLayouts() { emit layoutsRequested(); }
     void requestPlot() { emit plotRequested(); }
@@ -121,6 +124,9 @@ signals:
     void changed();
     void selectionChanged();
     void zoomExtentsRequested();
+    void zoomWindowRequested(const cad::BBox& box);
+    void zoomPreviousRequested();
+    void zoomFactorRequested(double factor);
     void layerManagerRequested();
     void layoutsRequested();
     void plotRequested();

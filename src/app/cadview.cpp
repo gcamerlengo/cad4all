@@ -71,6 +71,9 @@ CadView::CadView(CommandEngine& engine, QWidget* parent)
         update();
     });
     connect(&engine_, &CommandEngine::zoomExtentsRequested, this, &CadView::zoomExtents);
+    connect(&engine_, &CommandEngine::zoomWindowRequested, this, &CadView::zoomWindow);
+    connect(&engine_, &CommandEngine::zoomFactorRequested, this, &CadView::zoomFactor);
+    connect(&engine_, &CommandEngine::zoomPreviousRequested, this, &CadView::zoomPrevious);
 }
 
 Vec2 CadView::toWorld(QPointF s) const
@@ -104,17 +107,49 @@ void CadView::zoomExtents()
 {
     const BBox box = engine_.document().extents();
     if (!box.valid()) {
+        rememberView();
         center_ = {0.0, 0.0};
         scale_ = 20.0;
-    } else {
-        center_ = box.center();
-        const double w = std::max(box.width(), 1e-6);
-        const double h = std::max(box.height(), 1e-6);
-        // Leave a 5% margin around the drawing.
-        scale_ = 0.9 * std::min(width() / w, height() / h);
-        scale_ = std::clamp(scale_, 1e-6, 1e9);
+        update();
+        return;
     }
+    zoomWindow(box);
+}
+
+void CadView::zoomWindow(const BBox& box)
+{
+    rememberView();
+    center_ = box.center();
+    const double w = std::max(box.width(), 1e-6);
+    const double h = std::max(box.height(), 1e-6);
+    // Leave a 5% margin around the area.
+    scale_ = std::clamp(0.9 * std::min(width() / w, height() / h), 1e-6, 1e9);
     update();
+}
+
+void CadView::zoomFactor(double factor)
+{
+    rememberView();
+    scale_ = std::clamp(scale_ * factor, 1e-6, 1e9);
+    update();
+}
+
+void CadView::zoomPrevious()
+{
+    if (previousViews_.empty()) {
+        engine_.message(tr("Nessuna vista precedente."));
+        return;
+    }
+    std::tie(center_, scale_) = previousViews_.back();
+    previousViews_.pop_back();
+    update();
+}
+
+void CadView::rememberView()
+{
+    previousViews_.push_back({center_, scale_});
+    if (previousViews_.size() > 10)
+        previousViews_.erase(previousViews_.begin());
 }
 
 void CadView::updateCursor(QPointF pos)

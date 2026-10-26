@@ -312,3 +312,34 @@ TEST(Shapes, ParagraphTextWrapsAtItsWidth)
     EXPECT_EQ(mirrored.align, Text::Align::Left);
     EXPECT_NEAR(mirrored.position.x, 100, 1e-9);
 }
+
+TEST(Shapes, AngularDimensionGeometry)
+{
+    Dimension d;
+    d.kind = Dimension::Kind::Angular;
+    d.vertex = {0, 0};
+    d.p1 = {100, 0};
+    d.p2 = {0, 20};
+    d.location = {30, 30};
+    const DimensionGeometry g = dimensionGeometry(d);
+    EXPECT_EQ(g.label.content, "90\xC2\xB0");
+    ASSERT_EQ(g.arcs.size(), 1u);
+    const double r = std::sqrt(1800.0);
+    EXPECT_NEAR(g.arcs[0].radius, r, 1e-9);
+    EXPECT_NEAR(g.arcs[0].startAngle, 0.0, 1e-9);
+    EXPECT_NEAR(g.arcs[0].endAngle, kPi / 2.0, 1e-9);
+    // One extension line, along the side that stops short of the arc.
+    ASSERT_EQ(g.lines.size(), 1u);
+    EXPECT_NEAR(g.lines[0].a.x, 0.0, 1e-9);
+    EXPECT_GT(g.lines[0].b.y, r);
+    EXPECT_EQ(g.arrows.size(), 2u);
+    // The label stands outside the arc, across its middle.
+    for (Vec2 c : textCorners(g.label))
+        EXPECT_GT(length(c), r);
+
+    // The other side of the corner: the reflex angle.
+    d.location = {-30, -30};
+    EXPECT_NEAR(d.measurement(), 270.0, 1e-9);
+    for (Vec2 c : textCorners(dimensionGeometry(d).label))
+        EXPECT_GT(length(c), r);
+}

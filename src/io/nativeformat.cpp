@@ -92,13 +92,14 @@ const char* kindName(Dimension::Kind k)
     case Dimension::Kind::Aligned: return "aligned";
     case Dimension::Kind::Radius: return "radius";
     case Dimension::Kind::Diameter: return "diameter";
+    case Dimension::Kind::Angular: return "angular";
     }
     return "linear";
 }
 
 std::optional<Dimension::Kind> kindFromName(const QString& s)
 {
-    for (auto k : {Dimension::Kind::Linear, Dimension::Kind::Aligned, Dimension::Kind::Radius, Dimension::Kind::Diameter})
+    for (auto k : {Dimension::Kind::Linear, Dimension::Kind::Aligned, Dimension::Kind::Radius, Dimension::Kind::Diameter, Dimension::Kind::Angular})
         if (s == QLatin1String(kindName(k)))
             return k;
     return std::nullopt;
@@ -188,6 +189,8 @@ QJsonObject shapeToJson(const Shape& shape)
         o[QStringLiteral("p1")] = toJson(d->p1);
         o[QStringLiteral("p2")] = toJson(d->p2);
         o[QStringLiteral("location")] = toJson(d->location);
+        if (d->kind == Dimension::Kind::Angular)
+            o[QStringLiteral("vertex")] = toJson(d->vertex);
         o[QStringLiteral("angle")] = d->angle;
         o[QStringLiteral("textHeight")] = d->textHeight;
         o[QStringLiteral("arrowSize")] = d->arrowSize;
@@ -354,6 +357,8 @@ std::optional<Shape> shapeFromJson(const QJsonObject& o, const Document& doc)
         d.textHeight = o[QStringLiteral("textHeight")].toDouble(-1.0);
         d.arrowSize = o[QStringLiteral("arrowSize")].toDouble(-1.0);
         d.text = o[QStringLiteral("text")].toString().toStdString();
+        if (kind == Dimension::Kind::Angular && !fromJson(o[QStringLiteral("vertex")], d.vertex))
+            return std::nullopt;
         if (kind && fromJson(o[QStringLiteral("p1")], d.p1) && fromJson(o[QStringLiteral("p2")], d.p2)
             && fromJson(o[QStringLiteral("location")], d.location) && d.textHeight > 0.0 && d.arrowSize >= 0.0) {
             d.kind = *kind;
@@ -549,6 +554,8 @@ QByteArray toNativeJson(const Document& doc)
     root[QStringLiteral("layers")] = layers;
     root[QStringLiteral("linetypes")] = linetypes;
     root[QStringLiteral("linetypeScale")] = doc.linetypeScale();
+    root[QStringLiteral("units")] = doc.units();
+    root[QStringLiteral("precision")] = doc.precision();
     root[QStringLiteral("currentStyle")] = current;
     root[QStringLiteral("stories")] = stories;
     root[QStringLiteral("currentStory")] = doc.currentStory();
@@ -614,6 +621,8 @@ bool fromNativeJson(const QByteArray& data, Document& doc, QString* error)
         loaded.addLinetype(t);
     }
     loaded.setLinetypeScale(root.value(QStringLiteral("linetypeScale")).toDouble(1.0));
+    loaded.setUnits(root.value(QStringLiteral("units")).toInt(4));
+    loaded.setPrecision(root.value(QStringLiteral("precision")).toInt(2));
     for (const QJsonValue& v : root.value(QStringLiteral("layers")).toArray()) {
         const QJsonObject o = v.toObject();
         Layer l;
