@@ -3,6 +3,7 @@
 
 #include "drawingpainter.h"
 
+#include <QElapsedTimer>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QWheelEvent>
@@ -74,6 +75,18 @@ CadView::CadView(CommandEngine& engine, QWidget* parent)
     connect(&engine_, &CommandEngine::zoomWindowRequested, this, &CadView::zoomWindow);
     connect(&engine_, &CommandEngine::zoomFactorRequested, this, &CadView::zoomFactor);
     connect(&engine_, &CommandEngine::zoomPreviousRequested, this, &CadView::zoomPrevious);
+    settle_.setSingleShot(true);
+    settle_.setInterval(150);
+    connect(&settle_, &QTimer::timeout, this, [this] {
+        moving_ = false;
+        update();
+    });
+}
+
+void CadView::viewMoving()
+{
+    moving_ = true;
+    settle_.start();
 }
 
 Vec2 CadView::toWorld(QPointF s) const
@@ -234,6 +247,7 @@ void CadView::mouseMoveEvent(QMouseEvent* event)
         center_.x -= d.x() / scale_;
         center_.y += d.y() / scale_;
         panLast_ = pos;
+        viewMoving();
     }
     if (windowStart_ && QLineF(*windowStart_, pos).length() > 4.0 && (event->buttons() & Qt::LeftButton))
         windowDragged_ = true;
@@ -285,6 +299,7 @@ void CadView::wheelEvent(QWheelEvent* event)
     // Keep the point under the cursor still while zooming.
     center_.x = anchor.x - (pos.x() - width() / 2.0) / scale_;
     center_.y = anchor.y + (pos.y() - height() / 2.0) / scale_;
+    viewMoving();
     updateCursor(pos);
     update();
 }
@@ -315,9 +330,8 @@ void CadView::finishWindowSelection(QPointF end, bool remove)
     update();
 }
 
-void CadView::paintEvent(QPaintEvent*)
+void CadView::renderDrawing(QPainter& p)
 {
-    QPainter p(this);
     p.fillRect(rect(), kBackground);
     p.setRenderHint(QPainter::Antialiasing);
 
@@ -325,25 +339,31 @@ void CadView::paintEvent(QPaintEvent*)
         drawGrid(p);
 
     const Document& doc = engine_.document();
-    const BBox visible = BBox::fromCorners(toWorld({0, 0}), toWorld(QPointF(width(), height())));
+    const BBox visible = visibleArea();
     const auto& selection = engine_.selection();
     DrawingPainter dp(p, center_, scale_, QPointF(width() / 2.0, height() / 2.0));
     dp.setVisibleArea(visible);
 
-    const std::map<EntityId, WallFaces> walls = joinedWalls(doc);
+    if (wallsRevision_ != doc.revision()) {
+        walls_ = joinedWalls(doc);
+        wallsRevision_ = doc.revision();
+    }
+    const std::vector<EntityId> shown = doc.entitiesIn(visible);
     if (const Story* below = doc.storyBelow(doc.currentStory())) {
         p.setPen(QPen(kStoryBelow, 0));
-        for (const auto& [id, e] : doc.entities()) {
-            if (e.story != below->id || !doc.isLayerVisible(e) || !drawnBox(e.shape).intersects(visible))
+        for (EntityId id : shown) {
+            const Entity& e = *doc.entity(id);
+            if (e.story != below->id || !doc.isLayerVisible(e))
                 continue;
             if (const auto* w = std::get_if<Wall>(&e.shape))
-                dp.drawWall(*w, walls.at(id));
+                dp.drawWall(*w, walls_.at(id));
             else
                 doc.forEachPart(e, [&](const Entity& part) { dp.drawShape(part.shape); });
         }
     }
-    for (const auto& [id, e] : doc.entities()) {
-        if (!doc.isVisible(e) || !drawnBox(e.shape).intersects(visible))
+    for (EntityId id : shown) {
+        const Entity& e = *doc.entity(id);
+        if (!doc.isVisible(e))
             continue;
         const bool selected = selection.count(id) > 0;
         doc.forEachPart(e, [&](const Entity& part) {
@@ -367,11 +387,58 @@ void CadView::paintEvent(QPaintEvent*)
             }
             p.setPen(pen);
             if (const auto* w = std::get_if<Wall>(&part.shape); w && &part == &e)
-                dp.drawWall(*w, walls.at(id));
+                dp.drawWall(*w, walls_.at(id));
             else
                 dp.drawShape(part.shape);
         });
     }
+}
+
+void CadView::paintEvent(QPaintEvent*)
+{
+    QPainter p(this);
+    const Document& doc = engine_.document();
+    CacheKey key;
+    key.revision = doc.revision();
+    key.center = center_;
+    key.scale = scale_;
+    key.size = size();
+    key.ratio = devicePixelRatioF();
+    key.grid = grid_;
+    key.lineweights = lineweights_;
+    key.selection = engine_.selection();
+
+    if (!cache_.isNull() && key.sameContent(cacheKey_) && key.sameView(cacheKey_)) {
+        p.drawImage(0, 0, cache_);
+    } else if (!cache_.isNull() && moving_ && renderMs_ > 25.0 && key.sameContent(cacheKey_)) {
+        // The old image, moved and scaled to the new view, until the view settles.
+        p.fillRect(rect(), kBackground);
+        const double k = scale_ / cacheKey_.scale;
+        const QPointF c(width() / 2.0, height() / 2.0);
+        const QPointF shift((cacheKey_.center.x - center_.x) * scale_, -(cacheKey_.center.y - center_.y) * scale_);
+        p.save();
+        p.setRenderHint(QPainter::SmoothPixmapTransform, false);
+        p.translate(c + shift);
+        p.scale(k, k);
+        p.translate(-c);
+        p.drawImage(0, 0, cache_);
+        p.restore();
+    } else {
+        cache_ = QImage(size() * key.ratio, QImage::Format_ARGB32_Premultiplied);
+        cache_.setDevicePixelRatio(key.ratio);
+        QElapsedTimer timer;
+        timer.start();
+        {
+            QPainter cp(&cache_);
+            renderDrawing(cp);
+        }
+        renderMs_ = double(timer.nsecsElapsed()) / 1e6;
+        cacheKey_ = key;
+        p.drawImage(0, 0, cache_);
+    }
+    p.setRenderHint(QPainter::Antialiasing);
+    DrawingPainter dp(p, center_, scale_, QPointF(width() / 2.0, height() / 2.0));
+    dp.setVisibleArea(visibleArea());
 
     if (mouseInside_) {
         std::vector<Shape> preview;

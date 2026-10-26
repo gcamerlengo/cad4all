@@ -6,6 +6,7 @@
 #include "navigator.h"
 #include "planwizard.h"
 #include "properties.h"
+#include "propertiespalette.h"
 #include "stylecontrols.h"
 #include "theme.h"
 #include "toolbox.h"
@@ -14,6 +15,7 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QLabel>
+#include <QLineEdit>
 #include <QToolButton>
 #include <QTreeWidget>
 
@@ -252,4 +254,36 @@ TEST_F(Ui, PlanWizardConvertsTheWallLayersWithASlab)
     EXPECT_EQ(walls, 4);
     EXPECT_EQ(slabs, 1);
     EXPECT_EQ(doc.entity(table)->layer, "ARREDI");
+}
+
+TEST_F(Ui, PropertiesPaletteEditsTheSelection)
+{
+    PropertiesPalette palette(engine);
+    EXPECT_EQ(palette.findChild<QLineEdit*>(QStringLiteral("radius")), nullptr);
+    const EntityId a = doc.add(Circle{{0, 0}, 5});
+    const EntityId b = doc.add(Circle{{20, 0}, 8});
+    engine.select({a, b});
+
+    // Two circles: the radius differs, so the field shows *VARIE*.
+    auto* radius = palette.findChild<QLineEdit*>(QStringLiteral("radius"));
+    ASSERT_NE(radius, nullptr);
+    EXPECT_TRUE(radius->text().isEmpty());
+    EXPECT_EQ(radius->placeholderText(), "*VARIE*");
+    radius->setText(QStringLiteral("10"));
+    emit radius->editingFinished();
+    EXPECT_DOUBLE_EQ(std::get<Circle>(doc.entity(a)->shape).radius, 10.0);
+    EXPECT_DOUBLE_EQ(std::get<Circle>(doc.entity(b)->shape).radius, 10.0);
+    EXPECT_EQ(palette.findChild<QLineEdit*>(QStringLiteral("radius"))->text(), "10");
+    EXPECT_EQ(palette.findChild<QLabel*>(QStringLiteral("area"))->text(), "314,16");
+
+    // The layer from its list, as one undo step.
+    doc.addLayer(Layer::named("Arredi"));
+    engine.documentChanged();
+    auto* layer = palette.findChild<QComboBox*>(QStringLiteral("layer"));
+    ASSERT_NE(layer, nullptr);
+    layer->setCurrentIndex(1);
+    emit layer->activated(1);
+    EXPECT_EQ(doc.entity(b)->layer, "Arredi");
+    type({"U"});
+    EXPECT_EQ(doc.entity(b)->layer, "0");
 }

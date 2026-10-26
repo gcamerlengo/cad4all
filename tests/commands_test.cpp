@@ -3,6 +3,7 @@
 #include "commandengine.h"
 #include "building.h"
 #include "editing.h"
+#include "section.h"
 #include "hatch.h"
 
 #include <gtest/gtest.h>
@@ -1193,4 +1194,60 @@ TEST_F(Commands, LayerFromTheCommandLine)
     EXPECT_TRUE(doc.layer("Muri portanti")->locked);
     EXPECT_TRUE(doc.layer("Arredi")->visible);
     EXPECT_EQ(doc.currentLayer(), "Quote");
+}
+
+TEST_F(Commands, GableEndsAreCutFullInSections)
+{
+    // Gable roof over a 10 x 8 m box: the gable ends are as thick as the
+    // walls under them, so a section across them shows closed, filled parts.
+    type({"MURO", "S", "300", "A", "2700", "G", "C", "0,0", "10000,0", "10000,8000", "0,8000", "C"});
+    type({"TETTO", "T", "C", "P", "30", "S", "600", "M"});
+    SectionPlane plane;
+    plane.origin = {-2000, 3000};
+    plane.direction = {0, 1};
+    const SectionDrawing d = sectionDrawing(buildingModel(doc), plane);
+    ASSERT_FALSE(d.cut.empty());
+    int gables = 0;
+    for (const Polyline& p : d.cut) {
+        EXPECT_TRUE(p.closed);
+        BBox b;
+        for (Vec2 v : p.points)
+            b.add(v);
+        if (b.min.y >= 2700 - 1e-6 && b.width() < 400) {
+            ++gables;
+            EXPECT_NEAR(b.width(), 300, 1e-6);
+        }
+    }
+    EXPECT_EQ(gables, 2);
+}
+
+TEST_F(Commands, LevelMarksInPlanAndSections)
+{
+    // In the plan: the level of the current story, or the one typed in metres.
+    type({"QUOTALIVELLO", "100,100", ""});
+    type({"QL", "300,100", "-0.45"});
+    auto refs = shapes<Insert>();
+    ASSERT_EQ(refs.size(), 2u);
+    EXPECT_EQ(refs[0].block->name, "QUOTA LIVELLO \xC2\xB1" "0,00");
+    EXPECT_EQ(refs[1].block->name, "QUOTA LIVELLO -0,45");
+    // The same value again reuses its block.
+    type({"QL", "500,100", "-0.45"});
+    EXPECT_EQ(shapes<Insert>()[2].block, shapes<Insert>()[1].block);
+    while (!doc.entities().empty())
+        doc.remove(doc.entities().begin()->first);
+
+    // In a section: the floors of the two stories and the top.
+    type({"MURO", "S", "300", "A", "2700", "0,0", "6000,0", "6000,4000", "0,4000", "C"});
+    type({"PIANO", "N", "Primo", "Q", "3000", ""});
+    type({"MURO", "S", "300", "A", "2700", "0,0", "6000,0", "6000,4000", "0,4000", "C"});
+    type({"SEZIONE", "-1000,2000", "7000,2000", "3000,3000", "0,-10000"});
+    const auto blocks = shapes<Insert>();
+    ASSERT_EQ(blocks.size(), 1u);
+    std::vector<std::string> labels;
+    for (const BlockItem& item : blocks[0].block->items)
+        if (const auto* text = std::get_if<Text>(&item.shape))
+            labels.push_back(text->content);
+    EXPECT_NE(std::find(labels.begin(), labels.end(), "\xC2\xB1" "0,00"), labels.end());
+    EXPECT_NE(std::find(labels.begin(), labels.end(), "+3,00"), labels.end());
+    EXPECT_NE(std::find(labels.begin(), labels.end(), "+5,70"), labels.end());
 }

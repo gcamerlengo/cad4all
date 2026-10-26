@@ -218,7 +218,8 @@ public:
 
     void wall(const Wall& w, const WallFaces& f);
     void slab(const Slab& s);
-    void roof(const Roof& r);
+    // `walls`: those of the story, so a gable end is as thick as the wall under it.
+    void roof(const Roof& r, const std::vector<Wall>& walls = {});
     void stair(const Stair& s);
 
 private:
@@ -376,7 +377,40 @@ void ModelBuilder::slab(const Slab& sl)
     }
 }
 
-void ModelBuilder::roof(const Roof& r)
+namespace {
+
+// The thickness of the wall whose outer face runs along the footprint edge
+// a-b (`inward` points into the building), or 0 if no wall does.
+double gableThickness(Vec2 a, Vec2 b, Vec2 inward, const std::vector<Wall>& walls)
+{
+    const double len = distance(a, b);
+    const Vec2 d = (b - a) * (1.0 / len);
+    double best = 0.0;
+    for (const Wall& w : walls) {
+        const double wl = wallLength(w);
+        if (wl < kEps || std::abs(cross(normalized(w.end - w.start), d)) > 1e-3)
+            continue;
+        // Both faces of the wall, as distances inwards from the edge.
+        const Vec2 n = wallNormal(w);
+        const double axis = dot(w.start - a, inward);
+        const double side = dot(n, inward);
+        const double f0 = axis + side * wallLeftOffset(w);
+        const double f1 = axis + side * wallRightOffset(w);
+        const double outer = std::min(f0, f1);
+        if (std::abs(outer) > std::max(1.0, 0.05 * w.thickness))
+            continue;
+        // It must run along the edge, not just on its line.
+        const double s0 = dot(w.start - a, d), s1 = dot(w.end - a, d);
+        if (std::max(s0, s1) < 0.1 * len || std::min(s0, s1) > 0.9 * len)
+            continue;
+        best = std::max(best, std::abs(f1 - f0));
+    }
+    return best;
+}
+
+} // namespace
+
+void ModelBuilder::roof(const Roof& r, const std::vector<Wall>& walls)
 {
     const auto g = roofGeometry(r);
     if (!g || r.thickness <= kEps)
@@ -433,6 +467,10 @@ void ModelBuilder::roof(const Roof& r)
             continue;
         const Vec2 a = g->footprint[i];
         const Vec2 b = g->footprint[(i + 1) % m];
+        if (distance(a, b) < kEps)
+            continue;
+        const Vec2 inward = normalized(perpendicular(b - a)) * (polygonArea(g->footprint) > 0.0 ? 1.0 : -1.0);
+        const double thickness = gableThickness(a, b, inward, walls);
         for (const RoofFace& f : g->faces) {
             // The part of the edge under this face.
             double t0 = 0.0, t1 = 1.0;
@@ -457,7 +495,22 @@ void ModelBuilder::roof(const Roof& r)
             const Vec2 q = a + (b - a) * t1;
             if (f.plane.at(p) - r.base < kEps && f.plane.at(q) - r.base < kEps)
                 continue;
-            quad(Vec3(p, r.base), Vec3(q, r.base), Vec3(q, f.plane.at(q)), Vec3(p, f.plane.at(p)));
+            if (thickness <= kEps) {
+                quad(Vec3(p, r.base), Vec3(q, r.base), Vec3(q, f.plane.at(q)), Vec3(p, f.plane.at(p)));
+                continue;
+            }
+            // A solid as thick as the wall under it, so a section cuts it full.
+            const Vec2 pi = p + inward * thickness;
+            const Vec2 qi = q + inward * thickness;
+            const Vec3 o[4] = {Vec3(p, r.base), Vec3(q, r.base), Vec3(q, std::max(r.base, f.plane.at(q))), Vec3(p, std::max(r.base, f.plane.at(p)))};
+            const Vec3 in[4] = {Vec3(pi, r.base), Vec3(qi, r.base), Vec3(qi, std::max(r.base, f.plane.at(qi))),
+                                Vec3(pi, std::max(r.base, f.plane.at(pi)))};
+            quad(o[0], o[1], o[2], o[3]);
+            quad(in[0], in[1], in[2], in[3]);
+            for (int k = 0; k < 4; ++k) {
+                const int n2 = (k + 1) % 4;
+                quad(o[k], o[n2], in[n2], in[k]);
+            }
         }
     }
 }
@@ -1309,6 +1362,7 @@ Model3D buildingModel(const Document& doc)
     Model3D model;
     for (const Story& story : doc.stories()) {
         std::vector<Wall> walls;
+        std::vector<Roof> roofs;
         Model3D part;
         ModelBuilder builder(part);
         for (const auto& [id, e] : doc.entities()) {
@@ -1323,7 +1377,7 @@ Model3D buildingModel(const Document& doc)
                 else if (const auto* sl = std::get_if<Slab>(&p.shape))
                     builder.slab(*sl);
                 else if (const auto* r = std::get_if<Roof>(&p.shape))
-                    builder.roof(*r);
+                    roofs.push_back(*r);
                 else if (const auto* st = std::get_if<Stair>(&p.shape))
                     builder.stair(*st);
             });
@@ -1331,6 +1385,8 @@ Model3D buildingModel(const Document& doc)
         const std::vector<WallFaces> faces = joinWalls(walls);
         for (size_t i = 0; i < walls.size(); ++i)
             builder.wall(walls[i], faces[i]);
+        for (const Roof& r : roofs)
+            builder.roof(r, walls);
         // Raised to the story.
         const Vec3 up{0.0, 0.0, story.elevation};
         for (auto& t : part.triangles) {

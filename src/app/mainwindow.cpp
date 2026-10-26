@@ -18,6 +18,7 @@
 #include "nativeformat.h"
 #include "plot.h"
 #include "plotdialog.h"
+#include "propertiespalette.h"
 #include "planwizard.h"
 #include "recovery.h"
 #include "view3d.h"
@@ -116,6 +117,14 @@ MainWindow::MainWindow()
     layerDock_->setWidget(layerPanel_);
     addDockWidget(Qt::RightDockWidgetArea, layerDock_);
 
+    properties_ = new PropertiesPalette(engine_, this);
+    propertiesDock_ = new QDockWidget(tr("Proprietà"), this);
+    propertiesDock_->setObjectName(QStringLiteral("propertiesDock"));
+    propertiesDock_->setWidget(properties_);
+    addDockWidget(Qt::RightDockWidgetArea, propertiesDock_);
+    tabifyDockWidget(layerDock_, propertiesDock_);
+    propertiesDock_->hide();
+
     layoutPanel_ = new LayoutPanel(engine_, [this] { return view_->visibleArea(); }, this);
     layoutDock_ = new QDockWidget(tr("Tavole"), this);
     layoutDock_->setObjectName(QStringLiteral("layoutDock"));
@@ -175,6 +184,7 @@ MainWindow::MainWindow()
     });
     connect(&engine_, &CommandEngine::layoutsRequested, this, &MainWindow::showLayouts);
     connect(layoutPanel_, &LayoutPanel::message, commandLine_, &CommandLine::appendMessage);
+    connect(&engine_, &CommandEngine::propertiesRequested, this, &MainWindow::showProperties);
     connect(&engine_, &CommandEngine::layerManagerRequested, this, [this] {
         layerDock_->show();
         layerDock_->raise();
@@ -425,6 +435,9 @@ void MainWindow::createActions()
     planAction->setToolTip(tr("Muri, porte e finestre da una pianta disegnata a linee (PIANTA3D)"));
     named(QStringLiteral("storyUp"), QString(), tr("Piano s&uperiore"), [this] { changeStory(+1); }, QKeySequence(Qt::CTRL | Qt::Key_PageUp));
     named(QStringLiteral("storyDown"), QString(), tr("Piano &inferiore"), [this] { changeStory(-1); }, QKeySequence(Qt::CTRL | Qt::Key_PageDown));
+    named(QStringLiteral("properties"), QStringLiteral("properties"), tr("&Proprietà"), [this] { showProperties(); },
+          QKeySequence(Qt::CTRL | Qt::Key_1))
+        ->setToolTip(tr("Proprietà degli oggetti selezionati (PROPRIETA, Ctrl+1)"));
     named(QStringLiteral("layers"), QStringLiteral("layers"), tr("&Layer"), [this] {
         layerDock_->show();
         layerDock_->raise();
@@ -448,6 +461,7 @@ void MainWindow::createActions()
     commandAction(tr("Scala"), QStringLiteral("STAIR"), icons::make(QStringLiteral("stair")));
     commandAction(tr("Sezione"), QStringLiteral("SECTION"), icons::make(QStringLiteral("section")));
     commandAction(tr("Prospetto"), QStringLiteral("ELEVATION"), icons::make(QStringLiteral("elevation")));
+    commandAction(tr("Quota di livello"), QStringLiteral("LEVEL"), icons::make(QStringLiteral("level")));
     commandAction(tr("Modifica muro"), QStringLiteral("WALLEDIT"));
     commandAction(tr("Piani..."), QStringLiteral("STORY"), icons::make(QStringLiteral("story")));
     commandAction(tr("Cancella"), QStringLiteral("ERASE"), icons::make(QStringLiteral("erase")));
@@ -540,7 +554,7 @@ void MainWindow::createActions()
     architecture->addSeparator();
     architecture->addActions(actions({"STORY", "storyUp", "storyDown"}));
     architecture->addSeparator();
-    architecture->addActions(actions({"SECTION", "ELEVATION"}));
+    architecture->addActions(actions({"SECTION", "ELEVATION", "LEVEL"}));
     architecture->addSeparator();
     architecture->addAction(named_.value(QStringLiteral("view3d")));
 
@@ -548,7 +562,7 @@ void MainWindow::createActions()
     modify->addActions(modifyActions);
 
     modify->addSeparator();
-    modify->addActions(actions({"MATCHPROP", "CHPROP", "LTSCALE", "UNITS"}));
+    modify->addActions(actions({"properties", "MATCHPROP", "CHPROP", "LTSCALE", "UNITS"}));
     modify->addSeparator();
     QMenu* inquiry = modify->addMenu(tr("&Interroga"));
     inquiry->addActions(actions({"DIST", "AREA", "LIST"}));
@@ -653,6 +667,7 @@ void MainWindow::createActions()
     }
     viewMenu->addSeparator();
     viewMenu->addAction(layerDock_->toggleViewAction());
+    viewMenu->addAction(propertiesDock_->toggleViewAction());
     viewMenu->addAction(layoutDock_->toggleViewAction());
     viewMenu->addAction(view3dDock_->toggleViewAction());
     viewMenu->addAction(navigatorDock_->toggleViewAction());
@@ -718,7 +733,7 @@ void MainWindow::createRibbon()
     p->addSmall(style->colorCombo());
     p->addSmall(style->linetypeCombo());
     p->addSmall(style->lineweightCombo());
-    small(p, {"layers", "MATCHPROP"});
+    small(p, {"layers", "properties", "MATCHPROP"});
 
     QWidget* arch = ribbon_->addPage(tr("Architettura"));
     p = ribbon_->addPanel(arch, tr("Costruzione"));
@@ -728,7 +743,7 @@ void MainWindow::createRibbon()
     p = ribbon_->addPanel(arch, tr("Modifica"));
     small(p, {"WALLEDIT"});
     p = ribbon_->addPanel(arch, tr("Viste"));
-    large(p, {"SECTION", "ELEVATION"});
+    large(p, {"SECTION", "ELEVATION", "LEVEL"});
     p = ribbon_->addPanel(arch, tr("Piani"));
     large(p, {"STORY"});
     p->addSmall(makeStoryCombo(p));
@@ -803,6 +818,7 @@ void MainWindow::createToolbox()
     toolbox_->addSection(tr("Documentazione"));
     toolbox_->addTool(tr("Sezione"), QStringLiteral("SECTION"), icons::make(QStringLiteral("section")));
     toolbox_->addTool(tr("Prospetto"), QStringLiteral("ELEVATION"), icons::make(QStringLiteral("elevation")));
+    toolbox_->addTool(tr("Livello"), QStringLiteral("LEVEL"), icons::make(QStringLiteral("level")));
     toolbox_->addTool(tr("Quota"), QStringLiteral("DIMLINEAR"), icons::make(QStringLiteral("dimLinear")));
     toolbox_->addTool(tr("Testo"), QStringLiteral("MTEXT"), icons::make(QStringLiteral("mtext")));
     toolbox_->addTool(tr("Tratteggio"), QStringLiteral("HATCH"), icons::make(QStringLiteral("hatch")));
@@ -890,6 +906,12 @@ void MainWindow::createStatusBar()
         coordinates_->setText(QStringLiteral("X %1   Y %2").arg(p.x, 0, 'f', decimals).arg(p.y, 0, 'f', decimals));
     });
     updateToggles();
+}
+
+void MainWindow::showProperties()
+{
+    propertiesDock_->show();
+    propertiesDock_->raise();
 }
 
 void MainWindow::updateToggles()

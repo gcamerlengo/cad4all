@@ -95,9 +95,11 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | SCALATL / LTSCALE | LTS | lunghezza dei trattini di tutti i tipi di linea |
 | CAMBIAPROP / CHPROP | CH | Colore, LAyer, TIpolinea, SPessore degli oggetti selezionati |
 | CORRISPPROP / MATCHPROP | MA | oggetto di origine, poi oggetti di destinazione e Invio |
+| PROPRIETA / PROPERTIES | PR, MO | apre la palette Proprietà (anche Ctrl+1) |
 | STAMPA / PLOT | | apre la finestra di stampa (anche Ctrl+P) |
 | SEZIONE / SECTION | SZ | sezione dell'edificio lungo una linea: parti tagliate piene, il resto senza linee nascoste; inserita come blocco, con la linea di sezione in pianta |
 | PROSPETTO / ELEVATION | PS | prospetto Nord, Sud, Est o Ovest dell'edificio, inserito come blocco |
+| QUOTALIVELLO / LEVEL | QL | quota di livello in metri (+3,00) nel punto indicato; il valore proposto è la quota del piano corrente |
 | TAVOLA / LAYOUT | LO | crea (formato, scala 1:N o adattata) o elimina le tavole di stampa con cartiglio |
 | ANNULLA / UNDO | U | (anche Ctrl+Z) |
 | RIPRISTINA / REDO | | (anche Ctrl+Y) |
@@ -120,7 +122,7 @@ Gli installatori si scaricano dalla pagina Releases del progetto, oppure dagli a
 
 Gli installatori non sono ancora firmati: alla prima apertura Windows mostra "PC protetto da Windows" (Ulteriori informazioni > Esegui comunque) e macOS chiede di confermare l'apertura in Impostazioni di Sistema > Privacy e sicurezza > Apri comunque. Chi prova il programma trova i passi e il modo di segnalare i problemi nella [guida per i tester](docs/tester.md). Con i certificati di Apple e Microsoft questi avvisi spariscono.
 
-Per pubblicare una versione: su GitHub, Releases > Draft a new release, tag nuovo `v0.3.0` (o la versione scritta in `CMakeLists.txt`), Publish release. In una ventina di minuti GitHub Actions aggiunge i tre installatori alla release. Funziona anche con `git push origin v0.3.0`.
+Per pubblicare una versione: su GitHub, Releases > Draft a new release, tag nuovo `v0.4.0` (o la versione scritta in `CMakeLists.txt`), Publish release. In una ventina di minuti GitHub Actions aggiunge i tre installatori alla release. Funziona anche con `git push origin v0.4.0`.
 
 ## Compilare
 
@@ -214,7 +216,13 @@ L'aspetto è scuro, come i CAD recenti, con il disegno su fondo scuro, pannelli 
 
 ## Sezioni e prospetti
 
-SEZIONE (Architettura > Sezione) chiede la linea di sezione e il lato verso cui guardare: taglia il modello 3D con un piano verticale, riempie le parti tagliate (muri, solai, tetti) e disegna quello che si vede oltre con le linee nascoste tolte, solo tra gli estremi della linea. PROSPETTO fa lo stesso da Nord, Sud, Est o Ovest su tutto l'edificio. Il disegno si inserisce dove si fa clic come un blocco ("SEZIONE A-A", "PROSPETTO SUD"), con la linea di terra e il titolo, e si sposta, si mette in una tavola o si esplode; la linea di sezione resta in pianta con le frecce e le lettere. L'esempio è `docs/esempi/sezioni.scr`.
+SEZIONE (Architettura > Sezione) chiede la linea di sezione e il lato verso cui guardare: taglia il modello 3D con un piano verticale, riempie le parti tagliate (muri, solai, tetti) e disegna quello che si vede oltre con le linee nascoste tolte, solo tra gli estremi della linea. PROSPETTO fa lo stesso da Nord, Sud, Est o Ovest su tutto l'edificio. Il disegno si inserisce dove si fa clic come un blocco ("SEZIONE A-A", "PROSPETTO SUD"), con la linea di terra e il titolo, e si sposta, si mette in una tavola o si esplode; la linea di sezione resta in pianta con le frecce e le lettere. L'esempio è `docs/esempi/sezioni.scr`. Le sezioni hanno le quote di livello dei piani e della linea di colmo; i timpani dei tetti hanno lo spessore del muro sotto, così sono pieni anche ai piani alti. QUOTALIVELLO mette la stessa quota in pianta.
+
+## Palette Proprietà
+
+Ctrl+1 (o PROPRIETA, o Modifica > Proprietà) apre la palette accanto ai layer: mostra layer, colore, tipo e spessore di linea e la geometria degli oggetti selezionati (estremi e lunghezza della linea, centro e raggio del cerchio, testo e altezza, scritta della quota, retino e scala, spessore e altezza del muro...). Si modifica un valore e si preme Invio; con più oggetti i valori diversi sono *VARIE* e si cambiano tutti insieme. Ogni modifica si annulla con Ctrl+Z.
+
+Nei disegni grandi la selezione, gli snap e lo zoom restano rapidi: gli oggetti sono cercati con un indice spaziale e il disegno non si ridisegna a ogni movimento della rotella.
 
 ![Prospetto sud e sezione A-A della casa a due piani](docs/immagini/sezioni.png)
 

@@ -7,6 +7,7 @@ add_library(cad4all_core STATIC
     block.h block.cpp
     layout.h layout.cpp
     section.h section.cpp
+    spatialindex.h spatialindex.cpp
     document.h document.cpp
     coordinput.h coordinput.cpp
     editing.h editing.cpp

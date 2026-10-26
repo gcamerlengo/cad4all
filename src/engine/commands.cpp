@@ -4430,6 +4430,16 @@ public:
     }
 };
 
+// PROPERTIES: opens the palette; the selection stays, so it shows those objects.
+class PropertiesCommand : public Command {
+public:
+    void start() override
+    {
+        engine->requestProperties();
+        engine->finish();
+    }
+};
+
 // UNITS (command line version): the drawing unit, written to DXF as
 // $INSUNITS, and the decimals shown for lengths and coordinates.
 class UnitsCommand : public Command {
@@ -6130,10 +6140,42 @@ private:
 
 // ---------------------------------------------------------------- sections
 
+// A level as architects write it, in metres: "+3,00", "-0,50", "±0,00".
+// `z` is in drawing units of `units` (INSUNITS; none counts as millimetres).
+std::string levelLabel(double z, int units)
+{
+    const double mm = unitInMillimetres(units) > 0.0 ? unitInMillimetres(units) : 1.0;
+    const double m = std::round(z * mm / 10.0) / 100.0;
+    if (std::abs(m) < 0.005)
+        return "\xC2\xB1" "0,00";  // ±
+    QString s = QString::number(std::abs(m), 'f', 2).replace(QLatin1Char('.'), QLatin1Char(','));
+    return (m > 0.0 ? "+" : "-") + s.toStdString();
+}
+
+// A level mark seen from the side: a triangle with its tip on the level
+// line, the value beside it. `size` is the height of the triangle.
+void addLevelMark(std::vector<BlockItem>& items, Vec2 tip, double size, const std::string& label)
+{
+    BlockItem mark;
+    mark.shape = Polyline({tip, tip + Vec2{-size * 0.6, size}, tip + Vec2{size * 0.6, size}}, true);
+    items.push_back(mark);
+    BlockItem line;
+    line.shape = Line{tip + Vec2{-size * 1.5, 0.0}, tip + Vec2{size * 4.5, 0.0}};
+    items.push_back(line);
+    Text text;
+    text.content = label;
+    text.height = size * 0.7;
+    text.position = tip + Vec2{size * 0.9, size * 0.25};
+    BlockItem textItem;
+    textItem.shape = text;
+    items.push_back(std::move(textItem));
+}
+
 // The section or elevation as a block: the cut parts filled and outlined
-// thick, what lies beyond thin, the ground line and the title under it.
-// Its base is the left end of the ground line.
-std::shared_ptr<const Block> sectionBlock(const SectionDrawing& d, const std::string& name)
+// thick, what lies beyond thin, the ground line and the title under it,
+// the levels of the floors and of the top on the right. Its base is the
+// left end of the ground line.
+std::shared_ptr<const Block> sectionBlock(const SectionDrawing& d, const std::string& name, const std::vector<std::pair<double, std::string>>& levels = {})
 {
     std::vector<BlockItem> items;
     const Color cutFill{96, 96, 96};
@@ -6170,7 +6212,28 @@ std::shared_ptr<const Block> sectionBlock(const SectionDrawing& d, const std::st
     BlockItem titleItem;
     titleItem.shape = title;
     items.push_back(std::move(titleItem));
+    // The level marks stand past the right end of the ground line.
+    for (const auto& [z, label] : levels)
+        addLevelMark(items, {d.ground.b.x + title.height * 2.0, z}, title.height * 1.2, label);
     return makeBlock(name, d.ground.a, std::move(items));
+}
+
+// The floors of the stories and the top of the drawing, with their labels.
+std::vector<std::pair<double, std::string>> sectionLevels(const Document& doc, const SectionDrawing& d)
+{
+    std::vector<std::pair<double, std::string>> out;
+    double top = -std::numeric_limits<double>::infinity();
+    for (const Polyline& p : d.cut)
+        for (Vec2 v : p.points)
+            top = std::max(top, v.y);
+    for (const Line& l : d.beyond)
+        top = std::max({top, l.a.y, l.b.y});
+    for (const Story& st : doc.stories())
+        if (st.elevation < top - 1e-6)
+            out.emplace_back(st.elevation, levelLabel(st.elevation, doc.units()));
+    if (std::isfinite(top))
+        out.emplace_back(top, levelLabel(top, doc.units()));
+    return out;
 }
 
 // A free block name: "SEZIONE A-A", "SEZIONE B-B"... or "PROSPETTO SUD 2".
@@ -6196,7 +6259,7 @@ public:
             engine->message(t("Nessun elemento dell'edificio davanti alla linea scelta."));
             return false;
         }
-        block_ = sectionBlock(d, name);
+        block_ = sectionBlock(d, name, sectionLevels(doc, d));
         return true;
     }
 
@@ -6220,6 +6283,121 @@ public:
 
 private:
     std::shared_ptr<const Block> block_;
+};
+
+// LEVEL: a level mark in the plan, a circle with two filled quarters and
+// the level beside it, inserted as a block (one per value).
+class LevelCommand : public Command {
+public:
+    void start() override { engine->setPrompt(t("Specificare punto della quota di livello:")); }
+
+    bool point(Vec2 p) override
+    {
+        if (step_ != Step::Point)
+            return false;
+        at_ = p;
+        step_ = Step::Value;
+        const Document& doc = engine->document();
+        const Story* story = doc.story(doc.currentStory());
+        level_ = story ? story->elevation : 0.0;
+        engine->setPrompt(t("Specificare quota in metri <%1>:").arg(QString::fromUtf8(levelLabel(level_, doc.units()).c_str())));
+        return true;
+    }
+
+    bool number(double metres) override
+    {
+        if (step_ != Step::Value)
+            return false;
+        const double mm = unitInMillimetres(engine->document().units());
+        level_ = metres * 1000.0 / (mm > 0.0 ? mm : 1.0);
+        place();
+        return true;
+    }
+
+    void enter() override
+    {
+        if (step_ == Step::Value)
+            place();
+        else
+            engine->finish();
+    }
+
+    void preview(Vec2 cursor, std::vector<Shape>& out) const override
+    {
+        if (step_ == Step::Point)
+            for (const BlockItem& item : markItems("+0,00"))
+                out.push_back(transformed(item.shape, Transform::translation(cursor)));
+    }
+
+private:
+    enum class Step { Point, Value };
+
+    // The symbol's scale: DIMSCALE when it is set, else that of a 1:50
+    // plan in the drawing's unit.
+    double markScale() const
+    {
+        if (gDimScale != 1.0)
+            return gDimScale;
+        const double mm = unitInMillimetres(engine->document().units());
+        return mm > 0.0 ? 50.0 / mm : 1.0;
+    }
+
+    std::vector<BlockItem> markItems(const std::string& label) const
+    {
+        const double k = markScale();
+        const double r = 3.0 * k;
+        std::vector<BlockItem> items;
+        BlockItem circle;
+        circle.shape = Circle{{0, 0}, r};
+        items.push_back(circle);
+        for (const double a : {0.0, kPi}) {
+            BlockItem quarter;
+            Hatch h;
+            h.pattern = "SOLID";
+            Polyline loop({{0, 0}, polar(r, a), polar(r, a + kPi / 2.0)}, true);
+            loop.setBulge(1, bulgeOfSweep(kPi / 2.0));
+            h.loops = {loop};
+            quarter.shape = h;
+            items.push_back(quarter);
+        }
+        BlockItem cross1, cross2;
+        cross1.shape = Line{{-r * 1.4, 0}, {r * 1.4, 0}};
+        cross2.shape = Line{{0, -r * 1.4}, {0, r * 1.4}};
+        items.push_back(cross1);
+        items.push_back(cross2);
+        Text text;
+        text.content = label;
+        text.height = 2.5 * k;
+        text.position = {r * 1.7, r * 0.3};
+        BlockItem textItem;
+        textItem.shape = text;
+        items.push_back(textItem);
+        return items;
+    }
+
+    void place()
+    {
+        Document& doc = engine->document();
+        const std::string label = levelLabel(level_, doc.units());
+        const std::string name = "QUOTA LIVELLO " + label;
+        // The same value and size reuse the block; another size gets its own.
+        std::shared_ptr<const Block> block = doc.block(name);
+        const std::vector<BlockItem> items = markItems(label);
+        if (!block || std::abs(block->extents.width() - makeBlock(name, {}, items)->extents.width()) > 1e-6) {
+            block = makeBlock(freeBlockName(doc, [&](int i) { return i == 0 && !doc.block(name) ? name : name + " (" + std::to_string(i + 1) + ")"; }), {}, items);
+            doc.defineBlock(block);
+        }
+        Insert ref;
+        ref.block = block;
+        ref.position = at_;
+        doc.add(ref);
+        engine->message(t("Quota di livello %1.").arg(QString::fromUtf8(label.c_str())));
+        engine->finish();
+    }
+
+    Step step_ = Step::Point;
+    Vec2 at_;
+    double level_ = 0.0;
 };
 
 // SECTION: a cut through the building along a line, seen from one side,
@@ -6671,6 +6849,7 @@ std::unique_ptr<Command> makeMTextCommand() { return std::make_unique<MTextComma
 std::unique_ptr<Command> makeDimLinearCommand(bool aligned) { return std::make_unique<DimLinearCommand>(aligned); }
 std::unique_ptr<Command> makeDimRadialCommand(bool diameter) { return std::make_unique<DimRadialCommand>(diameter); }
 void setMeasurementPrecision(int decimals) { gPrecision = decimals; }
+std::unique_ptr<Command> makePropertiesCommand() { return std::make_unique<PropertiesCommand>(); }
 std::unique_ptr<Command> makeUnitsCommand() { return std::make_unique<UnitsCommand>(); }
 std::unique_ptr<Command> makeLayerLineCommand() { return std::make_unique<LayerLineCommand>(); }
 std::unique_ptr<Command> makeDimAngularCommand() { return std::make_unique<DimAngularCommand>(); }
@@ -6691,6 +6870,7 @@ std::unique_ptr<Command> makeView3dCommand() { return std::make_unique<View3dCom
 std::unique_ptr<Command> makeZoomCommand() { return std::make_unique<ZoomCommand>(); }
 std::unique_ptr<Command> makeLayerCommand() { return std::make_unique<LayerCommand>(); }
 std::unique_ptr<Command> makeLayoutCommand() { return std::make_unique<LayoutCommand>(); }
+std::unique_ptr<Command> makeLevelCommand() { return std::make_unique<LevelCommand>(); }
 std::unique_ptr<Command> makeSectionCommand() { return std::make_unique<SectionCommand>(); }
 std::unique_ptr<Command> makeElevationCommand() { return std::make_unique<ElevationCommand>(); }
 std::unique_ptr<Command> makeColorCommand() { return std::make_unique<CurrentStyleCommand>(StyleQuestion::Kind::Color); }

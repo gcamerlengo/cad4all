@@ -5,6 +5,7 @@
 #include "block.h"
 #include "layout.h"
 #include "shapes.h"
+#include "spatialindex.h"
 #include "style.h"
 
 #include <cstdint>
@@ -171,6 +172,9 @@ public:
     // Changes the layer and style of an entity; its id, shape and story stay.
     bool restyle(EntityId id, const std::string& layer, const EntityStyle& style);
     BBox extents() const;
+    // The entities whose drawing may meet `box`, in drawing order, found
+    // through a spatial index rebuilt after each change. Includes hidden ones.
+    std::vector<EntityId> entitiesIn(const BBox& box) const;
 
     // Undo history.
     void beginTransaction(const std::string& label);
@@ -240,6 +244,9 @@ private:
 
     bool modified_ = false;
     std::uint64_t revision_ = 0;
+
+    mutable SpatialIndex index_;
+    mutable std::uint64_t indexRevision_ = ~std::uint64_t(0);
 };
 
 } // namespace cad

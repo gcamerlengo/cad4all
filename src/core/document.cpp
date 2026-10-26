@@ -526,6 +526,24 @@ BBox Document::extents() const
     return box;
 }
 
+std::vector<EntityId> Document::entitiesIn(const BBox& box) const
+{
+    if (indexRevision_ != revision_) {
+        std::vector<std::pair<EntityId, BBox>> items;
+        items.reserve(entities_.size());
+        for (const auto& [id, e] : entities_) {
+            BBox b = boundingBox(e.shape);
+            // A joined wall reaches past its own box by its mitred corners.
+            if (const auto* w = std::get_if<Wall>(&e.shape))
+                b = b.inflated(4.0 * w->thickness);
+            items.emplace_back(id, b);
+        }
+        index_.build(std::move(items));
+        indexRevision_ = revision_;
+    }
+    return index_.query(box);
+}
+
 void Document::beginTransaction(const std::string& label)
 {
     if (depth_++ == 0)

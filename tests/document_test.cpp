@@ -3,6 +3,8 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 using namespace cad;
 
 TEST(Document, StartsWithLayerZero)
@@ -135,4 +137,32 @@ TEST(Document, StoriesKeepTheirOrderAndOwnTheEntities)
     EXPECT_TRUE(doc.removeStory(first));
     EXPECT_EQ(doc.currentStory(), ground);
     EXPECT_FALSE(doc.removeStory(ground));  // the last one
+}
+
+TEST(SpatialIndex, FindsTheEntitiesInAnArea)
+{
+    Document doc;
+    std::vector<EntityId> grid;
+    for (int i = 0; i < 50; ++i)
+        for (int j = 0; j < 50; ++j)
+            grid.push_back(doc.add(Circle{{i * 10.0, j * 10.0}, 1.0}));
+    const EntityId longLine = doc.add(Line{{-100, -100}, {600, 600}});
+    // A box around one circle: that circle and the long diagonal line.
+    auto found = doc.entitiesIn(BBox::fromCorners({99, 199}, {101, 201}));
+    ASSERT_EQ(found.size(), 2u);
+    EXPECT_EQ(found[0], grid[10 * 50 + 20]);
+    EXPECT_EQ(found[1], longLine);
+    EXPECT_TRUE(doc.entitiesIn(BBox::fromCorners({1000, 1000}, {1100, 1100})).empty());
+    // The four circles of a 2 x 2 block and the line, in drawing order.
+    found = doc.entitiesIn(BBox::fromCorners({195, 195}, {215, 215}));
+    EXPECT_EQ(found.size(), 5u);
+    EXPECT_TRUE(std::is_sorted(found.begin(), found.end()));
+
+    // The index follows the changes.
+    doc.replace(grid[0], Circle{{1050, 1050}, 1.0});
+    found = doc.entitiesIn(BBox::fromCorners({1000, 1000}, {1100, 1100}));
+    ASSERT_EQ(found.size(), 1u);
+    EXPECT_EQ(found[0], grid[0]);
+    doc.undo();
+    EXPECT_TRUE(doc.entitiesIn(BBox::fromCorners({1000, 1000}, {1100, 1100})).empty());
 }
