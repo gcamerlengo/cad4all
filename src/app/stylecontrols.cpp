@@ -62,9 +62,9 @@ std::optional<T> common(const CommandEngine& engine, Get get)
 StyleControls::StyleControls(CommandEngine& engine, QWidget* parent)
     : QObject(parent), engine_(engine), parent_(parent)
 {
-    layer_ = combo(parent, tr("Layer"), 150);
+    layer_ = combo(parent, tr("Layer"), 140);
     color_ = combo(parent, tr("Colore"), 120);
-    linetype_ = combo(parent, tr("Tipo di linea"), 150);
+    linetype_ = combo(parent, tr("Tipo di linea"), 120);
     lineweight_ = combo(parent, tr("Spessore di linea"), 120);
     connect(layer_, &QComboBox::activated, this, &StyleControls::layerChosen);
     connect(color_, &QComboBox::activated, this, &StyleControls::colorChosen);

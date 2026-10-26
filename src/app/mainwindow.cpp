@@ -10,6 +10,7 @@
 #include "navigator.h"
 #include "ribbon.h"
 #include "stylecontrols.h"
+#include "theme.h"
 #include "toolbox.h"
 #include "dwgreader.h"
 #include "dxf.h"
@@ -29,6 +30,7 @@
 #include <QDialogButtonBox>
 #include <QDesktopServices>
 #include <QDockWidget>
+#include <QFontDatabase>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -40,6 +42,8 @@
 #include <QLocale>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QSettings>
 #include <QSplitter>
 #include <QStatusBar>
@@ -101,6 +105,8 @@ MainWindow::MainWindow()
     commandDock->setObjectName(QStringLiteral("commandDock"));
     commandDock->setWidget(commandLine_);
     commandDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+    // Always under the drawing: no title bar, its prompt says what it is.
+    commandDock->setTitleBarWidget(new QWidget(commandDock));
     addDockWidget(Qt::BottomDockWidgetArea, commandDock);
 
     layerPanel_ = new LayerPanel(engine_, this);
@@ -137,7 +143,12 @@ MainWindow::MainWindow()
     infoDock_->hide();
 
     CommandInput* input = commandLine_->input();
-    connect(input, &CommandInput::submitted, &engine_, &CommandEngine::submit);
+    // Inside a command the history keeps each answer after its prompt, as AutoCAD does.
+    connect(input, &CommandInput::submitted, this, [this](const QString& value) {
+        if (!engine_.activeCommandName().isEmpty() && !value.trimmed().isEmpty())
+            commandLine_->appendMessage(QStringLiteral("%1 %2").arg(engine_.prompt(), value.trimmed()));
+        engine_.submit(value);
+    });
     connect(input, &CommandInput::escapePressed, &engine_, &CommandEngine::cancel);
     connect(input, &CommandInput::deletePressed, &engine_, &CommandEngine::eraseSelection);
     connect(&engine_, &CommandEngine::promptChanged, commandLine_, &CommandLine::setPrompt);
@@ -450,7 +461,9 @@ void MainWindow::createActions()
     commandAction(tr("Quota raggio"), QStringLiteral("DIMRADIUS"), icons::make(QStringLiteral("dimRadius")));
     commandAction(tr("Quota diametro"), QStringLiteral("DIMDIAMETER"), icons::make(QStringLiteral("dimDiameter")));
     commandAction(tr("Scala quote"), QStringLiteral("DIMSCALE"));
-    commandAction(tr("Corrispondenza proprietà"), QStringLiteral("MATCHPROP"), icons::make(QStringLiteral("matchProperties")));
+    // The short name on buttons; menus and the tooltip keep the full one.
+    commandAction(tr("Corrispondenza proprietà"), QStringLiteral("MATCHPROP"), icons::make(QStringLiteral("matchProperties")))
+        ->setIconText(tr("Copia proprietà"));
     commandAction(tr("Cambia proprietà"), QStringLiteral("CHPROP"));
     commandAction(tr("Scala tipo di linea"), QStringLiteral("LTSCALE"));
 
@@ -589,6 +602,18 @@ void MainWindow::createActions()
         profiles_->addAction(a);
         connect(a, &QAction::triggered, this, [this, profile] { setProfile(profile, true); });
     }
+    QMenu* themeMenu = viewMenu->addMenu(tr("&Tema"));
+    themes_ = new QActionGroup(this);
+    for (const auto& [text, look] : {std::pair{tr("&Scuro"), theme::Theme::Dark}, std::pair{tr("&Chiaro"), theme::Theme::Light}}) {
+        QAction* a = themeMenu->addAction(text);
+        a->setCheckable(true);
+        a->setChecked(theme::current() == look);
+        themes_->addAction(a);
+        connect(a, &QAction::triggered, this, [look] {
+            theme::apply(look);
+            theme::save(look);
+        });
+    }
     QMenu* layoutMenu = viewMenu->addMenu(tr("Vista &3D"));
     layouts_ = new QActionGroup(this);
     for (const auto& [text, layout] : {std::pair{tr("In un &pannello"), ViewLayout::Docked},
@@ -649,29 +674,24 @@ void MainWindow::createRibbon()
 
     QWidget* home = ribbon_->addPage(tr("Base"));
     RibbonPanel* p = ribbon_->addPanel(home, tr("Disegna"));
-    large(p, {"LINE", "PLINE", "CIRCLE", "ARC"});
-    small(p, {"RECTANG", "ELLIPSE", "SPLINE", "HATCH", "HATCHEDIT"});
+    large(p, {"LINE", "PLINE", "CIRCLE"});
+    // Editing a hatch is on the Annota page.
+    small(p, {"ARC", "RECTANG", "ELLIPSE", "SPLINE", "HATCH"});
     p = ribbon_->addPanel(home, tr("Edita"));
     small(p, {"MOVE", "COPY", "STRETCH", "ROTATE", "MIRROR", "SCALE", "TRIM", "EXTEND", "OFFSET", "FILLET", "CHAMFER", "ERASE",
               "ARRAY", "EXPLODE", "JOIN"});
     p = ribbon_->addPanel(home, tr("Annotazione"));
-    large(p, {"TEXT", "DIMLINEAR"});
+    small(p, {"MTEXT", "TEXT", "DIMLINEAR"});
     p = ribbon_->addPanel(home, tr("Blocco"));
-    large(p, {"INSERT"});
-    small(p, {"BLOCK"});
-    p = ribbon_->addPanel(home, tr("Layer"));
-    large(p, {"layers"});
+    small(p, {"INSERT", "BLOCK"});
+    // Small buttons and combo boxes only, so the page fits a 1280 pixel window.
+    p = ribbon_->addPanel(home, tr("Layer e proprietà"));
     auto* style = new StyleControls(engine_, p);
     p->addSmall(style->layerCombo());
-    p = ribbon_->addPanel(home, tr("Proprietà"));
-    large(p, {"MATCHPROP"});
     p->addSmall(style->colorCombo());
     p->addSmall(style->linetypeCombo());
     p->addSmall(style->lineweightCombo());
-    p = ribbon_->addPanel(home, tr("Utilità"));
-    large(p, {"zoom"});
-    small(p, {"undo", "redo"});
-    small(p, {"DIST", "AREA", "LIST"});
+    small(p, {"layers", "MATCHPROP"});
 
     QWidget* arch = ribbon_->addPage(tr("Architettura"));
     p = ribbon_->addPanel(arch, tr("Costruzione"));
@@ -701,6 +721,9 @@ void MainWindow::createRibbon()
     QWidget* viewPage = ribbon_->addPage(tr("Vista"));
     p = ribbon_->addPanel(viewPage, tr("Navigazione"));
     large(p, {"zoom", "plan", "view3d"});
+    p = ribbon_->addPanel(viewPage, tr("Utilità"));
+    small(p, {"undo", "redo"});
+    small(p, {"DIST", "AREA", "LIST"});
     p = ribbon_->addPanel(viewPage, tr("Aiuti al disegno"));
     small(p, {"osnap", "grid", "ortho"});
     p = ribbon_->addPanel(viewPage, tr("Vista 3D"));
@@ -708,6 +731,9 @@ void MainWindow::createRibbon()
         p->addSmall(a);
     p = ribbon_->addPanel(viewPage, tr("Interfaccia"));
     for (QAction* a : profiles_->actions())
+        p->addSmall(a);
+    p = ribbon_->addPanel(viewPage, tr("Tema"));
+    for (QAction* a : themes_->actions())
         p->addSmall(a);
 
     QWidget* output = ribbon_->addPage(tr("Output"));
@@ -763,7 +789,14 @@ void MainWindow::createToolbox()
 
     toolboxDock_ = new QDockWidget(tr("Strumenti"), this);
     toolboxDock_->setObjectName(QStringLiteral("toolboxDock"));
-    toolboxDock_->setWidget(toolbox_);
+    // A short screen scrolls the tools instead of making the window taller.
+    auto* toolboxScroll = new QScrollArea(this);
+    toolboxScroll->setFrameShape(QFrame::NoFrame);
+    toolboxScroll->setWidgetResizable(true);
+    toolboxScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    toolboxScroll->setWidget(toolbox_);
+    toolboxScroll->setMinimumWidth(toolbox_->sizeHint().width() + toolboxScroll->verticalScrollBar()->sizeHint().width());
+    toolboxDock_->setWidget(toolboxScroll);
     addDockWidget(Qt::LeftDockWidgetArea, toolboxDock_);
     toolboxDock_->hide();
     named_.value(QStringLiteral("panels"))->menu()->addAction(toolboxDock_->toggleViewAction());
@@ -814,7 +847,9 @@ void MainWindow::insertBlock()
 void MainWindow::createStatusBar()
 {
     coordinates_ = new QLabel(this);
-    coordinates_->setMinimumWidth(260);
+    coordinates_->setObjectName(QStringLiteral("coordinates"));
+    coordinates_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    coordinates_->setMinimumWidth(300);
     statusBar()->addWidget(coordinates_);
     for (QToolButton* b : {osnapButton_, orthoButton_, gridButton_, lineweightButton_}) {
         b->setFocusPolicy(Qt::NoFocus);
@@ -822,7 +857,7 @@ void MainWindow::createStatusBar()
         statusBar()->addPermanentWidget(b);
     }
     connect(view_, &CadView::cursorMoved, this, [this](Vec2 p) {
-        coordinates_->setText(QStringLiteral("X: %1   Y: %2").arg(p.x, 0, 'f', 4).arg(p.y, 0, 'f', 4));
+        coordinates_->setText(QStringLiteral("X %1   Y %2").arg(p.x, 0, 'f', 2).arg(p.y, 0, 'f', 2));
     });
     updateToggles();
 }

@@ -112,7 +112,7 @@ Gli installatori si scaricano dalla pagina Releases del progetto, oppure dagli a
 
 Gli installatori non sono ancora firmati: alla prima apertura Windows mostra "PC protetto da Windows" (Ulteriori informazioni > Esegui comunque) e macOS chiede di confermare l'apertura in Impostazioni di Sistema > Privacy e sicurezza > Apri comunque. Chi prova il programma trova i passi e il modo di segnalare i problemi nella [guida per i tester](docs/tester.md). Con i certificati di Apple e Microsoft questi avvisi spariscono.
 
-Per pubblicare una versione: su GitHub, Releases > Draft a new release, tag nuovo `v0.2.2` (o la versione scritta in `CMakeLists.txt`), Publish release. In una ventina di minuti GitHub Actions aggiunge i tre installatori alla release. Funziona anche con `git push origin v0.2.2`.
+Per pubblicare una versione: su GitHub, Releases > Draft a new release, tag nuovo `v0.3.0` (o la versione scritta in `CMakeLists.txt`), Publish release. In una ventina di minuti GitHub Actions aggiunge i tre installatori alla release. Funziona anche con `git push origin v0.3.0`.
 
 ## Compilare
 
@@ -185,9 +185,13 @@ Visualizza > Interfaccia sceglie tra due disposizioni della finestra, ricordate 
 
 Selezionando un solo muro, solaio, tetto o scala l'Info Box mostra i suoi valori: cambiandoli l'oggetto si aggiorna in pianta e in 3D, con un solo passo di annullamento. Visualizza > Vista 3D mette il 3D in un pannello, affiancato alla pianta o in una scheda accanto. La riga di comando resta in entrambe. Da riga di comando: `--profilo autocad|parametrico` e `--viste pannello|affiancate|schede`.
 
+L'aspetto è scuro, come i CAD recenti, con il disegno su fondo scuro, pannelli e barre in tinta e il 3D su un cielo scuro; Visualizza > Tema (o la scheda Vista del ribbon) passa al tema chiaro e lo ricorda. Nel pannello Layer un clic sull'occhio nasconde o mostra il layer, sul lucchetto lo blocca o sblocca. Da riga di comando: `--tema scuro|chiaro`.
+
 ![Interfaccia come AutoCAD, con il ribbon](docs/immagini/interfaccia-autocad.png)
 
 ![Interfaccia parametrica: strumenti, Info Box, navigatore, pianta e 3D affiancate](docs/immagini/interfaccia-parametrica.png)
+
+![Tema chiaro](docs/immagini/interfaccia-chiara.png)
 
 ## Sezioni e prospetti
 

@@ -95,7 +95,9 @@ public:
         setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        setObjectName(QStringLiteral("ribbonPage"));
         auto* content = new QWidget(this);
+        content->setObjectName(QStringLiteral("ribbonContent"));
         auto* layout = new QHBoxLayout(content);
         layout->setContentsMargins(2, 2, 2, 2);
         layout->setSpacing(2);
@@ -134,8 +136,11 @@ RibbonPanel::RibbonPanel(const QString& title, QWidget* parent)
     row_->setSpacing(2);
     layout->addLayout(row_, 1);
     auto* label = new QLabel(title, this);
+    label->setObjectName(QStringLiteral("ribbonPanelTitle"));
     label->setAlignment(Qt::AlignCenter);
-    label->setEnabled(false);  // the palette's dimmed text, like AutoCAD's panel titles
+    QFont small = label->font();
+    small.setPointSizeF(small.pointSizeF() * 0.88);
+    label->setFont(small);
     layout->addWidget(label);
 }
 
@@ -170,6 +175,7 @@ void RibbonPanel::addSmall(QWidget* widget)
 Ribbon::Ribbon(QWidget* parent)
     : QTabWidget(parent)
 {
+    setObjectName(QStringLiteral("ribbon"));
     setDocumentMode(true);
     setUsesScrollButtons(true);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -190,8 +196,8 @@ RibbonPanel* Ribbon::addPanel(QWidget* page, const QString& title)
     auto* panel = new RibbonPanel(title, page);
     layout->insertWidget(at, panel);
     auto* line = new QFrame(page);
-    line->setFrameShape(QFrame::VLine);
-    line->setFrameShadow(QFrame::Sunken);
+    line->setObjectName(QStringLiteral("ribbonSeparator"));
+    line->setFixedWidth(7);  // a 1 pixel line between 3 pixel margins
     layout->insertWidget(at + 1, line);
     return panel;
 }

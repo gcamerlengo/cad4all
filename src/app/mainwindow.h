@@ -126,6 +126,7 @@ private:
     QHash<QString, QAction*> named_;  // other actions shared by menus, toolbars and ribbon
     QActionGroup* profiles_ = nullptr;
     QActionGroup* layouts_ = nullptr;
+    QActionGroup* themes_ = nullptr;
     Profile profile_ = Profile::AutoCad;
     ViewLayout viewLayout_ = ViewLayout::Docked;
     std::vector<QComboBox*> storyCombos_;

@@ -2,6 +2,7 @@
 #include "view3d.h"
 
 #include "document.h"
+#include "theme.h"
 
 #include <QMouseEvent>
 #include <QPainter>
@@ -53,8 +54,8 @@ void View3D::paintEvent(QPaintEvent*)
 {
     QPainter p(this);
     if (model_.empty()) {
-        p.fillRect(rect(), QColor(240, 243, 246));
-        p.setPen(QColor(110, 115, 125));
+        p.fillRect(rect(), palette().color(QPalette::Base));
+        p.setPen(palette().color(QPalette::PlaceholderText));
         p.drawText(rect().adjusted(16, 16, -16, -16), Qt::AlignCenter | Qt::TextWordWrap,
                    tr("Nessun muro nel disegno.\nDisegnare i muri con il comando MURO: qui compaiono in 3D."));
         return;
@@ -64,7 +65,13 @@ void View3D::paintEvent(QPaintEvent*)
     const double dpr = devicePixelRatioF();
     const int super = dpr >= 1.5 ? 1 : 2;
     const QSize device(static_cast<int>(width() * dpr), static_cast<int>(height() * dpr));
-    QImage img = renderModel(model_, camera_, device * super, super * std::max(1.0, dpr * 0.75));
+    RenderStyle style;
+    if (theme::current() == theme::Theme::Dark) {
+        style.skyTop = QColor(38, 44, 52);
+        style.skyBottom = QColor(70, 79, 91);
+        style.ground = QColor(92, 98, 104);
+    }
+    QImage img = renderModel(model_, camera_, device * super, super * std::max(1.0, dpr * 0.75), style);
     if (super > 1)
         img = img.scaled(device, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
     img.setDevicePixelRatio(dpr);

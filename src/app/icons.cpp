@@ -543,6 +543,41 @@ QIcon make(const QString& name)
             p.drawPolyline(QPolygonF({{18, 2}, {22, 2}, {22, 6}}));
             p.drawPolyline(QPolygonF({{2, 18}, {2, 22}, {6, 22}}));
         };
+    } else if (name == QLatin1String("visible") || name == QLatin1String("hidden")) {
+        const bool hidden = name == QLatin1String("hidden");
+        painter = [hidden](QPainter& p) {
+            QPainterPath eye;
+            eye.moveTo(2.5, 12);
+            eye.quadTo(12, 2, 21.5, 12);
+            eye.quadTo(12, 22, 2.5, 12);
+            p.drawPath(eye);
+            if (hidden) {
+                p.drawLine(QPointF(4, 20), QPointF(20, 4));
+                return;
+            }
+            accentPen(p);
+            p.drawEllipse(QPointF(12, 12), 3.2, 3.2);
+        };
+    } else if (name == QLatin1String("locked") || name == QLatin1String("unlocked")) {
+        const bool locked = name == QLatin1String("locked");
+        painter = [locked](QPainter& p) {
+            p.drawRoundedRect(QRectF(5, 11, 14, 10), 2, 2);
+            QPainterPath shackle;
+            shackle.moveTo(8, 11);
+            shackle.lineTo(8, 7.5);
+            shackle.arcTo(QRectF(8, 3.5, 8, 8), 180, -180);
+            if (locked)
+                shackle.lineTo(16, 11);
+            else
+                shackle.lineTo(16, 8.5);
+            if (!locked)
+                shackle.translate(4.5, -1);
+            p.drawPath(shackle);
+            if (locked) {
+                accentPen(p);
+                p.drawLine(QPointF(12, 14.5), QPointF(12, 17.5));
+            }
+        };
     } else {
         return {};
     }
