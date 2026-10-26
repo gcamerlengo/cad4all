@@ -81,7 +81,7 @@ CommandLine::CommandLine(QWidget* parent)
     history_->setFont(mono);
     history_->setFocusPolicy(Qt::NoFocus);
     history_->setMaximumBlockCount(500);
-    history_->setFixedHeight(QFontMetrics(mono).lineSpacing() * 3 + 8);
+    history_->setFixedHeight(QFontMetrics(mono).lineSpacing() * 5 + 8);
 
     prompt_ = new QLabel(this);
     prompt_->setObjectName(QStringLiteral("commandPrompt"));

@@ -100,6 +100,7 @@ QTabWidget#ribbon { background: @window; }
 QTabWidget#ribbon QTabBar::tab { padding: 7px 16px 6px 16px; }
 QScrollArea#ribbonPage, QWidget#ribbonContent { background: @panel; border-top: 1px solid @border; border-bottom: 1px solid @border; }
 QWidget#ribbonContent { border: none; }
+QWidget#ribbonContent QToolButton { padding: 2px 3px; }
 QLabel#ribbonPanelTitle { color: @dim; padding-top: 1px; }
 QFrame#ribbonSeparator { background: @border; border: none; margin: 8px 3px 6px 3px; }
 
