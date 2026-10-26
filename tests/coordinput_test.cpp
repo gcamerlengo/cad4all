@@ -37,6 +37,10 @@ TEST(CoordInput, PolarPoints)
     const auto q = parsePoint("2<180", std::nullopt);
     ASSERT_TRUE(q);
     EXPECT_NEAR(q->x, -2.0, 1e-12);
+    // Quadrant angles are exact, not 6e-16 off.
+    EXPECT_EQ(parsePoint("@1000<90", Vec2{0, 0})->x, 0.0);
+    EXPECT_EQ(parsePoint("@1000<-90", Vec2{0, 0})->y, -1000.0);
+    EXPECT_EQ(parsePoint("@1000<450", Vec2{0, 0})->x, 0.0);
 }
 
 TEST(CoordInput, IgnoresDecimalCommaLocale)

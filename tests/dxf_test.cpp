@@ -108,6 +108,32 @@ TEST(Dxf, KeepsBlockReferences)
     EXPECT_NEAR(std::get<Line>(parts[1].shape).b.x, 8, 1e-9);
 }
 
+TEST(Dxf, AttributesAndPoints)
+{
+    const QByteArray data = dxf("0 SECTION|2 BLOCKS|"
+                                "0 BLOCK|8 0|2 SEDIA|70 2|10 0|20 0|"
+                                "0 CIRCLE|8 0|10 0|20 0|40 200|"
+                                "0 ATTDEF|8 0|10 0|20 0|40 50|1 -|3 Nome|2 NOME|70 0|"
+                                "0 ENDBLK|0 ENDSEC|"
+                                "0 SECTION|2 ENTITIES|"
+                                "0 INSERT|8 0|66 1|2 SEDIA|10 100|20 100|"
+                                "0 ATTRIB|8 0|10 100|20 100|40 50|1 Sedia 1|2 NOME|70 0|"
+                                "0 ATTRIB|8 0|10 100|20 100|40 50|1 CODICE NASCOSTO|2 COD|70 1|"
+                                "0 SEQEND|8 0|"
+                                "0 POINT|8 Rilievo|10 5|20 5|"
+                                "0 ENDSEC|0 EOF");
+    Document doc;
+    QString message;
+    ASSERT_TRUE(io::fromDxf(data, doc, &message)) << message.toStdString();
+    // The visible attribute is kept with its height, the invisible one is not drawn.
+    const auto texts = shapes<Text>(doc);
+    ASSERT_EQ(texts.size(), 1u);
+    EXPECT_EQ(texts[0].second.content, "Sedia 1");
+    EXPECT_DOUBLE_EQ(texts[0].second.height, 50.0);
+    // Points cannot be drawn yet: the user is told rather than losing them silently.
+    EXPECT_TRUE(message.contains(QStringLiteral("POINT"))) << message.toStdString();
+}
+
 TEST(Dxf, ExplodesAnonymousBlocksAndArrays)
 {
     const QByteArray data = dxf("0 SECTION|2 BLOCKS|"

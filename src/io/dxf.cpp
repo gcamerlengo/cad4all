@@ -428,6 +428,8 @@ private:
                 // Attributes follow the reference up to SEQEND.
                 size_t j = i + 1;
                 for (; j < records.size() && records[j].type == QLatin1String("ATTRIB"); ++j) {
+                    if (records[j].integer(70) & 1)
+                        continue; // invisible attribute
                     style_ = recordStyle(records[j]);
                     text(records[j], full, layer);
                 }
@@ -722,7 +724,7 @@ private:
             spline(r, xf, layer);
         } else if (type == QLatin1String("HATCH")) {
             hatch(r, full, layer);
-        } else if (type == QLatin1String("POINT") || type == QLatin1String("ATTDEF") || type == QLatin1String("SEQEND")
+        } else if (type == QLatin1String("ATTDEF") || type == QLatin1String("SEQEND")
                    || type == QLatin1String("VIEWPORT")) {
             // Nothing to draw.
         } else {

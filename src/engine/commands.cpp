@@ -2103,9 +2103,16 @@ public:
             return pickObject(p);
         std::vector<Shape> shapes;
         const Document& doc = engine->document();
-        for (const auto& [id, e] : doc.entities())
-            if (doc.isVisible(e))
+        // Walls bound rooms by their joined outline, as for SLAB.
+        const auto walls = joinedWalls(doc);
+        for (const auto& [id, e] : doc.entities()) {
+            if (!doc.isVisible(e))
+                continue;
+            if (std::holds_alternative<Wall>(e.shape))
+                shapes.push_back(wallOutline(walls.at(id)));
+            else
                 shapes.push_back(e.shape);
+        }
         auto loops = findHatchBoundary(shapes, p);
         if (loops.empty()) {
             engine->message(t("Impossibile trovare un contorno chiuso attorno al punto."));

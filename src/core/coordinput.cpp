@@ -2,6 +2,7 @@
 #include "coordinput.h"
 
 #include <cctype>
+#include <cmath>
 #include <locale>
 #include <sstream>
 #include <string>
@@ -9,6 +10,19 @@
 namespace cad {
 
 namespace {
+
+// A typed angle on a quadrant (0, 90, 180, 270...) gives exact
+// coordinates, without the rounding noise of cos(90 degrees).
+Vec2 polarDegrees(double dist, double degrees)
+{
+    const double quadrants = degrees / 90.0;
+    if (quadrants == std::floor(quadrants)) {
+        static constexpr Vec2 kAxes[] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
+        const int q = static_cast<int>(std::fmod(std::fmod(quadrants, 4.0) + 4.0, 4.0));
+        return kAxes[q] * dist;
+    }
+    return polar(dist, degToRad(degrees));
+}
 
 std::string_view trim(std::string_view s)
 {
@@ -65,7 +79,7 @@ std::optional<Vec2> parsePoint(std::string_view text, std::optional<Vec2> lastPo
         const auto ang = parseNumber(text.substr(lt + 1));
         if (!dist || !ang)
             return std::nullopt;
-        v = polar(*dist, degToRad(*ang));
+        v = polarDegrees(*dist, *ang);
     } else {
         const auto comma = text.find(',');
         if (comma == std::string_view::npos)

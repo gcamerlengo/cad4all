@@ -572,6 +572,24 @@ TEST_F(Commands, StoriesFromTheCommandLine)
     EXPECT_EQ(doc.story(doc.currentStory())->name, "Sottotetto");
 }
 
+TEST_F(Commands, HatchInsideARoomOfWalls)
+{
+    type({"MURO", "S", "200", "0,0", "6000,0", "6000,4000", "0,4000", "C"});
+    type({"MURO", "S", "100", "3000,0", "3000,4000", ""});
+    engine.setPickTolerance(10);
+    type({"PORTA", "1500,50", "1500,500", ""});
+    type({"TRATTEGGIO", "1000,2000", ""});
+    auto hatches = shapes<Hatch>();
+    ASSERT_EQ(hatches.size(), 1u);
+    // The room on the left, between the inner faces of its walls.
+    BBox box;
+    for (const auto& loop : hatches[0].loops)
+        box.add(boundingBox(Shape{loop}));
+    EXPECT_NEAR(box.min.x, 100, 1e-6);
+    EXPECT_NEAR(box.max.x, 2950, 1e-6);
+    EXPECT_NEAR(box.max.y, 3900, 1e-6);
+}
+
 TEST_F(Commands, SlabInsideARoomAndUnderTheWalls)
 {
     type({"MURO", "S", "200", "0,0", "6000,0", "6000,4000", "0,4000", "C"});
