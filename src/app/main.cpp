@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "cadview.h"
 #include "mainwindow.h"
+#include "theme.h"
 #include "view3d.h"
 
 #include <QApplication>
@@ -63,7 +64,14 @@ int main(int argc, char* argv[])
     parser.addOption(layoutOption);
     const QCommandLineOption sizeOption(QStringLiteral("dimensioni"), QStringLiteral("Larghezza e altezza della finestra, per esempio 1000x700."), QStringLiteral("LxA"));
     parser.addOption(sizeOption);
+    const QCommandLineOption themeOption(QStringLiteral("tema"), QStringLiteral("Aspetto: scuro o chiaro."), QStringLiteral("nome"));
+    parser.addOption(themeOption);
     parser.process(app);
+
+    theme::Theme look = theme::saved();
+    if (parser.isSet(themeOption) && !theme::fromName(parser.value(themeOption), &look))
+        parser.showHelp(1);
+    theme::apply(look);
 
     MainWindow window;
     FileOpener opener(window);

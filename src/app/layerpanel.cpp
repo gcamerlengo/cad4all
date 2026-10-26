@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "layerpanel.h"
 
+#include "icons.h"
 #include "stylenames.h"
 
 #include <QColorDialog>
@@ -8,11 +9,31 @@
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <QPainter>
 #include <QPushButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
 using namespace cad;
+
+namespace {
+
+// A rounded square of the layer's colour, drawn at twice the size for
+// high density screens.
+QIcon swatch(const QColor& color)
+{
+    QPixmap pm(28, 28);
+    pm.setDevicePixelRatio(2.0);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(QPen(QColor(128, 128, 128), 1));
+    p.setBrush(color);
+    p.drawRoundedRect(QRectF(0.5, 0.5, 13, 13), 3, 3);
+    return QIcon(pm);
+}
+
+} // namespace
 
 LayerPanel::LayerPanel(CommandEngine& engine, QWidget* parent)
     : QWidget(parent), engine_(engine)
@@ -38,13 +59,14 @@ LayerPanel::LayerPanel(CommandEngine& engine, QWidget* parent)
     buttons->addStretch();
 
     auto* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(4, 4, 4, 4);
+    layout->setContentsMargins(6, 6, 6, 6);
+    layout->setSpacing(6);
     layout->addLayout(buttons);
     layout->addWidget(tree_);
 
     connect(add, &QPushButton::clicked, this, &LayerPanel::createLayer);
     connect(current, &QPushButton::clicked, this, [this] { makeCurrent(tree_->currentItem()); });
-    connect(tree_, &QTreeWidget::itemChanged, this, &LayerPanel::itemChanged);
+    connect(tree_, &QTreeWidget::itemClicked, this, &LayerPanel::itemClicked);
     connect(tree_, &QTreeWidget::itemDoubleClicked, this, &LayerPanel::itemDoubleClicked);
     connect(&engine_, &CommandEngine::changed, this, [this] {
         if (engine_.document().revision() != shownRevision_)
@@ -65,12 +87,14 @@ void LayerPanel::refresh()
         auto* item = new QTreeWidgetItem(tree_);
         const QString name = QString::fromStdString(l.name);
         item->setText(NameColumn, name);
-        item->setCheckState(VisibleColumn, l.visible ? Qt::Checked : Qt::Unchecked);
-        item->setCheckState(LockedColumn, l.locked ? Qt::Checked : Qt::Unchecked);
+        // An eye and a padlock, clicked to switch them.
+        item->setIcon(VisibleColumn, icons::make(l.visible ? QStringLiteral("visible") : QStringLiteral("hidden")));
+        item->setToolTip(VisibleColumn, l.visible ? tr("Visibile: clic per nascondere") : tr("Nascosto: clic per mostrare"));
+        item->setIcon(LockedColumn, icons::make(l.locked ? QStringLiteral("locked") : QStringLiteral("unlocked")));
+        item->setToolTip(LockedColumn, l.locked ? tr("Bloccato: clic per sbloccare") : tr("Sbloccato: clic per bloccare"));
         const QColor color(l.color.r, l.color.g, l.color.b);
-        item->setBackground(ColorColumn, color);
-        item->setText(ColorColumn, color.name());
-        item->setForeground(ColorColumn, color.lightness() > 128 ? Qt::black : Qt::white);
+        item->setIcon(ColorColumn, swatch(color));
+        item->setText(ColorColumn, colorName(l.color));
         item->setText(LinetypeColumn, QString::fromStdString(l.linetype));
         item->setText(LineweightColumn, lineweightName(l.lineweight));
         if (l.name == doc.currentLayer()) {
@@ -110,7 +134,7 @@ void LayerPanel::makeCurrent(QTreeWidgetItem* item)
     }
 }
 
-void LayerPanel::itemChanged(QTreeWidgetItem* item, int column)
+void LayerPanel::itemClicked(QTreeWidgetItem* item, int column)
 {
     if (column != VisibleColumn && column != LockedColumn)
         return;
@@ -120,8 +144,10 @@ void LayerPanel::itemChanged(QTreeWidgetItem* item, int column)
     if (!current)
         return;
     Layer updated = *current;
-    updated.visible = item->checkState(VisibleColumn) == Qt::Checked;
-    updated.locked = item->checkState(LockedColumn) == Qt::Checked;
+    if (column == VisibleColumn)
+        updated.visible = !updated.visible;
+    else
+        updated.locked = !updated.locked;
     doc.updateLayer(name, updated);
     engine_.documentChanged();
 }

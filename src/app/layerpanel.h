@@ -14,16 +14,16 @@ class LayerPanel : public QWidget {
     Q_OBJECT
 
 public:
+    enum Column { NameColumn, VisibleColumn, LockedColumn, ColorColumn, LinetypeColumn, LineweightColumn };
+
     explicit LayerPanel(cad::CommandEngine& engine, QWidget* parent = nullptr);
 
     void refresh();
 
 private:
-    enum Column { NameColumn, VisibleColumn, LockedColumn, ColorColumn, LinetypeColumn, LineweightColumn };
-
     void createLayer();
     void makeCurrent(QTreeWidgetItem* item);
-    void itemChanged(QTreeWidgetItem* item, int column);
+    void itemClicked(QTreeWidgetItem* item, int column);
     void itemDoubleClicked(QTreeWidgetItem* item, int column);
 
     cad::CommandEngine& engine_;

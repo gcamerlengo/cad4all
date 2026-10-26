@@ -2,7 +2,7 @@
 cmake_minimum_required(VERSION 3.28)
 
 project(CAD4All
-    VERSION 0.2.2
+    VERSION 0.3.0
     DESCRIPTION "CAD 2D e 3D parametrico open source"
     HOMEPAGE_URL "https://github.com/gcamerlengo/cad4all"
     LANGUAGES CXX)

@@ -16,6 +16,7 @@ qt_add_executable(cad4all
     toolbox.h toolbox.cpp
     infobox.h infobox.cpp
     navigator.h navigator.cpp
+    theme.h theme.cpp
 )
 target_link_libraries(cad4all PRIVATE cad4all_core cad4all_io cad4all_engine Qt6::Widgets Qt6::PrintSupport)
 target_compile_definitions(cad4all PRIVATE
