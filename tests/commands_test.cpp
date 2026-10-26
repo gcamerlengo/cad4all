@@ -46,6 +46,16 @@ TEST_F(Commands, LineChainWithCloseAndUndo)
     EXPECT_TRUE(doc.entities().empty());
 }
 
+TEST_F(Commands, PointsUntilEnter)
+{
+    type({"PUNTO", "1,2", "@3,0", ""});
+    EXPECT_FALSE(engine.isActive());
+    ASSERT_EQ(shapes<Point>().size(), 2u);
+    EXPECT_EQ(shapes<Point>()[1].position, (Vec2{4, 2}));
+    type({"U"});
+    EXPECT_TRUE(doc.entities().empty());
+}
+
 TEST_F(Commands, LineUndoOptionRemovesLastSegment)
 {
     type({"L", "0,0", "10,0", "20,0", "A", ""});

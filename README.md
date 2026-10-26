@@ -21,7 +21,7 @@ Versione 0.1. Funziona già:
 - **Selezione:** clic, finestra (da sinistra a destra) e interseca (da destra a sinistra), Maiusc+clic per togliere.
 - **Organizzazione:** layer con colore, tipo di linea, spessore, visibilità e blocco; colore, tipo di linea (continua, tratteggiata, nascosta, asse, tratto punto, fantasma, punti e quelli dei DXF/DWG) e spessore anche per singolo oggetto, dalla barra Proprietà o con CAMBIAPROP; corrispondenza proprietà; spessori visibili a schermo con il pulsante SPESSORI e in stampa.
 - **Interfaccia:** ribbon come AutoCAD, oppure l'interfaccia parametrica con strumenti, Info Box e navigatore, con pianta e 3D in un pannello, affiancate o a schede.
-- **File:** formato nativo `.c4a` (JSON leggibile), apertura dei DWG di AutoCAD, apertura e salvataggio DXF, stampa su stampante e in PDF in scala, esportazione del modello 3D in OBJ e STL, annulla e ripristina illimitati, script di comandi `.scr`.
+- **File:** formato nativo `.c4a` (JSON leggibile), apertura dei DWG di AutoCAD ed esportazione in DWG (sperimentale), apertura e salvataggio DXF 2000 o R12, stampa su stampante e in PDF in scala, esportazione del modello 3D in OBJ e STL, annulla e ripristina illimitati, script di comandi `.scr`.
 
 In arrivo: firma digitale degli installatori; tetti su piante con angoli diversi dal retto.
 
@@ -32,6 +32,7 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | Comando | Alias | Opzioni |
 | --- | --- | --- |
 | LINEA / LINE | L | Annulla, Chiudi |
+| PUNTO / POINT | | un punto a ogni clic, Invio per finire; si aggancia con lo snap Nodo |
 | PLINEA / PLINE | PL | Arco (archi tangenti), Linea, Chiudi, ANnulla |
 | CERCHIO / CIRCLE | C | Diametro |
 | ARCO / ARC | A | tre punti |
@@ -115,7 +116,7 @@ Per pubblicare una versione: su GitHub, Releases > Draft a new release, tag nuov
 
 ## Compilare
 
-Servono CMake 3.28 o successivo, un compilatore C e C++20, Qt 6.4 o successivo e git. Alla prima configurazione CMake scarica e compila LibreDWG per la lettura dei DWG (un paio di minuti); per farne a meno: `-DCAD4ALL_WITH_DWG=OFF`.
+Servono CMake 3.28 o successivo, un compilatore C e C++20, Qt 6.4 o successivo e git. Alla prima configurazione CMake scarica e compila LibreDWG per leggere e scrivere i DWG (un paio di minuti); per farne a meno: `-DCAD4ALL_WITH_DWG=OFF`.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -134,10 +135,12 @@ Per provare uno script: `CAD4All --script docs/esempi/pianta.scr` oppure `docs/e
 
 File > Apri legge i DWG di AutoCAD dalla versione R14 alla 2018 e successive grazie a [LibreDWG](https://www.gnu.org/software/libredwg/) (GPL 3), con gli stessi oggetti del DXF. Il DWG non viene mai sovrascritto: Salva chiede dove salvare il disegno in `.c4a` o `.dxf`.
 
+File > Esporta DXF o DWG scrive anche un DWG 2000, che si apre in AutoCAD, BricsCAD e DWG TrueView. È sperimentale: il DWG è ricavato dal DXF 2000 con LibreDWG, il cui scrittore è ancora giovane, quindi per consegnare un disegno il DXF resta la via più sicura. Da riga di comando: `--export disegno.dwg`.
 
-File > Apri legge i DXF di qualsiasi versione salvati da AutoCAD o da altri CAD: linee, cerchi, archi, polilinee (anche con archi), testi e testi multilinea (che restano multilinea), quote, tratteggi (anche con motivi che CAD4All non ha), ellissi e spline (convertite in polilinee), solidi, direttrici e blocchi (che restano blocchi; gli attributi diventano testi e i blocchi anonimi sono esplosi), con i layer e i loro colori. Quello che non viene ancora letto (per esempio i solidi 3D) è elencato sulla riga di comando dopo l'apertura.
 
-File > Salva con estensione `.dxf` o File > Esporta DXF scrivono un DXF R12, che si apre in ogni CAD; le quote restano quote, i blocchi restano blocchi, i testi multilinea diventano un testo per riga, i tratteggi diventano blocchi di linee come in AutoCAD R12 (si vedono uguali ma non si modificano più come tratteggi). Da riga di comando: `CAD4All --script disegno.scr --export disegno.dxf`, oppure `CAD4All disegno.dwg --export disegno.dxf` per convertire un DWG.
+File > Apri legge i DXF di qualsiasi versione salvati da AutoCAD o da altri CAD: linee, cerchi, archi, polilinee (anche con archi), testi e testi multilinea (che restano multilinea), punti, quote, tratteggi (anche con motivi che CAD4All non ha), ellissi e spline (convertite in polilinee), solidi, direttrici e blocchi (che restano blocchi; gli attributi visibili diventano testi e i blocchi anonimi sono esplosi); le quote angolari e coordinate, che CAD4All non ha ancora, arrivano come le linee e il testo che le disegnano. Tutto arriva con i layer e i loro colori. Quello che non viene ancora letto (per esempio i solidi 3D) è elencato sulla riga di comando dopo l'apertura.
+
+File > Salva con estensione `.dxf` o File > Esporta DXF o DWG scrivono un DXF 2000 (AC1015), che AutoCAD e gli altri CAD aprono senza avvisi: tratteggi veri e modificabili, testi multilinea, colori RGB, spessori di linea, quote con la loro altezza di testo e di freccia, blocchi e punti. Muri, solai, tetti e scale escono come blocchi anonimi con il disegno della pianta, e portano con sé i dati dell'oggetto: riaperto in CAD4All, il muro torna un muro (anche se nel frattempo è stato spostato o ruotato in un altro CAD). Per programmi molto vecchi c'è la scelta "DXF R12" nella finestra di esportazione: lì i testi multilinea diventano un testo per riga e i tratteggi blocchi di linee. Da riga di comando: `CAD4All --script disegno.scr --export disegno.dxf`, oppure `CAD4All disegno.dwg --export disegno.dxf` per convertire un DWG.
 
 ![Polilinee con archi, raccordi e cime](docs/immagini/polilinee.png)
 
@@ -147,7 +150,7 @@ MURO (alias MU) disegna una catena di muri come LINEA: ogni tratto è un muro. S
 
 PORTA e FINESTRA si mettono cliccando sul muro, nel punto che diventa il centro dell'apertura (lo snap al punto medio la centra nel muro). Per la porta un secondo clic indica dove apre: la parte del muro verso cui gira e lo stipite su cui è incernierata. MODIFICAMURO cambia un muro già disegnato o toglie una sua apertura; SPOSTA, RUOTA, SPECCHIO, SCALA e STIRA funzionano anche sui muri, con le loro porte e finestre.
 
-La vista 3D si apre da sola con il primo muro (o con VISTA3D, o da Architettura > Vista 3D): si ruota trascinando, si sposta con il tasto destro o centrale, la rotella fa lo zoom e il doppio clic mostra tutto. Nel DXF i muri escono come le linee e gli archi della pianta. L'esempio [casa.scr](docs/esempi/casa.scr) disegna una piccola casa.
+La vista 3D si apre da sola con il primo muro (o con VISTA3D, o da Architettura > Vista 3D): si ruota trascinando, si sposta con il tasto destro o centrale, la rotella fa lo zoom e il doppio clic mostra tutto. Nel DXF i muri escono come blocchi con le linee e gli archi della pianta, e CAD4All li rilegge come muri. L'esempio [casa.scr](docs/esempi/casa.scr) disegna una piccola casa.
 
 ![Pianta con muri, porte e finestre](docs/immagini/casa.png)
 

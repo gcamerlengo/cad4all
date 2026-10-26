@@ -15,6 +15,12 @@
 
 namespace cad {
 
+// Point, as AutoCAD's POINT: a surveyed point or a node to snap to. It is
+// drawn as a small cross of fixed size on screen.
+struct Point {
+    Vec2 position;
+};
+
 struct Line {
     Vec2 a, b;
 };
@@ -222,7 +228,7 @@ struct Insert {
     double rotation = 0.0;  // radians, counter-clockwise
 };
 
-using Shape = std::variant<Line, Circle, Arc, Polyline, Text, MText, Dimension, Hatch, Wall, Slab, Roof, Stair, Insert>;
+using Shape = std::variant<Line, Circle, Arc, Polyline, Text, MText, Dimension, Hatch, Wall, Slab, Roof, Stair, Insert, Point>;
 
 // Arc of a polyline segment from `from` to `to`: always counter-clockwise, so
 // a negative bulge gives an arc from `to` to `from`.
@@ -246,6 +252,7 @@ enum SnapType : unsigned {
     SnapIntersection = 1u << 4,
     SnapNearest = 1u << 5,
     SnapInsertion = 1u << 6,
+    SnapNode = 1u << 7,
 };
 
 struct SnapPoint {

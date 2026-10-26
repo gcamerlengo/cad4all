@@ -130,8 +130,35 @@ TEST(Dxf, AttributesAndPoints)
     ASSERT_EQ(texts.size(), 1u);
     EXPECT_EQ(texts[0].second.content, "Sedia 1");
     EXPECT_DOUBLE_EQ(texts[0].second.height, 50.0);
-    // Points cannot be drawn yet: the user is told rather than losing them silently.
-    EXPECT_TRUE(message.contains(QStringLiteral("POINT"))) << message.toStdString();
+    // Survey points come in as points, on their layer, and go back out.
+    const auto points = shapes<Point>(doc);
+    ASSERT_EQ(points.size(), 1u);
+    EXPECT_EQ(points[0].first, "Rilievo");
+    EXPECT_EQ(points[0].second.position, (Vec2{5, 5}));
+    EXPECT_FALSE(message.contains(QStringLiteral("POINT"))) << message.toStdString();
+    Document back;
+    ASSERT_TRUE(io::fromDxf(io::toDxf(doc), back));
+    EXPECT_EQ(shapes<Point>(back).size(), 1u);
+}
+
+TEST(Dxf, AngularDimensionsKeepTheirDrawing)
+{
+    const QByteArray data = dxf("0 SECTION|2 BLOCKS|"
+                                "0 BLOCK|8 0|2 *D7|70 1|10 0|20 0|"
+                                "0 ARC|8 0|10 0|20 0|40 50|50 0|51 45|"
+                                "0 MTEXT|8 0|10 40|20 20|40 2.5|1 45°|"
+                                "0 ENDBLK|0 ENDSEC|"
+                                "0 SECTION|2 ENTITIES|"
+                                "0 DIMENSION|8 Quote|2 *D7|70 34|10 0|20 0|"
+                                "0 ENDSEC|0 EOF");
+    Document doc;
+    QString message;
+    ASSERT_TRUE(io::fromDxf(data, doc, &message)) << message.toStdString();
+    EXPECT_FALSE(message.contains(QStringLiteral("DIMENSION"))) << message.toStdString();
+    const auto arcs = shapes<Arc>(doc);
+    ASSERT_EQ(arcs.size(), 1u);
+    EXPECT_EQ(arcs[0].first, "Quote");
+    EXPECT_EQ(shapes<MText>(doc).size(), 1u);
 }
 
 TEST(Dxf, ExplodesAnonymousBlocksAndArrays)
@@ -237,24 +264,57 @@ TEST(Dxf, RoundTrip)
     d.location = {5, -5};
     doc.add(d);
 
-    const QByteArray data = io::toDxf(doc);
-    EXPECT_TRUE(data.contains("AC1009"));
-    EXPECT_TRUE(data.contains("Citt\xE0"));
+    for (const auto version : {io::DxfVersion::R12, io::DxfVersion::R2000}) {
+        const QByteArray data = io::toDxf(doc, version);
+        EXPECT_TRUE(data.contains(version == io::DxfVersion::R12 ? "AC1009" : "AC1015"));
+        EXPECT_TRUE(data.contains("Citt\xE0"));
+
+        Document back;
+        QString message;
+        ASSERT_TRUE(io::fromDxf(data, back, &message)) << message.toStdString();
+        EXPECT_TRUE(message.isEmpty()) << message.toStdString();
+        EXPECT_EQ(back.entities().size(), doc.entities().size());
+        EXPECT_EQ(shapes<Line>(back)[0].first, "Muri");
+        EXPECT_EQ(back.layer("Muri")->color, (Color{255, 0, 0}));
+        EXPECT_NEAR(shapes<Arc>(back)[0].second.startAngle, 0.5, 1e-9);
+        EXPECT_DOUBLE_EQ(shapes<Polyline>(back)[0].second.bulge(1), 0.5);
+        EXPECT_EQ(shapes<Text>(back)[0].second.content, "Città");
+        EXPECT_EQ(shapes<Text>(back)[0].second.align, Text::Align::Center);
+        const auto dims = shapes<Dimension>(back);
+        ASSERT_EQ(dims.size(), 1u);
+        EXPECT_DOUBLE_EQ(dims[0].second.measurement(), 10.0);
+    }
+}
+
+TEST(Dxf, Dxf2000KeepsStyleAndDimensionSize)
+{
+    Document doc;
+    Layer muri = Layer::named("Muri");
+    muri.color = {200, 100, 50};  // not an ACI colour
+    muri.lineweight = 50;
+    doc.addLayer(muri);
+    Entity e{0, "Muri", Line{{0, 0}, {10, 0}}};
+    e.color = Color{10, 20, 30};
+    e.lineweight = 35;
+    doc.add(e);
+    Dimension d;
+    d.p1 = {0, 0};
+    d.p2 = {1000, 0};
+    d.location = {500, -500};
+    d.textHeight = 250;
+    d.arrowSize = 150;
+    doc.add(d);
 
     Document back;
-    QString message;
-    ASSERT_TRUE(io::fromDxf(data, back, &message)) << message.toStdString();
-    EXPECT_TRUE(message.isEmpty()) << message.toStdString();
-    EXPECT_EQ(back.entities().size(), doc.entities().size());
-    EXPECT_EQ(shapes<Line>(back)[0].first, "Muri");
-    EXPECT_EQ(back.layer("Muri")->color, (Color{255, 0, 0}));
-    EXPECT_NEAR(shapes<Arc>(back)[0].second.startAngle, 0.5, 1e-9);
-    EXPECT_DOUBLE_EQ(shapes<Polyline>(back)[0].second.bulge(1), 0.5);
-    EXPECT_EQ(shapes<Text>(back)[0].second.content, "Città");
-    EXPECT_EQ(shapes<Text>(back)[0].second.align, Text::Align::Center);
+    ASSERT_TRUE(io::fromDxf(io::toDxf(doc), back));
+    EXPECT_EQ(back.layer("Muri")->color, (Color{200, 100, 50}));
+    EXPECT_EQ(back.layer("Muri")->lineweight, 50);
+    const Entity& line = back.entities().begin()->second;
+    EXPECT_EQ(line.color, (Color{10, 20, 30}));
+    EXPECT_EQ(line.lineweight, 35);
     const auto dims = shapes<Dimension>(back);
     ASSERT_EQ(dims.size(), 1u);
-    EXPECT_DOUBLE_EQ(dims[0].second.measurement(), 10.0);
+    EXPECT_DOUBLE_EQ(dims[0].second.textHeight, 250);
 }
 
 TEST(Dxf, RejectsBinaryAndGarbage)
@@ -349,12 +409,34 @@ TEST(Dxf, ReadsHatches)
     EXPECT_TRUE(insideHatch(solid, {155, 10}));
 }
 
+TEST(Dxf, Dxf2000WritesRealHatches)
+{
+    Document doc;
+    const Hatch pattern = makeHatch({Polyline{{{0, 0}, {100, 0}, {100, 100}, {0, 100}}, true}}, "BRICK", 10, 0.5);
+    doc.add(pattern);
+    doc.add(makeHatch({Polyline{{{200, 0}, {300, 0}, {250, 80}}, true}}, "SOLID", 1, 0));
+    Document back;
+    ASSERT_TRUE(io::fromDxf(io::toDxf(doc), back));
+    const auto hatches = shapes<Hatch>(back);
+    ASSERT_EQ(hatches.size(), 2u);
+    const Hatch& h = hatches[0].second;
+    EXPECT_EQ(h.pattern, "BRICK");
+    EXPECT_NEAR(h.scale, 10, 1e-9);
+    EXPECT_NEAR(h.angle, 0.5, 1e-9);
+    // The same lines are drawn.
+    const BBox all = BBox::fromCorners({-1e9, -1e9}, {1e9, 1e9});
+    const auto before = hatchLines(pattern, all, 100000);
+    const auto after = hatchLines(h, all, 100000);
+    ASSERT_EQ(before.size(), after.size());
+    EXPECT_TRUE(hatches[1].second.solid());
+}
+
 TEST(Dxf, WritesHatchesAsBlocks)
 {
     Document doc;
     doc.add(makeHatch({Polyline{{{0, 0}, {100, 0}, {100, 100}, {0, 100}}, true}}, "ANSI31", 10, 0));
     doc.add(makeHatch({Polyline{{{200, 0}, {300, 0}, {250, 80}}, true}}, "SOLID", 1, 0));
-    const QByteArray out = io::toDxf(doc);
+    const QByteArray out = io::toDxf(doc, io::DxfVersion::R12);
     EXPECT_TRUE(out.contains("*X1"));
     EXPECT_TRUE(out.contains("*X2"));
     EXPECT_TRUE(out.contains("SOLID"));
@@ -381,10 +463,40 @@ TEST(Dxf, WritesWallsAsTheirPlan)
     doc.add(a);
     doc.add(b);
     Document back;
-    ASSERT_TRUE(io::fromDxf(io::toDxf(doc), back));
+    ASSERT_TRUE(io::fromDxf(io::toDxf(doc, io::DxfVersion::R12), back));
     // Wall a: 4 face pieces, 1 free end, 2 jambs, the leaf; wall b: 2 faces, 1 end.
     EXPECT_EQ(shapes<Line>(back).size(), 11u);
     EXPECT_EQ(shapes<Arc>(back).size(), 1u);
+
+    // DXF 2000: the same drawing in a block, and CAD4All reads the walls back.
+    const QByteArray data = io::toDxf(doc);
+    EXPECT_TRUE(data.contains("CAD4ALL"));
+    Document walls;
+    ASSERT_TRUE(io::fromDxf(data, walls));
+    const auto read = shapes<Wall>(walls);
+    ASSERT_EQ(read.size(), 2u);
+    EXPECT_EQ(read[0].second.end, (Vec2{3000, 0}));
+    ASSERT_EQ(read[0].second.openings.size(), 1u);
+    EXPECT_DOUBLE_EQ(read[0].second.openings[0].position, 1500);
+
+    // A program that moves the block moves the wall: the reference moved by 100 in X.
+    QByteArray moved = data;
+    const qsizetype insert = moved.indexOf("INSERT");
+    const QByteArray origin = " 10\r\n0.0\r\n";
+    const qsizetype x = moved.indexOf(origin, insert);
+    ASSERT_GT(x, 0);
+    moved.replace(x, origin.size(), " 10\r\n100.0\r\n");
+    Document shifted;
+    ASSERT_TRUE(io::fromDxf(moved, shifted));
+    EXPECT_EQ(shapes<Wall>(shifted)[0].second.start, (Vec2{100, 0}));
+
+    // Other programs see the plan: without CAD4All's data the block is drawn.
+    QByteArray plain = data;
+    plain.replace("CAD4ALL", "ALTRO");
+    Document drawn;
+    ASSERT_TRUE(io::fromDxf(plain, drawn));
+    EXPECT_TRUE(shapes<Wall>(drawn).empty());
+    EXPECT_EQ(shapes<Line>(drawn).size(), 11u);
 }
 
 TEST(Dxf, WritesOnlyTheCurrentStory)
@@ -397,7 +509,7 @@ TEST(Dxf, WritesOnlyTheCurrentStory)
     roof.footprint = Polyline{{{0, 0}, {6000, 0}, {6000, 4000}, {0, 4000}}, true};
     doc.add(roof);
     Document back;
-    ASSERT_TRUE(io::fromDxf(io::toDxf(doc), back));
+    ASSERT_TRUE(io::fromDxf(io::toDxf(doc, io::DxfVersion::R12), back));
     EXPECT_TRUE(shapes<Line>(back).size() >= 4u);  // the roof: hips and the ridge
     EXPECT_EQ(shapes<Circle>(back).size(), 1u);
     for (const auto& [layer, l] : shapes<Line>(back))

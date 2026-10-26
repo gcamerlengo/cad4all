@@ -125,6 +125,7 @@ std::vector<Piece> pieces(const Shape& shape)
                            out.insert(out.end(), sub.begin(), sub.end());
                        }
                    },
+                   [&](const Point&) {},
                },
                shape);
     return out;
@@ -623,6 +624,7 @@ BBox boundingBox(const Shape& shape)
                        for (Vec2 c : {e.min, Vec2{e.max.x, e.min.y}, e.max, Vec2{e.min.x, e.max.y}})
                            box.add(t.apply(c));
                    },
+                   [&](const Point& pt) { box.add(pt.position); },
                },
                shape);
     return box;
@@ -630,6 +632,8 @@ BBox boundingBox(const Shape& shape)
 
 Vec2 nearestPoint(const Shape& shape, Vec2 p)
 {
+    if (const auto* pt = std::get_if<Point>(&shape))
+        return pt->position;
     if (const auto* t = std::get_if<Text>(&shape))
         return t->position;
     if (const auto* m = std::get_if<MText>(&shape))
@@ -866,6 +870,7 @@ Shape transformed(const Shape& shape, const Transform& t)
                               return r;
                           },
                           [&](const Insert& ref) -> Shape { return placedInsert(ref.block, t * insertTransform(ref)); },
+                          [&](const Point& pt) -> Shape { return Point{t.apply(pt.position)}; },
                       },
                       shape);
 }
@@ -942,6 +947,7 @@ void collectSnapPoints(const Shape& shape, unsigned mask, std::vector<SnapPoint>
                        for (const Shape& part : insertGeometry(ref))
                            collectSnapPoints(part, mask, out);
                    },
+                   [&](const Point& pt) { add(pt.position, SnapNode); },
                },
                shape);
 }

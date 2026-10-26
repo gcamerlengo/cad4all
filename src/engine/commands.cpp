@@ -102,6 +102,18 @@ private:
     std::vector<EntityId> segments_;
 };
 
+// POINT: one point per pick, until Enter, for survey or reference marks.
+class PointCommand : public Command {
+public:
+    void start() override { engine->setPrompt(t("Specificare un punto:")); }
+
+    bool point(Vec2 p) override
+    {
+        engine->document().add(Point{p});
+        return true;
+    }
+};
+
 // PLINE as in AutoCAD: straight segments, or arcs tangent to the previous
 // segment in Arco mode. "A" is Arco here, so Annulla is "AN".
 class PolylineCommand : public Command {
@@ -4841,6 +4853,7 @@ QString shapeKind(const Shape& shape)
             else if constexpr (std::is_same_v<T, Slab>) return t("SOLAIO");
             else if constexpr (std::is_same_v<T, Roof>) return t("TETTO");
             else if constexpr (std::is_same_v<T, Stair>) return t("SCALINATA");
+            else if constexpr (std::is_same_v<T, Point>) return t("PUNTO");
             else return t("BLOCCO");
         },
         shape);
@@ -4871,6 +4884,8 @@ private:
         if (const auto* l = std::get_if<Line>(&shape))
             return t("da %1 a %2, lunghezza %3, angolo %4°")
                 .arg(xy(l->a), xy(l->b), fmt(shapeLength(shape)), fmt(radToDeg(normalizeAngle(angleOf(l->b - l->a)))));
+        if (const auto* pt = std::get_if<Point>(&shape))
+            return t("in %1").arg(xy(pt->position));
         if (const auto* c = std::get_if<Circle>(&shape))
             return t("centro %1, raggio %2, circonferenza %3, area %4")
                 .arg(xy(c->center), fmt(c->radius), fmt(shapeLength(shape)), fmt(*shapeArea(shape)));
@@ -5474,6 +5489,7 @@ private:
 } // namespace
 
 std::unique_ptr<Command> makeLineCommand() { return std::make_unique<LineCommand>(); }
+std::unique_ptr<Command> makePointCommand() { return std::make_unique<PointCommand>(); }
 std::unique_ptr<Command> makePolylineCommand() { return std::make_unique<PolylineCommand>(); }
 std::unique_ptr<Command> makeCircleCommand() { return std::make_unique<CircleCommand>(); }
 std::unique_ptr<Command> makeArcCommand() { return std::make_unique<ArcCommand>(); }

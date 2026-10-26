@@ -142,7 +142,10 @@ std::optional<Polyline> polylineFromJson(const QJsonObject& o)
 QJsonObject shapeToJson(const Shape& shape)
 {
     QJsonObject o;
-    if (const auto* l = std::get_if<Line>(&shape)) {
+    if (const auto* pt = std::get_if<Point>(&shape)) {
+        o[QStringLiteral("type")] = QStringLiteral("point");
+        o[QStringLiteral("position")] = toJson(pt->position);
+    } else if (const auto* l = std::get_if<Line>(&shape)) {
         o[QStringLiteral("type")] = QStringLiteral("line");
         o[QStringLiteral("a")] = toJson(l->a);
         o[QStringLiteral("b")] = toJson(l->b);
@@ -300,7 +303,11 @@ std::optional<Shape> shapeFromJson(const QJsonObject& o, const Document& doc)
             return ref;
         return std::nullopt;
     }
-    if (type == QLatin1String("line")) {
+    if (type == QLatin1String("point")) {
+        Point pt;
+        if (fromJson(o[QStringLiteral("position")], pt.position))
+            return pt;
+    } else if (type == QLatin1String("line")) {
         Line l;
         if (fromJson(o[QStringLiteral("a")], l.a) && fromJson(o[QStringLiteral("b")], l.b))
             return l;
@@ -475,6 +482,10 @@ void writeBlock(const Block& block, QJsonArray& out, std::set<const Block*>& wri
 }
 
 } // namespace
+
+QJsonObject shapeToNativeJson(const Shape& shape) { return shapeToJson(shape); }
+
+std::optional<Shape> shapeFromNativeJson(const QJsonObject& o, const Document& doc) { return shapeFromJson(o, doc); }
 
 QByteArray toNativeJson(const Document& doc)
 {

@@ -59,7 +59,9 @@ namespace {
 
 const QString kOpenFilter = QObject::tr("Disegni (*.c4a *.dxf *.dwg);;Disegni CAD4All (*.c4a);;DXF (*.dxf);;DWG di AutoCAD (*.dwg)");
 const QString kNativeFilter = QObject::tr("Disegni CAD4All (*.c4a)");
-const QString kDxfFilter = QObject::tr("DXF R12 per AutoCAD e altri CAD (*.dxf)");
+const QString kDxfFilter = QObject::tr("DXF 2000 per AutoCAD e altri CAD (*.dxf)");
+const QString kDxfR12Filter = QObject::tr("DXF R12 per programmi vecchi (*.dxf)");
+const QString kDwgFilter = QObject::tr("DWG 2000, sperimentale (*.dwg)");
 
 bool isDxf(const QString& path)
 {
@@ -380,7 +382,7 @@ void MainWindow::createActions()
     named(QStringLiteral("open"), QStringLiteral("open"), tr("&Apri..."), [this] { openDrawing(); }, QKeySequence::Open);
     named(QStringLiteral("save"), QStringLiteral("save"), tr("&Salva"), [this] { save(); }, QKeySequence::Save);
     named(QStringLiteral("saveAs"), QString(), tr("Salva &con nome..."), [this] { saveAs(); }, QKeySequence::SaveAs);
-    named(QStringLiteral("exportDxf"), QStringLiteral("export"), tr("Esporta &DXF..."), [this] { exportDxf(); });
+    named(QStringLiteral("exportDxf"), QStringLiteral("export"), tr("Esporta &DXF o DWG..."), [this] { exportDxf(); });
     named(QStringLiteral("exportModel"), QStringLiteral("view3d"), tr("Esporta &modello 3D (OBJ, STL)..."), [this] { exportModel(); });
     named(QStringLiteral("print"), QStringLiteral("print"), tr("S&tampa..."), [this] { plot(); }, QKeySequence::Print);
     named(QStringLiteral("layouts"), QStringLiteral("sheet"), tr("&Tavole..."), [this] { showLayouts(); })->setToolTip(tr("Tavole di stampa con cartiglio (TAVOLA)"));
@@ -940,6 +942,8 @@ bool MainWindow::exportTo(const QString& path)
         saved = io::saveObj(buildingModel(doc_), path, &error);
     } else if (path.endsWith(QLatin1String(".stl"), Qt::CaseInsensitive)) {
         saved = io::saveStl(buildingModel(doc_), path, &error);
+    } else if (isDwg(path)) {
+        saved = io::saveDwg(doc_, path, &error);
     } else {
         saved = isDxf(path) ? io::saveDxf(doc_, path, &error) : io::saveNative(doc_, path, &error);
     }
@@ -992,17 +996,27 @@ void MainWindow::exportModel()
 
 void MainWindow::exportDxf()
 {
-    QString path = QFileDialog::getSaveFileName(this, tr("Esporta DXF"), QString(), kDxfFilter);
+    QStringList filters{kDxfFilter, kDxfR12Filter};
+    if (io::dwgSupported())
+        filters << kDwgFilter;
+    QString filter = kDxfFilter;
+    QString path = QFileDialog::getSaveFileName(this, tr("Esporta DXF o DWG"), QString(), filters.join(QStringLiteral(";;")), &filter);
     if (path.isEmpty())
         return;
-    if (!isDxf(path))
-        path += QLatin1String(".dxf");
+    const bool dwg = filter == kDwgFilter || isDwg(path);
+    const QString suffix = dwg ? QStringLiteral(".dwg") : QStringLiteral(".dxf");
+    if (!path.endsWith(suffix, Qt::CaseInsensitive))
+        path += suffix;
     QString error;
-    if (!io::saveDxf(doc_, path, &error)) {
-        QMessageBox::warning(this, tr("Esporta DXF"), tr("Impossibile salvare %1:\n%2").arg(path, error));
+    const bool saved = dwg ? io::saveDwg(doc_, path, &error)
+                           : io::saveDxf(doc_, path, &error, filter == kDxfR12Filter ? io::DxfVersion::R12 : io::DxfVersion::R2000);
+    if (!saved) {
+        QMessageBox::warning(this, tr("Esporta DXF o DWG"), tr("Impossibile salvare %1:\n%2").arg(path, error));
         return;
     }
     commandLine_->appendMessage(tr("Esportato %1").arg(QFileInfo(path).fileName()));
+    if (dwg)
+        commandLine_->appendMessage(tr("La scrittura dei DWG è ancora sperimentale: se il DWG non si apre, usi il DXF 2000."));
 }
 
 bool MainWindow::maybeSave()

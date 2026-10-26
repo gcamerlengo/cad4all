@@ -3,8 +3,10 @@
 
 #include "building.h"
 #include "hatch.h"
+#include "nativeformat.h"
 
 #include <QFile>
+#include <QJsonDocument>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QStringList>
@@ -273,6 +275,11 @@ private:
             const int color = r.integer(62, 7);
             const int flags = r.integer(70);
             l.color = aciToColor(std::abs(color) == 0 ? 7 : std::abs(color));
+            if (r.find(420)) {
+                const unsigned rgb = static_cast<unsigned>(r.integer(420));
+                l.color = Color{static_cast<std::uint8_t>(rgb >> 16), static_cast<std::uint8_t>(rgb >> 8),
+                                static_cast<std::uint8_t>(rgb)};
+            }
             // A negative colour means the layer is off; frozen layers are hidden too.
             l.visible = color >= 0 && !(flags & 1);
             l.locked = flags & 4;
@@ -476,6 +483,14 @@ private:
             skip(QStringLiteral("INSERT"));
             return;
         }
+        // A wall, slab, roof or stair written by CAD4All: the object itself,
+        // moved and turned as the reference was (another program may have
+        // moved it), instead of the drawing of its plan.
+        if (const auto object = cad4allObject(r)) {
+            const Transform place = Transform::translation(r.point(10)) * Transform::rotation({0, 0}, degToRad(r.num(50)));
+            add(layer, *object, xf * place);
+            return;
+        }
         // Named blocks stay blocks; anonymous ones (*U...) are exploded.
         if (!name.startsWith(QLatin1Char('*')) && !exploding_) {
             insertReference(r, xf, layer, depth);
@@ -511,6 +526,25 @@ private:
             }
         }
         blockStyle_ = outer;
+    }
+
+    // The object CAD4All keeps in the XDATA of a reference, if there is one.
+    std::optional<Shape> cad4allObject(const Record& r) const
+    {
+        QByteArray json;
+        bool ours = false;
+        for (const Group& g : r.groups) {
+            if (g.code == 1001)
+                ours = g.value.trimmed() == QLatin1String("CAD4ALL");
+            else if (ours && g.code == 1000)
+                json += g.value.toLatin1();
+        }
+        if (json.isEmpty())
+            return std::nullopt;
+        const QJsonDocument parsed = QJsonDocument::fromJson(json);
+        if (!parsed.isObject())
+            return std::nullopt;
+        return shapeFromNativeJson(parsed.object(), doc_);
     }
 
     // A reference to a named block, or one per cell of a MINSERT.
@@ -665,10 +699,28 @@ private:
             d.location = r.point(11);
             break;
         default:
-            skip(QStringLiteral("DIMENSION angolare/coordinata"));
+            // Angular and ordinate dimensions: CAD4All has no such object, so
+            // keep the lines, arrows and label the dimension's block draws.
+            explodeDimensionBlock(r, xf, layer);
             return;
         }
         add(layer, d, xf);
+    }
+
+    void explodeDimensionBlock(const Record& r, const Transform& xf, const std::string& layer)
+    {
+        const auto it = blocks_.find(r.str(2));
+        if (r.str(2).isEmpty() || it == blocks_.end()) {
+            skip(QStringLiteral("DIMENSION angolare/coordinata"));
+            return;
+        }
+        const EntityStyle outer = blockStyle_;
+        blockStyle_ = style_;
+        const bool outerExploding = exploding_;
+        exploding_ = true;
+        convertList(it->second.records, xf * Transform::translation(it->second.base * -1.0), layer, 1, false);
+        exploding_ = outerExploding;
+        blockStyle_ = outer;
     }
 
     void convert(const Record& r, const Transform& xf, const Transform& full, const std::string& layer)
@@ -676,6 +728,8 @@ private:
         const QString& type = r.type;
         if (type == QLatin1String("LINE")) {
             add(layer, Line{r.point(10), r.point(11)}, xf);
+        } else if (type == QLatin1String("POINT")) {
+            add(layer, Point{r.point(10)}, xf);
         } else if (type == QLatin1String("CIRCLE")) {
             if (r.num(40) > 0.0)
                 add(layer, Circle{r.point(10), r.num(40)}, full);
@@ -1091,8 +1145,32 @@ private:
 
 // ------------------------------------------------------------------ writing
 
+// What the writers of one file share: the version, the handles (DXF 2000
+// gives every object one) and the block records the BLOCKS section needs.
+struct DxfContext {
+    explicit DxfContext(DxfVersion v) : modern(v != DxfVersion::R12) {}
+
+    bool modern;
+    unsigned next = 0x30;
+    std::vector<std::pair<QString, unsigned>> blockRecords;  // name, record handle
+    int dimCount = 0;
+    int hatchCount = 0;
+    int objectCount = 0;
+    QByteArray blocks;
+
+    unsigned handle() { return next++; }
+    unsigned blockRecord(const QString& name)
+    {
+        const unsigned h = handle();
+        blockRecords.push_back({name, h});
+        return h;
+    }
+};
+
 class DxfWriter {
 public:
+    DxfWriter(DxfContext& ctx, unsigned owner) : ctx_(ctx), owner_(owner) {}
+
     void group(int code, const QString& value)
     {
         out_ += QString::number(code).rightJustified(3, QLatin1Char(' ')).toLatin1();
@@ -1103,11 +1181,18 @@ public:
     void group(int code, const char* value) { group(code, QString::fromLatin1(value)); }
     void group(int code, double value) { group(code, number(value)); }
     void group(int code, int value) { group(code, QString::number(value)); }
+    void hex(int code, unsigned h) { group(code, QString::number(h, 16).toUpper()); }
     void point(int code, Vec2 p)
     {
         group(code, p.x);
         group(code + 10, p.y);
         group(code + 20, 0.0);
+    }
+    // A subclass marker, which only DXF 2000 has.
+    void sub(const char* name)
+    {
+        if (ctx_.modern)
+            group(100, name);
     }
 
     static QString number(double v)
@@ -1122,9 +1207,9 @@ public:
         return s;
     }
 
-    // R12 files are 8-bit in the Windows code page (declared in the header):
-    // Ø, ° and ± use the classic %% codes, Latin-1 letters go as they are and
-    // anything else as \U+XXXX.
+    // Both versions are 8-bit in the Windows code page (declared in the
+    // header): Ø, ° and ± use the classic %% codes, Latin-1 letters go as
+    // they are and anything else as \U+XXXX.
     static QString encode(const std::string& utf8)
     {
         const QString s = QString::fromStdString(utf8);
@@ -1144,18 +1229,31 @@ public:
         return out;
     }
 
+    // The start of an entity: its type, then (DXF 2000) its handle and owner,
+    // then its layer and style.
+    void begin(const char* type, const std::string& layer)
+    {
+        group(0, type);
+        if (ctx_.modern) {
+            hex(5, ctx_.handle());
+            hex(330, owner_);
+            group(100, "AcDbEntity");
+        }
+        this->layer(layer);
+    }
+
     void line(const std::string& layer, Vec2 a, Vec2 b)
     {
-        group(0, "LINE");
-        this->layer(layer);
+        begin("LINE", layer);
+        sub("AcDbLine");
         point(10, a);
         point(11, b);
     }
 
     void text(const std::string& layer, const Text& t)
     {
-        group(0, "TEXT");
-        this->layer(layer);
+        begin("TEXT", layer);
+        sub("AcDbText");
         point(10, t.position);
         group(40, t.height);
         group(1, encode(t.content));
@@ -1165,107 +1263,215 @@ public:
             group(72, t.align == Text::Align::Center ? 1 : 2);
             point(11, t.position);
         }
+        sub("AcDbText");
     }
 
-    void solid(const std::string& layer, const std::array<Vec2, 3>& tri)
+    void mtext(const std::string& layer, const MText& m)
     {
-        group(0, "SOLID");
-        this->layer(layer);
-        point(10, tri[0]);
-        point(11, tri[1]);
-        point(12, tri[2]);
-        point(13, tri[2]);
+        begin("MTEXT", layer);
+        sub("AcDbMText");
+        point(10, m.position);
+        // Extrusion and direction before the sizes, in the order AutoCAD
+        // writes them: LibreDWG reads the groups in that order.
+        group(210, 0.0);
+        group(220, 0.0);
+        group(230, 1.0);
+        point(11, polar(1.0, m.rotation));
+        group(40, m.height);
+        group(41, m.width);
+        const int column = m.align == Text::Align::Left ? 1 : m.align == Text::Align::Center ? 2 : 3;
+        const int row = m.vertical == MText::Vertical::Top ? 0 : m.vertical == MText::Vertical::Middle ? 1 : 2;
+        group(71, row * 3 + column);
+        group(72, 1);
+        QString content = QString::fromStdString(m.content);
+        content.replace(QLatin1Char('\\'), QLatin1String("\\\\"));
+        content.replace(QLatin1Char('{'), QLatin1String("\\{"));
+        content.replace(QLatin1Char('}'), QLatin1String("\\}"));
+        content.replace(QLatin1Char('\n'), QLatin1String("\\P"));
+        content = encode(content.toStdString());
+        // The text in pieces of 250 characters: 3 for all but the last, then 1.
+        while (content.size() > 250) {
+            group(3, content.left(250));
+            content.remove(0, 250);
+        }
+        group(1, content);
+        group(7, "STANDARD");
+        if (m.lineSpacing != 1.0) {
+            group(73, 1);
+            group(44, m.lineSpacing);
+        }
     }
 
-    // The layer of an entity, then its own colour and linetype (R12 has no lineweights).
+    void solid(const std::string& layer, const std::array<Vec2, 4>& corners)
+    {
+        begin("SOLID", layer);
+        sub("AcDbTrace");
+        point(10, corners[0]);
+        point(11, corners[1]);
+        point(12, corners[2]);
+        point(13, corners[3]);
+    }
+    void solid(const std::string& layer, const std::array<Vec2, 3>& tri) { solid(layer, {tri[0], tri[1], tri[2], tri[2]}); }
+
+    // The layer of an entity, then its own colour, linetype and (DXF 2000)
+    // lineweight.
     void layer(const std::string& name)
     {
         group(8, layerName(name));
         if (linetypeKey(style_.linetype) != kByLayer)
             group(6, encode(style_.linetype));
-        if (colorByBlock_)
+        if (colorByBlock_) {
             group(62, 0);
-        else if (style_.color)
-            group(62, colorToAci(*style_.color));
+        } else if (style_.color) {
+            const auto aci = exactAci(*style_.color);
+            group(62, aci ? *aci : colorToAci(*style_.color));
+            if (ctx_.modern && !aci)
+                group(420, static_cast<int>((style_.color->r << 16) | (style_.color->g << 8) | style_.color->b));
+        }
+        if (ctx_.modern && style_.lineweight != kLineweightByLayer)
+            group(370, style_.lineweight);
     }
 
     // An object as DXF has it: walls, slabs, roofs and stairs go out as what
-    // they draw in plan. `faces` are those of a wall joined to others.
-    void object(const std::string& layer, const Shape& s, const WallFaces* faces, int& dimCount, QByteArray& blocks)
+    // they draw in plan. `faces` are those of a wall joined to others. In DXF
+    // 2000 that drawing is a block, inserted with the object itself in XDATA,
+    // so CAD4All reads it back as it was and other programs see the plan.
+    void object(const std::string& layer, const Shape& s, const WallFaces* faces)
     {
+        std::vector<Shape> plan;
         if (const auto* slab = std::get_if<Slab>(&s)) {
-            for (const Polyline& loop : slab->loops)
-                shape(layer, loop, dimCount, blocks);
+            plan.assign(slab->loops.begin(), slab->loops.end());
         } else if (const auto* roof = std::get_if<Roof>(&s)) {
-            for (const Shape& part : roofPlan(*roof))
-                shape(layer, part, dimCount, blocks);
+            plan = roofPlan(*roof);
         } else if (const auto* stair = std::get_if<Stair>(&s)) {
-            for (const Shape& part : stairPlan(*stair))
-                shape(layer, part, dimCount, blocks);
+            plan = stairPlan(*stair);
         } else if (const auto* wall = std::get_if<Wall>(&s)) {
-            for (const Shape& part : faces ? wallPlan(*wall, *faces) : wallPlan(*wall))
-                shape(layer, part, dimCount, blocks);
+            plan = faces ? wallPlan(*wall, *faces) : wallPlan(*wall);
         } else {
-            shape(layer, s, dimCount, blocks);
+            shape(layer, s);
+            return;
         }
+        if (!ctx_.modern) {
+            for (const Shape& part : plan)
+                shape(layer, part);
+            return;
+        }
+        const QString name = QStringLiteral("*U%1").arg(++ctx_.objectCount);
+        DxfWriter block(ctx_, ctx_.blockRecord(name));
+        block.blockBegin(name, {0.0, 0.0}, 1);
+        // The parts take the layer and style of the reference.
+        block.colorByBlock_ = true;
+        block.style_.linetype = "BYBLOCK";
+        block.style_.lineweight = kLineweightByBlock;
+        for (const Shape& part : plan)
+            block.shape("0", part);
+        block.blockEnd();
+        ctx_.blocks += block.out_;
+
+        begin("INSERT", layer);
+        sub("AcDbBlockReference");
+        group(2, name);
+        point(10, {0.0, 0.0});
+        xdata(QJsonDocument(shapeToNativeJson(s)).toJson(QJsonDocument::Compact));
     }
 
-    void shape(const std::string& layer, const Shape& s, int& dimCount, QByteArray& blocks);
-    void hatch(const std::string& layer, const Hatch& h, QByteArray& blocks);
+    // CAD4All's own data, readable only by CAD4All: JSON in pieces of 200
+    // characters (XDATA strings stop at 255, and LibreDWG drops longer ones).
+    void xdata(const QByteArray& json)
+    {
+        group(1001, kAppName);
+        for (qsizetype i = 0; i < json.size(); i += 200)
+            group(1000, QString::fromLatin1(json.mid(i, 200)));
+    }
 
-    int hatchCount_ = 0;
-    EntityStyle style_;
-    bool colorByBlock_ = false;
+    void blockBegin(const QString& name, Vec2 base, int flags)
+    {
+        group(0, "BLOCK");
+        if (ctx_.modern) {
+            hex(5, ctx_.handle());
+            hex(330, owner_);
+            group(100, "AcDbEntity");
+        }
+        group(8, "0");
+        sub("AcDbBlockBegin");
+        group(2, name);
+        group(70, flags);
+        point(10, base);
+        group(3, name);
+        if (ctx_.modern)
+            group(1, "");
+    }
+    void blockEnd()
+    {
+        group(0, "ENDBLK");
+        if (ctx_.modern) {
+            hex(5, ctx_.handle());
+            hex(330, owner_);
+            group(100, "AcDbEntity");
+        }
+        group(8, "0");
+        sub("AcDbBlockEnd");
+    }
 
+    void shape(const std::string& layer, const Shape& s);
+    void polyline(const std::string& layer, const Polyline& pl);
+    void hatch(const std::string& layer, const Hatch& h);
+    void hatchAsBlock(const std::string& layer, const Hatch& h);
+    void dimension(const std::string& layer, const Dimension& d);
+
+    static constexpr const char* kAppName = "CAD4ALL";
     static QString layerName(const std::string& name) { return encode(name); }
 
+    DxfContext& ctx_;
+    unsigned owner_;
+    EntityStyle style_;
+    bool colorByBlock_ = false;
     QByteArray out_;
 };
 
-void DxfWriter::shape(const std::string& layer, const Shape& s, int& dimCount, QByteArray& blocks)
+void DxfWriter::shape(const std::string& layer, const Shape& s)
 {
     if (const auto* l = std::get_if<Line>(&s)) {
         line(layer, l->a, l->b);
+    } else if (const auto* p = std::get_if<Point>(&s)) {
+        begin("POINT", layer);
+        sub("AcDbPoint");
+        point(10, p->position);
     } else if (const auto* c = std::get_if<Circle>(&s)) {
-        group(0, "CIRCLE");
-        this->layer(layer);
+        begin("CIRCLE", layer);
+        sub("AcDbCircle");
         point(10, c->center);
         group(40, c->radius);
     } else if (const auto* a = std::get_if<Arc>(&s)) {
-        group(0, "ARC");
-        this->layer(layer);
+        begin("ARC", layer);
+        sub("AcDbCircle");
         point(10, a->center);
         group(40, a->radius);
+        sub("AcDbArc");
         group(50, radToDeg(normalizeAngle(a->startAngle)));
         group(51, radToDeg(normalizeAngle(a->endAngle)));
     } else if (const auto* pl = std::get_if<Polyline>(&s)) {
-        group(0, "POLYLINE");
-        this->layer(layer);
-        group(66, 1);
-        point(10, {0.0, 0.0});
-        group(70, pl->closed ? 1 : 0);
-        for (size_t i = 0; i < pl->points.size(); ++i) {
-            group(0, "VERTEX");
-            this->layer(layer);
-            point(10, pl->points[i]);
-            if (std::abs(pl->bulge(i)) > 1e-12)
-                group(42, pl->bulge(i));
-        }
-        group(0, "SEQEND");
-        this->layer(layer);
+        polyline(layer, *pl);
     } else if (const auto* t = std::get_if<Text>(&s)) {
         text(layer, *t);
     } else if (const auto* m = std::get_if<MText>(&s)) {
-        // R12 has no MTEXT: one TEXT per line.
-        for (const Text& line : textLines(*m))
-            text(layer, line);
+        if (ctx_.modern) {
+            mtext(layer, *m);
+        } else {
+            // R12 has no MTEXT: one TEXT per line.
+            for (const Text& line : textLines(*m))
+                text(layer, line);
+        }
     } else if (const auto* h = std::get_if<Hatch>(&s)) {
-        hatch(layer, *h, blocks);
+        if (ctx_.modern)
+            hatch(layer, *h);
+        else
+            hatchAsBlock(layer, *h);
     } else if (const auto* ref = std::get_if<Insert>(&s)) {
         if (!ref->block)
             return;
-        group(0, "INSERT");
-        this->layer(layer);
+        begin("INSERT", layer);
+        sub("AcDbBlockReference");
         group(2, encode(ref->block->name));
         point(10, ref->position);
         if (ref->scaleX != 1.0)
@@ -1275,111 +1481,197 @@ void DxfWriter::shape(const std::string& layer, const Shape& s, int& dimCount, Q
         if (std::abs(ref->rotation) > 1e-12)
             group(50, radToDeg(normalizeAngle(ref->rotation)));
     } else if (const auto* d = std::get_if<Dimension>(&s)) {
-        // The drawn geometry goes into an anonymous block, as AutoCAD does.
-        const QString name = QStringLiteral("*D%1").arg(++dimCount);
-        DxfWriter block;
-        block.group(0, "BLOCK");
-        block.group(8, "0");
-        block.group(2, name);
-        block.group(70, 1);
-        block.point(10, {0.0, 0.0});
-        block.group(3, name);
-        const DimensionGeometry g = dimensionGeometry(*d);
+        dimension(layer, *d);
+    } else {
+        object(layer, s, nullptr);
+    }
+}
+
+void DxfWriter::polyline(const std::string& layer, const Polyline& pl)
+{
+    if (ctx_.modern) {
+        begin("LWPOLYLINE", layer);
+        sub("AcDbPolyline");
+        group(90, static_cast<int>(pl.points.size()));
+        group(70, pl.closed ? 1 : 0);
+        for (size_t i = 0; i < pl.points.size(); ++i) {
+            group(10, pl.points[i].x);
+            group(20, pl.points[i].y);
+            if (std::abs(pl.bulge(i)) > 1e-12)
+                group(42, pl.bulge(i));
+        }
+        return;
+    }
+    begin("POLYLINE", layer);
+    group(66, 1);
+    point(10, {0.0, 0.0});
+    group(70, pl.closed ? 1 : 0);
+    for (size_t i = 0; i < pl.points.size(); ++i) {
+        begin("VERTEX", layer);
+        point(10, pl.points[i]);
+        if (std::abs(pl.bulge(i)) > 1e-12)
+            group(42, pl.bulge(i));
+    }
+    begin("SEQEND", layer);
+}
+
+void DxfWriter::dimension(const std::string& layer, const Dimension& d)
+{
+    // The drawn geometry goes into an anonymous block, as AutoCAD does.
+    const QString name = QStringLiteral("*D%1").arg(++ctx_.dimCount);
+    const DimensionGeometry g = dimensionGeometry(d);
+    {
+        DxfWriter block(ctx_, ctx_.modern ? ctx_.blockRecord(name) : 0);
+        block.blockBegin(name, {0.0, 0.0}, 1);
+        block.colorByBlock_ = true;
         for (const Line& l : g.lines)
             block.line("0", l.a, l.b);
         for (const auto& arrow : g.arrows)
             block.solid("0", arrow);
         block.text("0", g.label);
-        block.group(0, "ENDBLK");
-        block.group(8, "0");
-        blocks += block.out_;
+        block.blockEnd();
+        ctx_.blocks += block.out_;
+    }
 
-        group(0, "DIMENSION");
-        this->layer(layer);
-        group(2, name);
+    begin("DIMENSION", layer);
+    sub("AcDbDimension");
+    group(2, name);
+    switch (d.kind) {
+    case Dimension::Kind::Linear:
+    case Dimension::Kind::Aligned: {
+        const bool aligned = d.kind == Dimension::Kind::Aligned;
+        const Vec2 dir = aligned ? normalized(d.p2 - d.p1) : polar(1.0, d.angle);
+        const Vec2 n = perpendicular(dir);
+        // Definition point: where the dimension line meets the second extension line.
+        point(10, d.p2 + n * dot(d.location - d.p2, n));
+        point(11, g.label.position);
+        // 32: the block is this dimension's own (always set by AutoCAD).
+        group(70, (aligned ? 1 : 0) | (ctx_.modern ? 32 : 0));
+        if (!d.text.empty())
+            group(1, encode(d.text));
         group(3, "STANDARD");
-        switch (d->kind) {
-        case Dimension::Kind::Linear:
-        case Dimension::Kind::Aligned: {
-            const bool aligned = d->kind == Dimension::Kind::Aligned;
-            const Vec2 dir = aligned ? normalized(d->p2 - d->p1) : polar(1.0, d->angle);
-            const Vec2 n = perpendicular(dir);
-            // Definition point: where the dimension line meets the second extension line.
-            point(10, d->p2 + n * dot(d->location - d->p2, n));
-            point(11, g.label.position);
-            group(70, aligned ? 1 : 0);
-            if (!d->text.empty())
-                group(1, encode(d->text));
-            point(13, d->p1);
-            point(14, d->p2);
-            if (!aligned)
-                group(50, radToDeg(d->angle));
-            break;
+        sub("AcDbAlignedDimension");
+        point(13, d.p1);
+        point(14, d.p2);
+        if (!aligned) {
+            group(50, radToDeg(d.angle));
+            sub("AcDbRotatedDimension");
         }
-        case Dimension::Kind::Radius:
-        case Dimension::Kind::Diameter: {
-            const bool diameter = d->kind == Dimension::Kind::Diameter;
-            point(10, diameter ? d->p1 * 2.0 - d->p2 : d->p1);
-            point(11, d->location);
-            group(70, diameter ? 3 : 4);
-            if (!d->text.empty())
-                group(1, encode(d->text));
-            point(15, d->p2);
-            group(40, 0.0);
-            break;
+        break;
+    }
+    case Dimension::Kind::Radius:
+    case Dimension::Kind::Diameter: {
+        const bool diameter = d.kind == Dimension::Kind::Diameter;
+        point(10, diameter ? d.p1 * 2.0 - d.p2 : d.p1);
+        point(11, d.location);
+        group(70, (diameter ? 3 : 4) | (ctx_.modern ? 32 : 0));
+        if (!d.text.empty())
+            group(1, encode(d.text));
+        group(3, "STANDARD");
+        sub(diameter ? "AcDbDiametricDimension" : "AcDbRadialDimension");
+        point(15, d.p2);
+        group(40, 0.0);
+        break;
+    }
+    }
+    if (ctx_.modern) {
+        // Text and arrow size of this dimension, overriding the style as
+        // AutoCAD does (DIMTXT 140, DIMASZ 41).
+        group(1001, "ACAD");
+        group(1000, "DSTYLE");
+        group(1002, "{");
+        group(1070, 140);
+        group(1040, d.textHeight);
+        group(1070, 41);
+        group(1040, d.arrowSize);
+        group(1002, "}");
+    }
+}
+
+// DXF 2000: a HATCH entity, with the pattern lines scaled and rotated as the
+// file wants them (the reader undoes this).
+void DxfWriter::hatch(const std::string& layer, const Hatch& h)
+{
+    begin("HATCH", layer);
+    sub("AcDbHatch");
+    point(10, {0.0, 0.0});
+    group(210, 0.0);
+    group(220, 0.0);
+    group(230, 1.0);
+    group(2, h.solid() ? QStringLiteral("SOLID") : encode(h.pattern));
+    group(70, h.solid() ? 1 : 0);
+    group(71, 0);
+    group(91, static_cast<int>(h.loops.size()));
+    for (const Polyline& loop : h.loops) {
+        group(92, 2);  // a polyline path
+        const bool bulges = std::any_of(loop.bulges.begin(), loop.bulges.end(), [](double b) { return std::abs(b) > 1e-12; });
+        group(72, bulges ? 1 : 0);
+        group(73, 1);
+        group(93, static_cast<int>(loop.points.size()));
+        for (size_t i = 0; i < loop.points.size(); ++i) {
+            group(10, loop.points[i].x);
+            group(20, loop.points[i].y);
+            if (bulges)
+                group(42, loop.bulge(i));
         }
+        group(97, 0);
+    }
+    group(75, 0);  // odd parity, as CAD4All fills
+    group(76, 1);
+    if (!h.solid()) {
+        group(52, radToDeg(h.angle));
+        group(41, h.scale);
+        group(77, 0);
+        group(78, static_cast<int>(h.lines.size()));
+        const Transform rot = Transform::rotation({0, 0}, h.angle);
+        for (const HatchPatternLine& l : h.lines) {
+            const double angle = h.angle + l.angle;
+            group(53, radToDeg(angle));
+            const Vec2 base = h.origin + rot.applyVector(l.origin * h.scale);
+            group(43, base.x);
+            group(44, base.y);
+            const Vec2 offset = Transform::rotation({0, 0}, angle).applyVector(l.offset * h.scale);
+            group(45, offset.x);
+            group(46, offset.y);
+            group(79, static_cast<int>(l.dashes.size()));
+            for (double dash : l.dashes)
+                group(49, dash * h.scale);
         }
     }
+    group(98, 0);
 }
 
 // R12 has no HATCH entity: AutoCAD R12 itself kept a hatch as an anonymous
 // block of lines, inserted on the hatch's layer. A solid fill becomes SOLIDs.
-void DxfWriter::hatch(const std::string& layer, const Hatch& h, QByteArray& blocks)
+void DxfWriter::hatchAsBlock(const std::string& layer, const Hatch& h)
 {
-    const QString name = QStringLiteral("*X%1").arg(++hatchCount_);
-    DxfWriter block;
-    block.group(0, "BLOCK");
-    block.group(8, "0");
-    block.group(2, name);
-    block.group(70, 1);
-    block.point(10, {0.0, 0.0});
-    block.group(3, name);
+    const QString name = QStringLiteral("*X%1").arg(++ctx_.hatchCount);
+    DxfWriter block(ctx_, 0);
+    block.blockBegin(name, {0.0, 0.0}, 1);
     bool dense = false;
     const auto lines = h.solid() ? std::vector<Line>{}
                                  : hatchLines(h, BBox::fromCorners({-1e300, -1e300}, {1e300, 1e300}), 500000, &dense);
     if (h.solid()) {
-        for (const auto& q : hatchTrapezoids(h)) {
-            block.group(0, "SOLID");
-            block.group(8, "0");
-            // SOLID corners go in "bow tie" order: 1, 2, 4, 3.
-            block.point(10, q[0]);
-            block.point(11, q[1]);
-            block.point(12, q[3]);
-            block.point(13, q[2]);
-        }
+        // SOLID corners go in "bow tie" order: 1, 2, 4, 3.
+        for (const auto& q : hatchTrapezoids(h))
+            block.solid("0", std::array<Vec2, 4>{q[0], q[1], q[3], q[2]});
     } else if (dense) {
         // Far too many lines for a file: keep the outline only.
-        int unused = 0;
-        QByteArray none;
         for (const Polyline& loop : h.loops)
-            block.shape("0", loop, unused, none);
+            block.shape("0", loop);
     } else {
         for (const Line& l : lines) {
             if (l.a == l.b) {
-                block.group(0, "POINT");
-                block.group(8, "0");
-                block.point(10, l.a);
+                block.shape("0", Point{l.a});
             } else {
                 block.line("0", l.a, l.b);
             }
         }
     }
-    block.group(0, "ENDBLK");
-    block.group(8, "0");
-    blocks += block.out_;
+    block.blockEnd();
+    ctx_.blocks += block.out_;
 
-    group(0, "INSERT");
-    this->layer(layer);
+    begin("INSERT", layer);
     group(2, name);
     point(10, {0.0, 0.0});
 }
@@ -1412,79 +1704,18 @@ bool fromDxf(const QByteArray& data, Document& doc, QString* message)
     return true;
 }
 
-QByteArray toDxf(const Document& doc)
+QByteArray toDxf(const Document& doc, DxfVersion version)
 {
-    DxfWriter w;
-    const BBox ext = doc.extents();
-    w.group(0, "SECTION");
-    w.group(2, "HEADER");
-    w.group(9, "$ACADVER");
-    w.group(1, "AC1009");
-    w.group(9, "$DWGCODEPAGE");
-    w.group(3, "ANSI_1252");
-    w.group(9, "$EXTMIN");
-    w.point(10, ext.valid() ? ext.min : Vec2{0, 0});
-    w.group(9, "$EXTMAX");
-    w.point(10, ext.valid() ? ext.max : Vec2{0, 0});
-    w.group(9, "$LTSCALE");
-    w.group(40, doc.linetypeScale());
-    w.group(0, "ENDSEC");
+    DxfContext ctx(version);
+    const bool modern = ctx.modern;
+    const unsigned modelSpace = modern ? ctx.blockRecord(QStringLiteral("*Model_Space")) : 0;
+    const unsigned paperSpace = modern ? ctx.blockRecord(QStringLiteral("*Paper_Space")) : 0;
 
-    w.group(0, "SECTION");
-    w.group(2, "TABLES");
-    w.group(0, "TABLE");
-    w.group(2, "LTYPE");
-    w.group(70, static_cast<int>(doc.linetypes().size()));
-    for (const Linetype& t : doc.linetypes()) {
-        w.group(0, "LTYPE");
-        w.group(2, DxfWriter::encode(t.name));
-        w.group(70, 0);
-        w.group(3, DxfWriter::encode(t.description));
-        w.group(72, 65);
-        w.group(73, static_cast<int>(t.pattern.size()));
-        w.group(40, t.patternLength());
-        for (double d : t.pattern)
-            w.group(49, d);
-    }
-    w.group(0, "ENDTAB");
-    w.group(0, "TABLE");
-    w.group(2, "LAYER");
-    w.group(70, static_cast<int>(doc.layers().size()));
-    for (const Layer& l : doc.layers()) {
-        w.group(0, "LAYER");
-        w.group(2, DxfWriter::layerName(l.name));
-        w.group(70, l.locked ? 4 : 0);
-        const int aci = colorToAci(l.color);
-        w.group(62, l.visible ? aci : -aci);
-        w.group(6, DxfWriter::encode(l.linetype));
-    }
-    w.group(0, "ENDTAB");
-    w.group(0, "TABLE");
-    w.group(2, "DIMSTYLE");
-    w.group(70, 1);
-    w.group(0, "DIMSTYLE");
-    w.group(2, "STANDARD");
-    w.group(70, 0);
-    w.group(0, "ENDTAB");
-    w.group(0, "TABLE");
-    w.group(2, "STYLE");
-    w.group(70, 1);
-    w.group(0, "STYLE");
-    w.group(2, "STANDARD");
-    w.group(70, 0);
-    w.group(40, 0.0);
-    w.group(41, 1.0);
-    w.group(50, 0.0);
-    w.group(71, 0);
-    w.group(42, 2.5);
-    w.group(3, "txt");
-    w.group(4, "");
-    w.group(0, "ENDTAB");
-    w.group(0, "ENDSEC");
+    // Fixed handles of the objects, below those given as the file is written.
+    const unsigned layoutDict = 0x10, modelLayout = 0x11, paperLayout = 0x12;
 
-    QByteArray blocks;
-    int dimCount = 0;
-    DxfWriter entities;
+    // Entities first: they define the anonymous blocks and use up handles.
+    DxfWriter entities(ctx, modelSpace);
     // DXF has no walls, slabs, roofs or stairs: they go out as what they draw in plan.
     const std::map<EntityId, WallFaces> walls = joinedWalls(doc);
     // Only the current story: the others would lie on top of it.
@@ -1493,38 +1724,335 @@ QByteArray toDxf(const Document& doc)
             continue;
         entities.style_ = styleOf(e);
         const auto faces = walls.find(id);
-        entities.object(e.layer, e.shape, faces == walls.end() ? nullptr : &faces->second, dimCount, blocks);
+        entities.object(e.layer, e.shape, faces == walls.end() ? nullptr : &faces->second);
     }
     // The blocks of the drawing, objects in block coordinates.
-    int hatchCount = entities.hatchCount_;
+    QByteArray namedBlocks;
     for (const auto& [key, b] : doc.blocks()) {
-        DxfWriter block;
-        block.hatchCount_ = hatchCount;
-        block.group(0, "BLOCK");
-        block.group(8, "0");
-        block.group(2, DxfWriter::encode(b->name));
-        block.group(70, 0);
-        block.point(10, b->base);
-        block.group(3, DxfWriter::encode(b->name));
+        const QString name = DxfWriter::encode(b->name);
+        DxfWriter block(ctx, modern ? ctx.blockRecord(name) : 0);
+        block.blockBegin(name, b->base, 0);
         for (const BlockItem& item : b->items) {
             block.style_ = {item.color, item.linetype, item.lineweight};
             block.colorByBlock_ = item.colorByBlock;
-            block.object(item.layer, item.shape, nullptr, dimCount, blocks);
+            block.object(item.layer, item.shape, nullptr);
         }
-        block.group(0, "ENDBLK");
-        block.group(8, "0");
-        blocks += block.out_;
-        hatchCount = block.hatchCount_;
+        block.blockEnd();
+        namedBlocks += block.out_;
+    }
+    QByteArray layoutBlocks;
+    if (modern) {
+        DxfWriter ms(ctx, modelSpace);
+        ms.blockBegin(QStringLiteral("*Model_Space"), {0, 0}, 0);
+        ms.blockEnd();
+        DxfWriter ps(ctx, paperSpace);
+        ps.blockBegin(QStringLiteral("*Paper_Space"), {0, 0}, 0);
+        ps.blockEnd();
+        layoutBlocks = ms.out_ + ps.out_;
     }
 
+    // Tables and objects, with their handles.
+    DxfWriter t(ctx, 0);
+    auto table = [&](const char* name, int count) {
+        t.group(0, "TABLE");
+        t.group(2, name);
+        unsigned h = 0;
+        if (modern) {
+            h = ctx.handle();
+            t.hex(5, h);
+            t.hex(330, 0);
+            t.group(100, "AcDbSymbolTable");
+        }
+        t.group(70, count);
+        return h;
+    };
+    auto entry = [&](const char* type, unsigned owner, const char* subclass) {
+        t.group(0, type);
+        if (modern) {
+            t.hex(5, ctx.handle());
+            t.hex(330, owner);
+            t.group(100, "AcDbSymbolTableRecord");
+            t.group(100, subclass);
+        }
+    };
+
+    if (modern) {
+        const unsigned vports = table("VPORT", 1);
+        entry("VPORT", vports, "AcDbViewportTableRecord");
+        t.group(2, "*ACTIVE");
+        t.group(70, 0);
+        const BBox ext = doc.extents();
+        const Vec2 c = ext.valid() ? (ext.min + ext.max) * 0.5 : Vec2{0, 0};
+        t.group(12, c.x);
+        t.group(22, c.y);
+        t.group(40, ext.valid() ? std::max(ext.height(), ext.width() / 1.5) * 1.1 : 297.0);
+        t.group(41, 1.5);
+        t.group(0, "ENDTAB");
+    }
+
+    std::vector<const Linetype*> linetypes;
+    for (const Linetype& lt : doc.linetypes())
+        if (!modern || (linetypeKey(lt.name) != "BYBLOCK" && linetypeKey(lt.name) != kByLayer))
+            linetypes.push_back(&lt);
+    const unsigned ltypes = table("LTYPE", static_cast<int>(linetypes.size()) + (modern ? 2 : 0));
+    if (modern) {
+        // AutoCAD expects the two pseudo linetypes in the table.
+        for (const char* name : {"ByBlock", "ByLayer"}) {
+            entry("LTYPE", ltypes, "AcDbLinetypeTableRecord");
+            t.group(2, name);
+            t.group(70, 0);
+            t.group(3, "");
+            t.group(72, 65);
+            t.group(73, 0);
+            t.group(40, 0.0);
+        }
+    }
+    for (const Linetype* lt : linetypes) {
+        entry("LTYPE", ltypes, "AcDbLinetypeTableRecord");
+        t.group(2, DxfWriter::encode(lt->name));
+        t.group(70, 0);
+        t.group(3, DxfWriter::encode(lt->description));
+        t.group(72, 65);
+        t.group(73, static_cast<int>(lt->pattern.size()));
+        t.group(40, lt->patternLength());
+        for (double d : lt->pattern) {
+            t.group(49, d);
+            if (modern)
+                t.group(74, 0);
+        }
+    }
+    t.group(0, "ENDTAB");
+
+    const unsigned layers = table("LAYER", static_cast<int>(doc.layers().size()));
+    for (const Layer& l : doc.layers()) {
+        entry("LAYER", layers, "AcDbLayerTableRecord");
+        t.group(2, DxfWriter::layerName(l.name));
+        t.group(70, l.locked ? 4 : 0);
+        const auto exact = exactAci(l.color);
+        const int aci = exact ? *exact : colorToAci(l.color);
+        t.group(62, l.visible ? aci : -aci);
+        t.group(6, DxfWriter::encode(l.linetype));
+        if (modern) {
+            if (!exact)
+                t.group(420, static_cast<int>((l.color.r << 16) | (l.color.g << 8) | l.color.b));
+            t.group(370, l.lineweight);
+            t.hex(390, 0xF);  // the plot style placeholder in OBJECTS
+        }
+    }
+    t.group(0, "ENDTAB");
+
+    const unsigned styles = table("STYLE", 1);
+    entry("STYLE", styles, "AcDbTextStyleTableRecord");
+    t.group(2, "STANDARD");
+    t.group(70, 0);
+    t.group(40, 0.0);
+    t.group(41, 1.0);
+    t.group(50, 0.0);
+    t.group(71, 0);
+    t.group(42, 2.5);
+    t.group(3, "txt");
+    t.group(4, "");
+    t.group(0, "ENDTAB");
+
+    if (modern) {
+        for (const char* name : {"VIEW", "UCS"}) {
+            table(name, 0);
+            t.group(0, "ENDTAB");
+        }
+    }
+
+    const unsigned appids = table("APPID", modern ? 2 : 1);
+    for (const char* name : modern ? std::vector<const char*>{"ACAD", DxfWriter::kAppName} : std::vector<const char*>{"ACAD"}) {
+        entry("APPID", appids, "AcDbRegAppTableRecord");
+        t.group(2, name);
+        t.group(70, 0);
+    }
+    t.group(0, "ENDTAB");
+
+    const unsigned dimstyles = table("DIMSTYLE", 1);
+    if (modern)
+        t.group(100, "AcDbDimStyleTable");
+    t.group(0, "DIMSTYLE");
+    if (modern) {
+        // Dimension styles give their handle with 105, not 5.
+        t.hex(105, ctx.handle());
+        t.hex(330, dimstyles);
+        t.group(100, "AcDbSymbolTableRecord");
+        t.group(100, "AcDbDimStyleTableRecord");
+    }
+    t.group(2, "STANDARD");
+    t.group(70, 0);
+    t.group(0, "ENDTAB");
+
+    if (modern) {
+        const unsigned records = table("BLOCK_RECORD", static_cast<int>(ctx.blockRecords.size()));
+        // The records were numbered as the blocks were written; fix their owner now.
+        for (const auto& [name, h] : ctx.blockRecords) {
+            t.group(0, "BLOCK_RECORD");
+            t.hex(5, h);
+            t.hex(330, records);
+            t.group(100, "AcDbSymbolTableRecord");
+            t.group(100, "AcDbBlockTableRecord");
+            t.group(2, name);
+            if (h == modelSpace)
+                t.hex(340, modelLayout);
+            else if (h == paperSpace)
+                t.hex(340, paperLayout);
+        }
+        t.group(0, "ENDTAB");
+    }
+
+    // OBJECTS: the root dictionary with the group dictionary AutoCAD wants,
+    // the layouts of the model and of one sheet, and the plot style
+    // placeholder the layers point to.
+    QByteArray objects;
+    if (modern) {
+        DxfWriter o(ctx, 0);
+        const unsigned root = 0xC, groups = 0xD;
+        o.group(0, "DICTIONARY");
+        o.hex(5, root);
+        o.hex(330, 0);
+        o.group(100, "AcDbDictionary");
+        o.group(281, 1);
+        o.group(3, "ACAD_GROUP");
+        o.hex(350, groups);
+        o.group(3, "ACAD_LAYOUT");
+        o.hex(350, layoutDict);
+        o.group(3, "ACAD_PLOTSTYLENAME");
+        o.hex(350, 0xE);
+        o.group(0, "DICTIONARY");
+        o.hex(5, groups);
+        o.hex(330, root);
+        o.group(100, "AcDbDictionary");
+        o.group(281, 1);
+        o.group(0, "DICTIONARY");
+        o.hex(5, layoutDict);
+        o.hex(330, root);
+        o.group(100, "AcDbDictionary");
+        o.group(281, 1);
+        o.group(3, "Model");
+        o.hex(350, modelLayout);
+        o.group(3, "Layout1");
+        o.hex(350, paperLayout);
+        // The model and one empty sheet, as AutoCAD writes them.
+        for (const bool model : {true, false}) {
+            o.group(0, "LAYOUT");
+            o.hex(5, model ? modelLayout : paperLayout);
+            o.hex(330, layoutDict);
+            o.group(100, "AcDbPlotSettings");
+            o.group(1, "");
+            o.group(4, "A3");
+            o.group(6, "");
+            for (const auto& [code, value] : std::vector<std::pair<int, double>>{
+                     {40, 7.5}, {41, 20.0}, {42, 7.5}, {43, 20.0}, {44, 420.0}, {45, 297.0}, {46, 0.0}, {47, 0.0},
+                     {48, 0.0}, {49, 0.0}, {140, 0.0}, {141, 0.0}, {142, 1.0}, {143, 1.0}})
+                o.group(code, value);
+            o.group(70, model ? 1024 : 0);
+            o.group(72, 1);
+            o.group(73, 0);
+            o.group(74, 5);
+            o.group(7, "");
+            o.group(75, 16);
+            o.group(76, 0);
+            o.group(77, 2);
+            o.group(78, 300);
+            o.group(147, 1.0);
+            o.group(148, 0.0);
+            o.group(149, 0.0);
+            o.group(100, "AcDbLayout");
+            o.group(1, model ? "Model" : "Layout1");
+            o.group(70, 1);
+            o.group(71, model ? 0 : 1);
+            // Limits: 2D points.
+            o.group(10, 0.0);
+            o.group(20, 0.0);
+            o.group(11, 420.0);
+            o.group(21, 297.0);
+            o.point(12, {0.0, 0.0});
+            o.point(14, {1e20, 1e20});
+            o.point(15, {-1e20, -1e20});
+            o.group(146, 0.0);
+            o.point(13, {0.0, 0.0});
+            o.point(16, {1.0, 0.0});
+            o.point(17, {0.0, 1.0});
+            o.group(76, 1);
+            o.hex(330, model ? modelSpace : paperSpace);
+        }
+        o.group(0, "ACDBDICTIONARYWDFLT");
+        o.hex(5, 0xE);
+        o.hex(330, root);
+        o.group(100, "AcDbDictionary");
+        o.group(281, 1);
+        o.group(3, "Normal");
+        o.hex(350, 0xF);
+        o.group(100, "AcDbDictionaryWithDefault");
+        o.hex(340, 0xF);
+        o.group(0, "ACDBPLACEHOLDER");
+        o.hex(5, 0xF);
+        o.hex(330, 0xE);
+        objects = o.out_;
+    }
+
+    // Header last, now that the handles are all given.
+    DxfWriter w(ctx, 0);
+    const BBox ext = doc.extents();
+    w.group(0, "SECTION");
+    w.group(2, "HEADER");
+    w.group(9, "$ACADVER");
+    w.group(1, modern ? "AC1015" : "AC1009");
+    w.group(9, "$DWGCODEPAGE");
+    w.group(3, "ANSI_1252");
+    if (modern) {
+        w.group(9, "$HANDSEED");
+        w.hex(5, ctx.next);
+        w.group(9, "$MEASUREMENT");
+        w.group(70, 1);
+    }
+    w.group(9, "$EXTMIN");
+    w.point(10, ext.valid() ? ext.min : Vec2{0, 0});
+    w.group(9, "$EXTMAX");
+    w.point(10, ext.valid() ? ext.max : Vec2{0, 0});
+    w.group(9, "$LTSCALE");
+    w.group(40, doc.linetypeScale());
+    w.group(0, "ENDSEC");
+    if (modern) {
+        w.group(0, "SECTION");
+        w.group(2, "CLASSES");
+        // The objects of OBJECTS that are classes rather than built-in types.
+        for (const auto& [name, cpp] : std::vector<std::pair<const char*, const char*>>{
+                 {"ACDBDICTIONARYWDFLT", "AcDbDictionaryWithDefault"},
+                 {"ACDBPLACEHOLDER", "AcDbPlaceHolder"},
+                 {"LAYOUT", "AcDbLayout"}}) {
+            w.group(0, "CLASS");
+            w.group(1, name);
+            w.group(2, cpp);
+            w.group(3, "ObjectDBX Classes");
+            w.group(90, 0);
+            w.group(280, 0);
+            w.group(281, 0);
+        }
+        w.group(0, "ENDSEC");
+    }
+    w.group(0, "SECTION");
+    w.group(2, "TABLES");
+    w.out_ += t.out_;
+    w.group(0, "ENDSEC");
     w.group(0, "SECTION");
     w.group(2, "BLOCKS");
-    w.out_ += blocks;
+    w.out_ += layoutBlocks;
+    w.out_ += ctx.blocks;
+    w.out_ += namedBlocks;
     w.group(0, "ENDSEC");
     w.group(0, "SECTION");
     w.group(2, "ENTITIES");
     w.out_ += entities.out_;
     w.group(0, "ENDSEC");
+    if (modern) {
+        w.group(0, "SECTION");
+        w.group(2, "OBJECTS");
+        w.out_ += objects;
+        w.group(0, "ENDSEC");
+    }
     w.group(0, "EOF");
     return w.out_;
 }
@@ -1540,7 +2068,7 @@ bool loadDxf(Document& doc, const QString& path, QString* message)
     return fromDxf(file.readAll(), doc, message);
 }
 
-bool saveDxf(const Document& doc, const QString& path, QString* error)
+bool saveDxf(const Document& doc, const QString& path, QString* error, DxfVersion version)
 {
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
@@ -1548,7 +2076,7 @@ bool saveDxf(const Document& doc, const QString& path, QString* error)
             *error = file.errorString();
         return false;
     }
-    file.write(toDxf(doc));
+    file.write(toDxf(doc, version));
     if (!file.commit()) {
         if (error)
             *error = file.errorString();

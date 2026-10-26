@@ -4,6 +4,7 @@
 #include "dxf.h"
 
 #include <QFile>
+#include <QSaveFile>
 #include <QTemporaryFile>
 
 #ifdef CAD4ALL_HAVE_DWG
@@ -71,6 +72,46 @@ bool loadDwg(Document& doc, const QString& path, QString* message)
         return false;
     }
     return fromDwg(file.readAll(), doc, message);
+}
+
+bool toDwg(const Document& doc, QByteArray& out, QString* error)
+{
+#ifdef CAD4ALL_HAVE_DWG
+    const QByteArray dxf = toDxf(doc, DxfVersion::R2000);
+    unsigned char* data = nullptr;
+    size_t size = 0;
+    const int code = cad4all_dxf_to_dwg(reinterpret_cast<const unsigned char*>(dxf.constData()),
+                                        static_cast<size_t>(dxf.size()), &data, &size);
+    if (code != 0) {
+        if (error)
+            *error = QStringLiteral("Impossibile scrivere il DWG (errore 0x%1).").arg(code, 0, 16);
+        return false;
+    }
+    out = QByteArray(reinterpret_cast<const char*>(data), static_cast<qsizetype>(size));
+    cad4all_dwg_free(data);
+    return true;
+#else
+    (void)doc;
+    (void)out;
+    if (error)
+        *error = QStringLiteral("Questa versione di CAD4All è stata compilata senza il formato DWG.");
+    return false;
+#endif
+}
+
+bool saveDwg(const Document& doc, const QString& path, QString* error)
+{
+    QByteArray data;
+    if (!toDwg(doc, data, error))
+        return false;
+    // Written from Qt, so paths with accents work on Windows too.
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly) || file.write(data) != data.size() || !file.commit()) {
+        if (error)
+            *error = file.errorString();
+        return false;
+    }
+    return true;
 }
 
 } // namespace cad::io

@@ -159,7 +159,7 @@ private:
     Vec2 cursor_;
 
     bool osnap_ = true;
-    unsigned osnapMask_ = SnapEndpoint | SnapMidpoint | SnapCenter | SnapQuadrant | SnapIntersection | SnapInsertion;
+    unsigned osnapMask_ = SnapEndpoint | SnapMidpoint | SnapCenter | SnapQuadrant | SnapIntersection | SnapInsertion | SnapNode;
     bool ortho_ = false;
 };
 

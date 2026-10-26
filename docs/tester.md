@@ -17,7 +17,7 @@ Gli installatori non sono ancora firmati digitalmente, quindi il sistema mostra 
 - In basso c'è la riga di comando, come in AutoCAD: si scrive il comando (in italiano o in inglese, per esempio `LINEA` o `L`) e si preme Invio. `?` elenca tutti i comandi.
 - *Visualizza > Interfaccia* passa dall'interfaccia simile ad AutoCAD (barra multifunzione) a quella parametrica (Strumenti, Info Box, Navigatore).
 - Muri, porte, finestre, solai, tetti e scale sono nel menu *Architettura*; la vista 3D si aggiorna mentre si disegna.
-- Si possono aprire disegni DWG e DXF esistenti e salvare in `.c4a` (formato di CAD4All) o DXF. Il DWG per ora si apre soltanto.
+- Si possono aprire disegni DWG e DXF esistenti e salvare in `.c4a` (formato di CAD4All) o DXF. Con File > Esporta DXF o DWG si può anche scrivere un DWG: è sperimentale, quindi ci dica se AutoCAD, BricsCAD o DWG TrueView lo aprono bene.
 
 ## Cosa provare
 

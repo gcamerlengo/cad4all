@@ -48,6 +48,7 @@ QString snapLabel(SnapType type)
     case SnapIntersection: return CadView::tr("Intersezione");
     case SnapNearest: return CadView::tr("Vicino");
     case SnapInsertion: return CadView::tr("Inserimento");
+    case SnapNode: return CadView::tr("Nodo");
     }
     return {};
 }
@@ -439,6 +440,12 @@ void CadView::drawSnapMarker(QPainter& p, const SnapPoint& snap) const
         // Two overlapping squares, as in AutoCAD.
         p.drawRect(QRectF(c.x() - s, c.y() - s, s * 1.3, s * 1.3));
         p.drawRect(QRectF(c.x() - s * 0.3, c.y() - s * 0.3, s * 1.3, s * 1.3));
+        break;
+    case SnapNode:
+        // A circle with a cross, as in AutoCAD.
+        p.drawEllipse(c, s, s);
+        p.drawLine(QPointF(c.x() - s, c.y() - s), QPointF(c.x() + s, c.y() + s));
+        p.drawLine(QPointF(c.x() - s, c.y() + s), QPointF(c.x() + s, c.y() - s));
         break;
     }
     p.setPen(kSnap);
