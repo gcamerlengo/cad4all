@@ -50,6 +50,7 @@ Si scrivono sulla riga di comando, in italiano, in inglese o con l'alias. Invio 
 | SCALINATA / STAIR | SN | punto iniziale e direzione; Tipo (Dritta/L/U), Verso (Sinistra/Destra), Larghezza, Altezza, Pedata |
 | PIANO / STORY | PN | Nuovo, Corrente, Su, Giù, Rinomina, Quota, Altezza, Elimina, ? (elenco) |
 | VISTA3D / VIEW3D | 3D | apre la vista 3D |
+| PIANTA3D / PLANTO3D | P3D | muri, porte e finestre da una pianta disegnata a linee: Altezza, Porte, Finestre, Spessori, Unità; Invio converte |
 | CANCELLA / ERASE | E | (anche tasto Canc) |
 | SPOSTA / MOVE | M | |
 | COPIA / COPY | CO, CP | Esci |
@@ -155,6 +156,17 @@ La vista 3D si apre da sola con il primo muro (o con VISTA3D, o da Architettura 
 ![Pianta con muri, porte e finestre](docs/immagini/casa.png)
 
 ![La stessa casa in 3D](docs/immagini/casa-3d.png)
+
+## Da pianta 2D a 3D
+
+Una pianta ricevuta in DWG o DXF, disegnata a linee, diventa un modello con *Architettura > Da pianta 2D a 3D*. È una procedura guidata in quattro passi, con l'anteprima dei muri trovati:
+
+1. **Che cosa convertire.** Si scelgono i layer, oppure gli oggetti selezionati. I layer di arredi, quote, testi e tratteggi restano esclusi. L'unità del disegno (millimetri, centimetri o metri) viene riconosciuta da sola.
+2. **Muri.** Due linee parallele a una distanza compresa tra lo spessore minimo e il massimo (da 8 a 60 cm) diventano un muro. Le estremità vengono portate fino all'asse del muro che incontrano, così gli angoli e i giunti a T si uniscono.
+3. **Porte e finestre.** Larghezza, posizione e verso di apertura vengono dalla pianta, le altezze dalla procedura. Un'interruzione del muro con l'arco di apertura (anche dentro un blocco) diventa una porta. Le linee del vetro tra le facce del muro diventano una finestra, sia che il muro sia interrotto sia che le facce proseguano. Un'interruzione senza simboli resta un passaggio libero.
+4. **Conferma.** Si possono aggiungere un solaio sotto tutti i muri e un tetto sul loro contorno.
+
+Le linee usate passano sul layer spento "Pianta 2D originale", quindi non si perde niente. Lo stesso lavoro si fa da riga di comando con PIANTA3D: si selezionano gli oggetti e si preme Invio, oppure prima si cambiano le opzioni.
 
 ## Solai, piani, scale e tetti
 

@@ -56,6 +56,45 @@ TEST_F(Commands, PointsUntilEnter)
     EXPECT_TRUE(doc.entities().empty());
 }
 
+TEST_F(Commands, PlanTo3dTurnsLinesIntoWalls)
+{
+    // A 5 x 4 m room drawn in centimetres, with a door swing in the bottom wall.
+    doc.add(Polyline{{{0, 0}, {100, 0}, {100, 30}, {30, 30}, {30, 370}, {470, 370}, {470, 30}, {190, 30}, {190, 0}, {500, 0},
+                      {500, 400}, {0, 400}},
+                     true});
+    doc.add(Arc{{100, 30}, 90, 0.0, kPi / 2.0});
+    doc.add(Circle{{250, 200}, 40});
+    type({"PIANTA3D", "TUTTO", "", "A", "300", ""});
+    EXPECT_FALSE(engine.isActive());
+    const auto walls = shapes<Wall>();
+    ASSERT_EQ(walls.size(), 4u);
+    int doors = 0;
+    for (const Wall& w : walls) {
+        EXPECT_NEAR(w.thickness, 30, 1e-6);
+        EXPECT_NEAR(w.height, 300, 1e-6);
+        for (const Opening& o : w.openings) {
+            ++doors;
+            EXPECT_EQ(o.kind, Opening::Kind::Door);
+            EXPECT_NEAR(o.width, 90, 1e-6);
+            EXPECT_NEAR(o.height, 210, 1e-6);  // the door tool's 2100 mm, in centimetres
+        }
+    }
+    EXPECT_EQ(doors, 1);
+    // The lines and the swing are kept on a layer that is off; the table stays.
+    const Layer* original = doc.layer("Pianta 2D originale");
+    ASSERT_NE(original, nullptr);
+    EXPECT_FALSE(original->visible);
+    for (const auto& [id, e] : doc.entities()) {
+        if (std::holds_alternative<Circle>(e.shape))
+            EXPECT_EQ(e.layer, "0");
+        else if (!std::holds_alternative<Wall>(e.shape))
+            EXPECT_EQ(e.layer, "Pianta 2D originale");
+    }
+    type({"U"});
+    EXPECT_TRUE(shapes<Wall>().empty());
+    EXPECT_EQ(shapes<Polyline>().size(), 1u);
+}
+
 TEST_F(Commands, LineUndoOptionRemovesLastSegment)
 {
     type({"L", "0,0", "10,0", "20,0", "A", ""});

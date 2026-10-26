@@ -82,6 +82,7 @@ private:
     void plot();
     void showLayouts();
     void showView3d();
+    void planTo3d();
     void updateStories();
     void setStory(cad::StoryId id);
     void changeStory(int step);

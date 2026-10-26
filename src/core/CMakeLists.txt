@@ -12,5 +12,6 @@ add_library(cad4all_core STATIC
     editing.h editing.cpp
     hatch.h hatch.cpp
     building.h building.cpp
+    planrecognition.h planrecognition.cpp
 )
 target_include_directories(cad4all_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

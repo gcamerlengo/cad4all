@@ -4,6 +4,7 @@
 #include "infobox.h"
 #include "layerpanel.h"
 #include "navigator.h"
+#include "planwizard.h"
 #include "properties.h"
 #include "stylecontrols.h"
 #include "theme.h"
@@ -211,4 +212,44 @@ int main(int argc, char** argv)
     QApplication app(argc, argv);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}
+
+TEST_F(Ui, PlanWizardConvertsTheWallLayersWithASlab)
+{
+    // A 5 x 4 m room in centimetres on MURI, a table on ARREDI.
+    doc.addLayer({"MURI", {255, 255, 255}, true, false});
+    doc.addLayer({"ARREDI", {0, 255, 0}, true, false});
+    doc.add(Entity{0, "MURI", Polyline{{{0, 0}, {500, 0}, {500, 400}, {0, 400}}, true}});
+    doc.add(Entity{0, "MURI", Polyline{{{30, 30}, {470, 30}, {470, 370}, {30, 370}}, true}});
+    const EntityId table = doc.add(Entity{0, "ARREDI", Polyline{{{100, 100}, {160, 100}, {160, 300}, {100, 300}}, true}});
+
+    PlanWizard wizard(doc, {});
+    const auto ids = wizard.entities();
+    EXPECT_EQ(ids.size(), 2u);
+    EXPECT_EQ(std::count(ids.begin(), ids.end(), table), 0);
+    // The unit is found from the walls: centimetres.
+    const QStringList input = wizard.commandInput();
+    ASSERT_GE(input.size(), 2);
+    EXPECT_EQ(input[1], QStringLiteral("C"));
+
+    engine.select(ids);
+    engine.run(QStringLiteral("PIANTA3D"));
+    for (const QString& in : input + wizard.followingCommands())
+        engine.submit(in);
+    EXPECT_FALSE(engine.isActive());
+    int walls = 0;
+    int slabs = 0;
+    for (const auto& [id, e] : doc.entities()) {
+        if (const auto* w = std::get_if<Wall>(&e.shape)) {
+            ++walls;
+            EXPECT_NEAR(w->height, 270, 1e-9);
+        }
+        if (const auto* sl = std::get_if<Slab>(&e.shape)) {
+            ++slabs;
+            EXPECT_NEAR(sl->thickness, 30, 1e-9);
+        }
+    }
+    EXPECT_EQ(walls, 4);
+    EXPECT_EQ(slabs, 1);
+    EXPECT_EQ(doc.entity(table)->layer, "ARREDI");
 }

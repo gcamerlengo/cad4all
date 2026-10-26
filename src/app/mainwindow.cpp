@@ -18,6 +18,7 @@
 #include "nativeformat.h"
 #include "plot.h"
 #include "plotdialog.h"
+#include "planwizard.h"
 #include "recovery.h"
 #include "view3d.h"
 
@@ -293,6 +294,22 @@ void MainWindow::showView3d()
     view3d_->refresh();
 }
 
+void MainWindow::planTo3d()
+{
+    PlanWizard wizard(doc_, engine_.selection(), this);
+    if (wizard.exec() != QDialog::Accepted)
+        return;
+    const std::vector<EntityId> ids = wizard.entities();
+    engine_.cancel();
+    engine_.clearSelection();
+    engine_.select(ids);
+    engine_.run(QStringLiteral("PIANTA3D"));
+    for (const QString& input : wizard.commandInput() + wizard.followingCommands())
+        engine_.submit(input);
+    if (wizard.showModel())
+        showView3d();
+}
+
 void MainWindow::showPlan()
 {
     if (viewLayout_ == ViewLayout::Tabs)
@@ -403,6 +420,9 @@ void MainWindow::createActions()
     named(QStringLiteral("zoom"), QStringLiteral("zoomExtents"), tr("Zoom &estensioni"), [this] { view_->zoomExtents(); });
     named(QStringLiteral("view3d"), QStringLiteral("view3d"), tr("Vista &3D"), [this] { showView3d(); })->setToolTip(tr("Vista 3D (VISTA3D)"));
     named(QStringLiteral("plan"), QStringLiteral("plan"), tr("&Pianta"), [this] { showPlan(); });
+    QAction* planAction = named(QStringLiteral("planTo3d"), QStringLiteral("planTo3d"), tr("Da pianta 2D a 3D..."), [this] { this->planTo3d(); });
+    planAction->setIconText(tr("Da 2D a 3D"));
+    planAction->setToolTip(tr("Muri, porte e finestre da una pianta disegnata a linee (PIANTA3D)"));
     named(QStringLiteral("storyUp"), QString(), tr("Piano s&uperiore"), [this] { changeStory(+1); }, QKeySequence(Qt::CTRL | Qt::Key_PageUp));
     named(QStringLiteral("storyDown"), QString(), tr("Piano &inferiore"), [this] { changeStory(-1); }, QKeySequence(Qt::CTRL | Qt::Key_PageDown));
     named(QStringLiteral("layers"), QStringLiteral("layers"), tr("&Layer"), [this] {
@@ -510,6 +530,7 @@ void MainWindow::createActions()
     QMenu* architecture = menuBar()->addMenu(tr("A&rchitettura"));
     architecture->addActions(architectureActions);
     architecture->addAction(command(QStringLiteral("WALLEDIT")));
+    architecture->addAction(named_.value(QStringLiteral("planTo3d")));
     architecture->addSeparator();
     architecture->addActions(actions({"STORY", "storyUp", "storyDown"}));
     architecture->addSeparator();
@@ -696,6 +717,8 @@ void MainWindow::createRibbon()
     QWidget* arch = ribbon_->addPage(tr("Architettura"));
     p = ribbon_->addPanel(arch, tr("Costruzione"));
     large(p, {"WALL", "DOOR", "WINDOW", "SLAB", "ROOF", "STAIR"});
+    p = ribbon_->addPanel(arch, tr("Converti"));
+    large(p, {"planTo3d"});
     p = ribbon_->addPanel(arch, tr("Modifica"));
     small(p, {"WALLEDIT"});
     p = ribbon_->addPanel(arch, tr("Viste"));

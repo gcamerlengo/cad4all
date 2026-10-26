@@ -18,6 +18,7 @@ Gli installatori non sono ancora firmati digitalmente, quindi il sistema mostra 
 - *Visualizza > Interfaccia* passa dall'interfaccia simile ad AutoCAD (barra multifunzione) a quella parametrica (Strumenti, Info Box, Navigatore).
 - *Visualizza > Tema* sceglie l'aspetto scuro (predefinito) o chiaro.
 - Muri, porte, finestre, solai, tetti e scale sono nel menu *Architettura*; la vista 3D si aggiorna mentre si disegna.
+- *Architettura > Da pianta 2D a 3D* trasforma una pianta disegnata a linee (per esempio un DWG di un cliente) in muri, porte e finestre. Ci interessano molto le piante che non riconosce bene.
 - Si possono aprire disegni DWG e DXF esistenti e salvare in `.c4a` (formato di CAD4All) o DXF. Con File > Esporta DXF o DWG si può anche scrivere un DWG: è sperimentale, quindi ci dica se AutoCAD, BricsCAD o DWG TrueView lo aprono bene.
 
 ## Cosa provare

@@ -206,6 +206,16 @@ QIcon make(const QString& name)
             p.drawPolyline(QPolygonF({{3.5, 7.5}, {12, 12}, {20.5, 7.5}}));
             p.drawLine(QPointF(12, 12), QPointF(12, 21));
         };
+    } else if (name == QLatin1String("planTo3d")) {
+        // Wall lines in plan, turned into a block.
+        painter = [](QPainter& p) {
+            p.drawPolyline(QPolygonF({{2.5, 21.5}, {2.5, 13.5}, {10.5, 13.5}}));
+            p.drawPolyline(QPolygonF({{5.5, 21.5}, {5.5, 16.5}, {10.5, 16.5}}));
+            accentPen(p);
+            p.drawPolygon(QPolygonF({{16, 2.5}, {21.5, 5.5}, {21.5, 11.5}, {16, 14.5}, {10.5, 11.5}, {10.5, 5.5}}));
+            p.drawPolyline(QPolygonF({{10.5, 5.5}, {16, 8.5}, {21.5, 5.5}}));
+            p.drawLine(QPointF(16, 8.5), QPointF(16, 14.5));
+        };
     } else if (name == QLatin1String("erase")) {
         painter = [](QPainter& p) {
             p.drawLine(QPointF(4, 18), QPointF(16, 6));

@@ -8,6 +8,7 @@
 #include "building.h"
 #include "editing.h"
 #include "hatch.h"
+#include "planrecognition.h"
 #include "properties.h"
 #include "section.h"
 #include "stylenames.h"
@@ -5488,7 +5489,233 @@ private:
 };
 } // namespace
 
+// PIANTA3D: walls, doors and windows from a plan drawn with lines, such as
+// a DWG received from a client. The lines that became walls go to a layer
+// that is turned off, so nothing is lost.
+class PlanTo3dCommand : public SelectionCommand {
+public:
+    static constexpr const char* kOriginalLayer = "Pianta 2D originale";
+
+    void preview(Vec2, std::vector<Shape>& out) const override
+    {
+        for (const Wall& w : plan_.walls)
+            out.push_back(w);
+    }
+
+protected:
+    void afterSelection() override
+    {
+        const Document& doc = engine->document();
+        for (EntityId id : ids_) {
+            const Entity* e = doc.entity(id);
+            if (!e || isBuildingElement(e->shape))
+                continue;
+            doc.forEachPart(*e, [&](const Entity& part) {
+                shapes_.push_back(part.shape);
+                owners_.push_back(id);
+            });
+        }
+        setUnit(guessPlanUnit(shapes_));
+    }
+
+    bool keyword(const QString& w) override
+    {
+        if (ask_ == Ask::Unit) {
+            if (isAny(w, {"MI", "MILLIMETRI", "MM"}))
+                setUnit(1.0);
+            else if (isAny(w, {"C", "CENTIMETRI", "CM"}))
+                setUnit(10.0);
+            else if (isAny(w, {"ME", "METRI", "M"}))
+                setUnit(1000.0);
+            else
+                return false;
+            return true;
+        }
+        if (ask_ != Ask::Option)
+            return false;
+        if (isAny(w, {"A", "ALTEZZA"}))
+            ask(Ask::WallHeight);
+        else if (isAny(w, {"P", "PORTE"}))
+            ask(Ask::DoorHeight);
+        else if (isAny(w, {"F", "FINESTRE"}))
+            ask(Ask::WindowHeight);
+        else if (isAny(w, {"S", "SPESSORI"}))
+            ask(Ask::MinThickness);
+        else if (isAny(w, {"U", "UNITA", "UNITÀ"}))
+            ask(Ask::Unit);
+        else
+            return false;
+        return true;
+    }
+
+    bool onPoint(Vec2) override { return false; }
+
+    bool number(double v) override
+    {
+        if (v <= 0.0 || ask_ == Ask::Option || ask_ == Ask::Unit)
+            return false;
+        PlanRecognitionOptions& o = options_;
+        switch (ask_) {
+        case Ask::WallHeight:
+            o.wallHeight = v;
+            break;
+        case Ask::DoorHeight:
+            o.door.height = v;
+            break;
+        case Ask::WindowHeight:
+            o.window.height = v;
+            ask(Ask::Sill);
+            return true;
+        case Ask::Sill:
+            o.window.sill = v;
+            break;
+        case Ask::MinThickness:
+            o.minThickness = v;
+            o.maxThickness = std::max(o.maxThickness, v);
+            ask(Ask::MaxThickness);
+            return true;
+        case Ask::MaxThickness:
+            if (v < o.minThickness)
+                return false;
+            o.maxThickness = v;
+            break;
+        default:
+            break;
+        }
+        recognize();
+        return true;
+    }
+
+    void onEnter() override
+    {
+        if (ask_ == Ask::Option) {
+            apply();
+            return;
+        }
+        // Enter keeps the value shown.
+        if (ask_ == Ask::WindowHeight)
+            ask(Ask::Sill);
+        else if (ask_ == Ask::MinThickness)
+            ask(Ask::MaxThickness);
+        else
+            recognize();
+    }
+
+private:
+    enum class Ask { Option, WallHeight, DoorHeight, WindowHeight, Sill, MinThickness, MaxThickness, Unit };
+
+    static bool isBuildingElement(const Shape& s)
+    {
+        return std::holds_alternative<Wall>(s) || std::holds_alternative<Slab>(s) || std::holds_alternative<Roof>(s)
+            || std::holds_alternative<Stair>(s);
+    }
+
+    static QString unitName(double unit)
+    {
+        return unit >= 1000.0 ? t("metri") : unit >= 10.0 ? t("centimetri") : t("millimetri");
+    }
+
+    // The defaults (in millimetres, heights from the wall, door and window
+    // tools) in the unit of the drawing.
+    void setUnit(double unit)
+    {
+        unit_ = unit;
+        PlanRecognitionOptions base;
+        const ToolSettings& tools = toolSettings();
+        base.wallHeight = tools.wallHeight;
+        base.door = tools.door;
+        base.window = tools.window;
+        options_ = base.inUnits(unit);
+        recognize();
+    }
+
+    void recognize()
+    {
+        plan_ = recognizePlan(shapes_, options_);
+        // Said again only when something changed, not for every value typed.
+        const QString found = t("Riconosciuti %1 muri, %2 porte e %3 finestre (disegno in %4, muri spessi da %5 a %6)")
+                            .arg(plan_.walls.size())
+                            .arg(plan_.doors)
+                            .arg(plan_.windows)
+                            .arg(unitName(unit_))
+                            .arg(fmt(options_.minThickness))
+                            .arg(fmt(options_.maxThickness));
+        if (found != lastFound_)
+            engine->message(found);
+        lastFound_ = found;
+        ask(Ask::Option);
+    }
+
+    void ask(Ask a)
+    {
+        ask_ = a;
+        const PlanRecognitionOptions& o = options_;
+        switch (a) {
+        case Ask::Option:
+            engine->setPrompt(t("Specificare opzione [Altezza/Porte/Finestre/Spessori/Unità] <Converti>:"));
+            break;
+        case Ask::WallHeight:
+            engine->setPrompt(t("Specificare altezza dei muri <%1>:").arg(fmt(o.wallHeight)));
+            break;
+        case Ask::DoorHeight:
+            engine->setPrompt(t("Specificare altezza delle porte <%1>:").arg(fmt(o.door.height)));
+            break;
+        case Ask::WindowHeight:
+            engine->setPrompt(t("Specificare altezza delle finestre <%1>:").arg(fmt(o.window.height)));
+            break;
+        case Ask::Sill:
+            engine->setPrompt(t("Specificare altezza del davanzale <%1>:").arg(fmt(o.window.sill)));
+            break;
+        case Ask::MinThickness:
+            engine->setPrompt(t("Specificare spessore minimo dei muri <%1>:").arg(fmt(o.minThickness)));
+            break;
+        case Ask::MaxThickness:
+            engine->setPrompt(t("Specificare spessore massimo dei muri <%1>:").arg(fmt(o.maxThickness)));
+            break;
+        case Ask::Unit:
+            engine->setPrompt(t("Specificare unità del disegno [MIllimetri/Centimetri/MEtri] <%1>:").arg(unitName(unit_)));
+            break;
+        }
+    }
+
+    void apply()
+    {
+        Document& doc = engine->document();
+        if (plan_.walls.empty()) {
+            engine->message(t("Nessun muro riconosciuto: i muri vanno disegnati con due linee parallele. "
+                              "Provare l'opzione Spessori o Unità."));
+            done();
+            return;
+        }
+        for (const Wall& w : plan_.walls)
+            doc.add(w);
+        std::set<EntityId> moved;
+        for (size_t k : plan_.used)
+            moved.insert(owners_[k]);
+        if (!doc.layer(kOriginalLayer))
+            doc.addLayer({kOriginalLayer, {128, 128, 128}, false, false});
+        for (EntityId id : moved)
+            if (const Entity* e = doc.entity(id))
+                doc.restyle(id, kOriginalLayer, styleOf(*e));
+        engine->message(t("Creati %1 muri con %2 porte e %3 finestre. Le linee usate sono sul layer spento \"%4\".")
+                            .arg(plan_.walls.size())
+                            .arg(plan_.doors)
+                            .arg(plan_.windows)
+                            .arg(QString::fromUtf8(kOriginalLayer)));
+        done();
+    }
+
+    std::vector<Shape> shapes_;
+    std::vector<EntityId> owners_;
+    double unit_ = 1.0;
+    PlanRecognitionOptions options_;
+    RecognizedPlan plan_;
+    QString lastFound_;
+    Ask ask_ = Ask::Option;
+};
+
 std::unique_ptr<Command> makeLineCommand() { return std::make_unique<LineCommand>(); }
+std::unique_ptr<Command> makePlanTo3dCommand() { return std::make_unique<PlanTo3dCommand>(); }
 std::unique_ptr<Command> makePointCommand() { return std::make_unique<PointCommand>(); }
 std::unique_ptr<Command> makePolylineCommand() { return std::make_unique<PolylineCommand>(); }
 std::unique_ptr<Command> makeCircleCommand() { return std::make_unique<CircleCommand>(); }
