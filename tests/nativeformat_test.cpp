@@ -240,6 +240,25 @@ TEST(NativeFormat, ParagraphTextRoundTrip)
 
     // R12 DXF has no MTEXT: each line becomes a TEXT.
     Document fromDxf;
-    ASSERT_TRUE(io::fromDxf(io::toDxf(doc), fromDxf));
+    ASSERT_TRUE(io::fromDxf(io::toDxf(doc, io::DxfVersion::R12), fromDxf));
     EXPECT_EQ(fromDxf.entities().size(), 2u);
+    // DXF 2000 keeps it whole.
+    Document from2000;
+    ASSERT_TRUE(io::fromDxf(io::toDxf(doc), from2000));
+    ASSERT_EQ(from2000.entities().size(), 1u);
+    const MText m2 = std::get<MText>(from2000.entities().begin()->second.shape);
+    EXPECT_EQ(m2.content, m.content);
+    EXPECT_EQ(m2.align, Text::Align::Center);
+    EXPECT_EQ(m2.vertical, MText::Vertical::Middle);
+    EXPECT_DOUBLE_EQ(m2.lineSpacing, 1.5);
+}
+
+TEST(NativeFormat, PointRoundTrip)
+{
+    Document doc;
+    doc.add(Point{{12.5, -3}});
+    Document back;
+    ASSERT_TRUE(io::fromNativeJson(io::toNativeJson(doc), back));
+    ASSERT_EQ(back.entities().size(), 1u);
+    EXPECT_EQ(std::get<Point>(back.entities().begin()->second.shape).position, (Vec2{12.5, -3}));
 }

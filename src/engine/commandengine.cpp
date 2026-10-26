@@ -437,6 +437,7 @@ void CommandEngine::preview(Vec2 cursor, std::vector<Shape>& out) const
 void CommandEngine::registerCommands()
 {
     add(QStringLiteral("LINE"), {QStringLiteral("LINEA"), QStringLiteral("L")}, [] { return makeLineCommand(); });
+    add(QStringLiteral("POINT"), {QStringLiteral("PUNTO")}, [] { return makePointCommand(); });
     add(QStringLiteral("PLINE"), {QStringLiteral("PLINEA"), QStringLiteral("PL")}, [] { return makePolylineCommand(); });
     add(QStringLiteral("CIRCLE"), {QStringLiteral("CERCHIO"), QStringLiteral("C")}, [] { return makeCircleCommand(); });
     add(QStringLiteral("ARC"), {QStringLiteral("ARCO"), QStringLiteral("A")}, [] { return makeArcCommand(); });

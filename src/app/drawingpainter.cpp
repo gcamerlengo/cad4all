@@ -101,7 +101,13 @@ QPainterPath DrawingPainter::polylinePath(const Polyline& pl) const
 
 void DrawingPainter::drawShape(const Shape& shape)
 {
-    if (const auto* l = std::get_if<Line>(&shape)) {
+    if (const auto* pt = std::get_if<Point>(&shape)) {
+        // A point is a small cross of fixed size on screen, like PDMODE 2.
+        const QPointF c = toDevice(pt->position);
+        const double r = 3.0;
+        p_.drawLine(c - QPointF(r, 0), c + QPointF(r, 0));
+        p_.drawLine(c - QPointF(0, r), c + QPointF(0, r));
+    } else if (const auto* l = std::get_if<Line>(&shape)) {
         p_.drawLine(toDevice(l->a), toDevice(l->b));
     } else if (const auto* c = std::get_if<Circle>(&shape)) {
         const double r = c->radius * scale_;

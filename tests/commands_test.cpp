@@ -46,6 +46,16 @@ TEST_F(Commands, LineChainWithCloseAndUndo)
     EXPECT_TRUE(doc.entities().empty());
 }
 
+TEST_F(Commands, PointsUntilEnter)
+{
+    type({"PUNTO", "1,2", "@3,0", ""});
+    EXPECT_FALSE(engine.isActive());
+    ASSERT_EQ(shapes<Point>().size(), 2u);
+    EXPECT_EQ(shapes<Point>()[1].position, (Vec2{4, 2}));
+    type({"U"});
+    EXPECT_TRUE(doc.entities().empty());
+}
+
 TEST_F(Commands, LineUndoOptionRemovesLastSegment)
 {
     type({"L", "0,0", "10,0", "20,0", "A", ""});
@@ -570,6 +580,24 @@ TEST_F(Commands, StoriesFromTheCommandLine)
     type({"R", "Sottotetto", ""});
     EXPECT_FALSE(engine.isActive());
     EXPECT_EQ(doc.story(doc.currentStory())->name, "Sottotetto");
+}
+
+TEST_F(Commands, HatchInsideARoomOfWalls)
+{
+    type({"MURO", "S", "200", "0,0", "6000,0", "6000,4000", "0,4000", "C"});
+    type({"MURO", "S", "100", "3000,0", "3000,4000", ""});
+    engine.setPickTolerance(10);
+    type({"PORTA", "1500,50", "1500,500", ""});
+    type({"TRATTEGGIO", "1000,2000", ""});
+    auto hatches = shapes<Hatch>();
+    ASSERT_EQ(hatches.size(), 1u);
+    // The room on the left, between the inner faces of its walls.
+    BBox box;
+    for (const auto& loop : hatches[0].loops)
+        box.add(boundingBox(Shape{loop}));
+    EXPECT_NEAR(box.min.x, 100, 1e-6);
+    EXPECT_NEAR(box.max.x, 2950, 1e-6);
+    EXPECT_NEAR(box.max.y, 3900, 1e-6);
 }
 
 TEST_F(Commands, SlabInsideARoomAndUnderTheWalls)

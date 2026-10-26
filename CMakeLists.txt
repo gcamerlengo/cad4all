@@ -19,7 +19,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(CAD4ALL_BUILD_APP "Build the desktop application" ON)
 option(CAD4ALL_BUILD_TESTS "Build the unit tests" ON)
-option(CAD4ALL_WITH_DWG "Read DWG files with LibreDWG (downloaded and built with CAD4All)" ON)
+option(CAD4ALL_WITH_DWG "Read and write DWG files with LibreDWG (downloaded and built with CAD4All)" ON)
 
 find_package(Qt6 6.4 REQUIRED COMPONENTS Core)
 if(CAD4ALL_BUILD_APP)
@@ -28,9 +28,9 @@ endif()
 qt_standard_project_setup()
 
 if(CAD4ALL_WITH_DWG)
-    # LibreDWG (GPL 3) is built from source as a static library: only the
-    # reader and the DXF writer, no programs, no tests. To use a local copy,
-    # configure with -DFETCHCONTENT_SOURCE_DIR_LIBREDWG=/path/to/libredwg.
+    # LibreDWG (GPL 3) is built from source as a static library: the reader,
+    # the writer and the DXF converters, no programs, no tests. To use a local
+    # copy, configure with -DFETCHCONTENT_SOURCE_DIR_LIBREDWG=/path/to/libredwg.
     enable_language(C)
     include(FetchContent)
     # LibreDWG declares BUILD_SHARED_LIBS ON, which would also turn
@@ -38,7 +38,7 @@ if(CAD4ALL_WITH_DWG)
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries")
     set(LIBREDWG_LIBONLY ON)
     set(LIBREDWG_DISABLE_JSON ON)
-    set(LIBREDWG_DISABLE_WRITE ON)
+    set(LIBREDWG_DISABLE_WRITE OFF)
     set(ENABLE_LTO OFF)
     set(DISABLE_WERROR ON)
     FetchContent_Declare(libredwg

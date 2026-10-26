@@ -48,6 +48,7 @@ QString snapLabel(SnapType type)
     case SnapIntersection: return CadView::tr("Intersezione");
     case SnapNearest: return CadView::tr("Vicino");
     case SnapInsertion: return CadView::tr("Inserimento");
+    case SnapNode: return CadView::tr("Nodo");
     }
     return {};
 }
@@ -208,10 +209,34 @@ void CadView::mouseMoveEvent(QMouseEvent* event)
 void CadView::mouseDoubleClickEvent(QMouseEvent* event)
 {
     // Double click with the wheel: zoom extents, as in AutoCAD.
-    if (event->button() == Qt::MiddleButton)
+    if (event->button() == Qt::MiddleButton) {
         zoomExtents();
-    else
-        mousePressEvent(event);
+        return;
+    }
+    // Double click on a text, a dimension or a hatch edits it, as in AutoCAD.
+    if (event->button() == Qt::LeftButton && (!engine_.isActive() || gripPress_)) {
+        const Vec2 p = toWorld(event->position());
+        if (const auto id = engine_.pick(p, pixels(kPickPixels))) {
+            const Shape& shape = engine_.document().entity(*id)->shape;
+            QString command;
+            if (std::holds_alternative<Text>(shape) || std::holds_alternative<MText>(shape)
+                || std::holds_alternative<Dimension>(shape))
+                command = QStringLiteral("TEXTEDIT");
+            else if (std::holds_alternative<Hatch>(shape))
+                command = QStringLiteral("HATCHEDIT");
+            if (!command.isEmpty()) {
+                // The first click may have started dragging a grip.
+                gripPress_.reset();
+                if (engine_.isActive())
+                    engine_.cancel();
+                engine_.clearSelection();
+                engine_.run(command);
+                engine_.pickPoint(p);
+                return;
+            }
+        }
+    }
+    mousePressEvent(event);
 }
 
 void CadView::wheelEvent(QWheelEvent* event)
@@ -415,6 +440,12 @@ void CadView::drawSnapMarker(QPainter& p, const SnapPoint& snap) const
         // Two overlapping squares, as in AutoCAD.
         p.drawRect(QRectF(c.x() - s, c.y() - s, s * 1.3, s * 1.3));
         p.drawRect(QRectF(c.x() - s * 0.3, c.y() - s * 0.3, s * 1.3, s * 1.3));
+        break;
+    case SnapNode:
+        // A circle with a cross, as in AutoCAD.
+        p.drawEllipse(c, s, s);
+        p.drawLine(QPointF(c.x() - s, c.y() - s), QPointF(c.x() + s, c.y() + s));
+        p.drawLine(QPointF(c.x() - s, c.y() + s), QPointF(c.x() + s, c.y() - s));
         break;
     }
     p.setPen(kSnap);
