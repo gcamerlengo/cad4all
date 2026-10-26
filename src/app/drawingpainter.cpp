@@ -144,6 +144,8 @@ void DrawingPainter::drawShape(const Shape& shape)
         const DimensionGeometry g = dimensionGeometry(*d);
         for (const Line& l : g.lines)
             p_.drawLine(toDevice(l.a), toDevice(l.b));
+        for (const Arc& a : g.arcs)
+            drawShape(a);
         p_.save();
         p_.setBrush(p_.pen().color());
         QPen solid = p_.pen();

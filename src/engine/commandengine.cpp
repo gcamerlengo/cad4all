@@ -80,6 +80,7 @@ void CommandEngine::start(const QString& name, std::unique_ptr<Command> command)
     current_->engine = this;
     activeName_ = name;
     doc_.beginTransaction(activeName_.toStdString());
+    setMeasurementPrecision(doc_.precision());
     dispatch([](Command& c) { c.start(); });
     emit changed();
 }
@@ -438,6 +439,8 @@ void CommandEngine::registerCommands()
 {
     add(QStringLiteral("LINE"), {QStringLiteral("LINEA"), QStringLiteral("L")}, [] { return makeLineCommand(); });
     add(QStringLiteral("POINT"), {QStringLiteral("PUNTO")}, [] { return makePointCommand(); });
+    add(QStringLiteral("POLYGON"), {QStringLiteral("POLIGONO"), QStringLiteral("POL")}, [] { return makePolygonCommand(); });
+    add(QStringLiteral("BREAK"), {QStringLiteral("SPEZZA"), QStringLiteral("BR")}, [] { return makeBreakCommand(); });
     add(QStringLiteral("PLINE"), {QStringLiteral("PLINEA"), QStringLiteral("PL")}, [] { return makePolylineCommand(); });
     add(QStringLiteral("CIRCLE"), {QStringLiteral("CERCHIO"), QStringLiteral("C")}, [] { return makeCircleCommand(); });
     add(QStringLiteral("ARC"), {QStringLiteral("ARCO"), QStringLiteral("A")}, [] { return makeArcCommand(); });
@@ -468,6 +471,9 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("DIMALIGNED"), {QStringLiteral("QUOTALLINEATA"), QStringLiteral("DAL")}, [] { return makeDimLinearCommand(true); });
     add(QStringLiteral("DIMRADIUS"), {QStringLiteral("QUOTARAGGIO"), QStringLiteral("DRA")}, [] { return makeDimRadialCommand(false); });
     add(QStringLiteral("DIMDIAMETER"), {QStringLiteral("QUOTADIAMETRO"), QStringLiteral("QUOTADIAM"), QStringLiteral("DDI")}, [] { return makeDimRadialCommand(true); });
+    add(QStringLiteral("DIMANGULAR"), {QStringLiteral("QUOTAANG"), QStringLiteral("QUOTANGOLARE"), QStringLiteral("DAN")}, [] { return makeDimAngularCommand(); });
+    add(QStringLiteral("DIMCONTINUE"), {QStringLiteral("QUOTACONTINUA"), QStringLiteral("QCONT"), QStringLiteral("DCO")}, [] { return makeDimChainCommand(false); });
+    add(QStringLiteral("DIMBASELINE"), {QStringLiteral("QUOTALBASE"), QStringLiteral("QBASE"), QStringLiteral("DBA")}, [] { return makeDimChainCommand(true); });
     add(QStringLiteral("DIMSCALE"), {QStringLiteral("SCALAQUOTE")}, [] { return makeDimScaleCommand(); });
     add(QStringLiteral("LEADER"), {QStringLiteral("DIRETTRICE"), QStringLiteral("LE")}, [] { return makeLeaderCommand(); });
     add(QStringLiteral("HATCH"), {QStringLiteral("TRATTEGGIO"), QStringLiteral("TRATTEGGIA"), QStringLiteral("BHATCH"), QStringLiteral("H"), QStringLiteral("BH")}, [] { return makeHatchCommand(); });
@@ -488,6 +494,8 @@ void CommandEngine::registerCommands()
     add(QStringLiteral("ZOOM"), {QStringLiteral("Z")}, [] { return makeZoomCommand(); });
     add(QStringLiteral("PLOT"), {QStringLiteral("STAMPA"), QStringLiteral("PRINT")}, [] { return makePlotCommand(); });
     add(QStringLiteral("LAYER"), {QStringLiteral("LA")}, [] { return makeLayerCommand(); });
+    add(QStringLiteral("-LAYER"), {QStringLiteral("-LA")}, [] { return makeLayerLineCommand(); });
+    add(QStringLiteral("UNITS"), {QStringLiteral("UNITA"), QStringLiteral("UNITÀ"), QStringLiteral("UN")}, [] { return makeUnitsCommand(); });
     add(QStringLiteral("SECTION"), {QStringLiteral("SEZIONE"), QStringLiteral("SZ")}, [] { return makeSectionCommand(); });
     add(QStringLiteral("ELEVATION"), {QStringLiteral("PROSPETTO"), QStringLiteral("PS")}, [] { return makeElevationCommand(); });
     add(QStringLiteral("LAYOUT"), {QStringLiteral("TAVOLA"), QStringLiteral("LO")}, [] { return makeLayoutCommand(); });

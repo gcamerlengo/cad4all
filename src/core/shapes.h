@@ -97,15 +97,18 @@ struct MText {
 // Dimension. Its lines, arrows and label are derived from the definition
 // points by dimensionGeometry(), so moving or scaling it keeps it consistent.
 struct Dimension {
-    enum class Kind { Linear, Aligned, Radius, Diameter };
+    enum class Kind { Linear, Aligned, Radius, Diameter, Angular };
 
     Kind kind = Kind::Linear;
     // Linear and aligned: origins of the two extension lines.
     // Radius and diameter: centre and a point on the circle.
+    // Angular: a point on each side of the angle.
     Vec2 p1, p2;
     // Linear and aligned: a point on the dimension line.
     // Radius and diameter: where the label goes.
+    // Angular: a point on the dimension arc, inside the measured angle.
     Vec2 location;
+    Vec2 vertex;  // angular only: the corner of the angle
     double angle = 0.0;  // linear only: direction of the dimension line
     double textHeight = 2.5;
     double arrowSize = 2.5;
@@ -285,12 +288,19 @@ std::vector<Text> textLines(const MText& text);
 // What a dimension draws: lines, filled arrowheads (tip first) and its label.
 struct DimensionGeometry {
     std::vector<Line> lines;
+    std::vector<Arc> arcs;
     std::vector<std::array<Vec2, 3>> arrows;
     Text label;
 };
 DimensionGeometry dimensionGeometry(const Dimension& dim);
-// Measured value as shown in a label: up to two decimals, decimal comma.
-std::string formatMeasurement(double value);
+// Angular dimensions: the start angle and the counter-clockwise sweep of the
+// measured angle, the side of the corner that holds `location`.
+std::pair<double, double> angularSweep(const Dimension& dim);
+// Makes `dim` the angular dimension between two lines, of the four angles at
+// their crossing the one that holds `dim.location`. False if they are parallel.
+bool setAngularLines(Dimension& dim, const Line& first, const Line& second);
+// Measured value as shown in a label: up to two (or `decimals`) decimals, decimal comma.
+std::string formatMeasurement(double value, int decimals = 2);
 
 // Circle arc through three points, oriented to pass through `mid`.
 std::optional<Arc> arcFromThreePoints(Vec2 start, Vec2 mid, Vec2 end);

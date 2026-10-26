@@ -29,6 +29,14 @@ struct TrimResult {
 // removed, as AutoCAD's quick trim does.
 TrimResult trimShape(const Shape& shape, const std::vector<Shape>& boundaries, Vec2 pickPoint);
 
+// BREAK: `shape` without its part between `first` and `second` (the points
+// are projected on it). A line, an arc or an open polyline gives up to two
+// pieces, and the same point twice splits it there. A circle loses the arc
+// counter-clockwise from `first` to `second`; a closed polyline loses the
+// part from `first` to `second` along its direction. Nothing when the shape
+// cannot be broken there (texts, a circle at one point, the very end of a line).
+std::optional<std::vector<Shape>> breakShape(const Shape& shape, Vec2 first, Vec2 second);
+
 // Lengthens the end of `shape` nearest to `pickPoint` up to the first
 // boundary it meets. Lines, arcs and open polylines can be extended.
 std::optional<Shape> extendShape(const Shape& shape, const std::vector<Shape>& boundaries, Vec2 pickPoint);

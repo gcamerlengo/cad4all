@@ -2,6 +2,7 @@
 // Drives the command engine the way a user does from the command line.
 #include "commandengine.h"
 #include "building.h"
+#include "editing.h"
 #include "hatch.h"
 
 #include <gtest/gtest.h>
@@ -989,4 +990,207 @@ TEST_F(Commands, SectionNeedsABuilding)
     type({"PROSPETTO", "S"});
     EXPECT_FALSE(engine.isActive());
     EXPECT_TRUE(doc.blocks().empty());
+}
+
+TEST_F(Commands, CircleThroughThreeOrTwoPoints)
+{
+    type({"CERCHIO", "3P", "10,0", "0,10", "-10,0"});
+    ASSERT_EQ(shapes<Circle>().size(), 1u);
+    EXPECT_NEAR(shapes<Circle>()[0].radius, 10, 1e-9);
+    EXPECT_NEAR(length(shapes<Circle>()[0].center), 0, 1e-9);
+    type({"C", "2P", "0,0", "6,8"});
+    ASSERT_EQ(shapes<Circle>().size(), 2u);
+    EXPECT_NEAR(shapes<Circle>()[1].radius, 5, 1e-9);
+    EXPECT_EQ(shapes<Circle>()[1].center, (Vec2{3, 4}));
+    // Three points in a row make no circle: the third is asked again.
+    type({"C", "3P", "0,0", "1,0", "2,0"});
+    EXPECT_TRUE(engine.isActive());
+    type({"2,5"});
+    EXPECT_EQ(shapes<Circle>().size(), 3u);
+}
+
+TEST_F(Commands, PolygonInscribedCircumscribedAndByEdge)
+{
+    type({"POLIGONO", "6", "0,0", "I", "10,0"});
+    ASSERT_EQ(shapes<Polyline>().size(), 1u);
+    const Polyline hex = shapes<Polyline>()[0];
+    EXPECT_TRUE(hex.closed);
+    ASSERT_EQ(hex.points.size(), 6u);
+    for (Vec2 v : hex.points)
+        EXPECT_NEAR(length(v), 10, 1e-9);
+    EXPECT_NEAR(hex.points[0].x, 10, 1e-9);
+
+    // Circumscribed, radius typed: a square of side 20 with horizontal edges.
+    type({"POL", "4", "0,0", "C", "10"});
+    const Polyline square = shapes<Polyline>()[1];
+    for (Vec2 v : square.points) {
+        EXPECT_NEAR(std::abs(v.x), 10, 1e-9);
+        EXPECT_NEAR(std::abs(v.y), 10, 1e-9);
+    }
+
+    // By edge: a triangle on the left of 0,0 -> 10,0.
+    type({"POL", "3", "L", "0,0", "10,0"});
+    const Polyline tri = shapes<Polyline>()[2];
+    ASSERT_EQ(tri.points.size(), 3u);
+    EXPECT_TRUE(almostEqual(tri.points[0], {0, 0}, 1e-9));
+    EXPECT_TRUE(almostEqual(tri.points[1], {10, 0}, 1e-9));
+    EXPECT_NEAR(tri.points[2].x, 5, 1e-9);
+    EXPECT_NEAR(tri.points[2].y, 10 * std::sqrt(3.0) / 2.0, 1e-9);
+}
+
+TEST_F(Commands, BreakLinesCirclesAndPolylines)
+{
+    // The point that picks the line is the first break point.
+    const EntityId line = doc.add(Entity{0, "0", Line{{0, 0}, {10, 0}}});
+    type({"SPEZZA", "3,0", "7,0"});
+    EXPECT_EQ(doc.entity(line), nullptr);
+    auto lines = shapes<Line>();
+    ASSERT_EQ(lines.size(), 2u);
+    EXPECT_EQ(lines[0].b, (Vec2{3, 0}));
+    EXPECT_EQ(lines[1].a, (Vec2{7, 0}));
+    // Primo punto, and the same point twice: split in two.
+    type({"BR", "1,0", "P", "2,0", "@"});
+    EXPECT_EQ(shapes<Line>().size(), 3u);
+    type({"U", "U"});
+    EXPECT_EQ(shapes<Line>().size(), 1u);
+    doc.remove(doc.entities().begin()->first);
+
+    // A circle keeps the arc from the second point round to the first.
+    doc.add(Circle{{0, 0}, 5});
+    type({"SPEZZA", "5,0", "0,5"});
+    ASSERT_EQ(shapes<Arc>().size(), 1u);
+    EXPECT_NEAR(shapes<Arc>()[0].sweep(), 1.5 * kPi, 1e-9);
+
+    // A closed rectangle opens into one polyline without the broken part.
+    doc.add(Polyline{{{20, 0}, {30, 0}, {30, 10}, {20, 10}}, true});
+    type({"SPEZZA", "22,0", "28,0"});
+    const auto pls = shapes<Polyline>();
+    ASSERT_EQ(pls.size(), 1u);
+    EXPECT_FALSE(pls[0].closed);
+    ASSERT_EQ(pls[0].points.size(), 6u);
+    EXPECT_EQ(pls[0].points.front(), (Vec2{28, 0}));
+    EXPECT_EQ(pls[0].points.back(), (Vec2{22, 0}));
+}
+
+TEST_F(Commands, ZoomWindowFactorAndPrevious)
+{
+    std::optional<BBox> window;
+    double factor = 0.0;
+    int previous = 0;
+    QObject::connect(&engine, &CommandEngine::zoomWindowRequested, [&](const BBox& b) { window = b; });
+    QObject::connect(&engine, &CommandEngine::zoomFactorRequested, [&](double f) { factor = f; });
+    QObject::connect(&engine, &CommandEngine::zoomPreviousRequested, [&] { ++previous; });
+    type({"ZOOM", "10,20", "0,0"});
+    ASSERT_TRUE(window);
+    EXPECT_EQ(window->min, (Vec2{0, 0}));
+    EXPECT_EQ(window->max, (Vec2{10, 20}));
+    type({"Z", "2X"});
+    EXPECT_DOUBLE_EQ(factor, 2.0);
+    type({"Z", "P"});
+    EXPECT_EQ(previous, 1);
+    EXPECT_FALSE(engine.isActive());
+}
+
+TEST_F(Commands, ContinuedAndBaselineDimensions)
+{
+    // Continued from the last dimension, on its dimension line.
+    type({"QUOTALIN", "0,0", "100,0", "50,-20"});
+    type({"QUOTACONTINUA", "250,0", "300,0", ""});
+    auto dims = shapes<Dimension>();
+    ASSERT_EQ(dims.size(), 3u);
+    EXPECT_EQ(dims[1].p1, (Vec2{100, 0}));
+    EXPECT_NEAR(dims[1].measurement(), 150, 1e-9);
+    EXPECT_NEAR(dims[2].measurement(), 50, 1e-9);
+    EXPECT_NEAR(dims[2].location.y, -20, 1e-9);
+
+    // Annulla takes back the last one and continues from the one before.
+    type({"QCONT", "400,0", "A", "500,0", ""});
+    dims = shapes<Dimension>();
+    ASSERT_EQ(dims.size(), 4u);
+    EXPECT_EQ(dims[3].p1, (Vec2{300, 0}));
+    EXPECT_NEAR(dims[3].measurement(), 200, 1e-9);
+
+    // Baseline from a chosen dimension: all from its first point, each a step further out.
+    type({"QUOTALBASE", "S", "50,-20", "250,0", "300,0", ""});
+    dims = shapes<Dimension>();
+    ASSERT_EQ(dims.size(), 6u);
+    EXPECT_EQ(dims[4].p1, (Vec2{0, 0}));
+    EXPECT_NEAR(dims[4].measurement(), 250, 1e-9);
+    EXPECT_NEAR(dims[4].location.y, -23.75, 1e-9);
+    EXPECT_NEAR(dims[5].location.y, -27.5, 1e-9);
+
+    // A vertical one goes on in the same direction.
+    type({"QUOTALIN", "600,0", "600,100", "650,50", "DCO", "600,180", ""});
+    dims = shapes<Dimension>();
+    EXPECT_NEAR(dims.back().measurement(), 80, 1e-9);
+    EXPECT_NEAR(dims.back().angle, kPi / 2.0, 1e-9);
+}
+
+TEST_F(Commands, AngularDimensions)
+{
+    // Two lines: the angle on the side of the arc's position.
+    doc.add(Line{{0, 0}, {100, 0}});
+    doc.add(Line{{0, 0}, {100, 100}});
+    type({"QUOTAANG", "50,0", "50,50", "60,20"});
+    auto dims = shapes<Dimension>();
+    ASSERT_EQ(dims.size(), 1u);
+    EXPECT_EQ(dims[0].kind, Dimension::Kind::Angular);
+    EXPECT_NEAR(dims[0].measurement(), 45.0, 1e-9);
+    EXPECT_EQ(dimensionGeometry(dims[0]).label.content, "45\xC2\xB0");
+    // The same lines, the arc on the other side of the first one.
+    type({"DAN", "50,0", "50,50", "60,-20"});
+    EXPECT_NEAR(shapes<Dimension>()[1].measurement(), 135.0, 1e-9);
+
+    // An arc: its sweep.
+    doc.add(Arc{{300, 0}, 50, 0.0, kPi / 3.0});
+    type({"QUOTAANG", "350,0", "330,10"});
+    EXPECT_NEAR(shapes<Dimension>()[2].measurement(), 60.0, 1e-9);
+
+    // Vertex and two points, the reflex angle when the arc is outside the corner.
+    type({"QUOTAANG", "", "0,300", "10,300", "0,310", "-5,295"});
+    dims = shapes<Dimension>();
+    EXPECT_NEAR(dims[3].measurement(), 270.0, 1e-9);
+    EXPECT_EQ(dims[3].vertex, (Vec2{0, 300}));
+
+    // It moves and mirrors with the drawing.
+    const Shape mirrored = transformed(dims[0], Transform::mirror({0, 0}, {0, 1}));
+    EXPECT_NEAR(std::get<Dimension>(mirrored).measurement(), 45.0, 1e-9);
+    EXPECT_EQ(gripPoints(dims[0]).size(), 4u);
+}
+
+TEST_F(Commands, UnitsSetTheUnitAndTheDecimals)
+{
+    QStringList messages;
+    QObject::connect(&engine, &CommandEngine::messageAdded, [&](const QString& m) { messages << m; });
+    EXPECT_EQ(doc.units(), 4);
+    type({"UNITA", "C", "3"});
+    EXPECT_EQ(doc.units(), 5);
+    EXPECT_EQ(doc.precision(), 3);
+    type({"DIST", "0,0", "1.23456,0"});
+    EXPECT_TRUE(messages.last().startsWith(QStringLiteral("Distanza = 1,235"))) << messages.last().toStdString();
+    // Enter keeps what there is.
+    type({"UN", "", "0"});
+    EXPECT_EQ(doc.units(), 5);
+    type({"DIST", "0,0", "1.6,0"});
+    EXPECT_TRUE(messages.last().startsWith(QStringLiteral("Distanza = 2"))) << messages.last().toStdString();
+    type({"UNITS", "MET", ""});
+    EXPECT_EQ(doc.units(), 6);
+    EXPECT_EQ(doc.precision(), 0);
+}
+
+TEST_F(Commands, LayerFromTheCommandLine)
+{
+    type({"-LAYER", "C", "Muri portanti", "N", "Quote, Arredi", "CO", "rosso", "quote,arredi", "OFF", "Arredi", "B", "*", ""});
+    EXPECT_EQ(doc.currentLayer(), "Muri portanti");
+    ASSERT_NE(doc.layer("Quote"), nullptr);
+    EXPECT_EQ(doc.layer("Quote")->color, (Color{255, 0, 0}));
+    EXPECT_EQ(doc.layer("Arredi")->color, (Color{255, 0, 0}));
+    EXPECT_FALSE(doc.layer("Arredi")->visible);
+    EXPECT_TRUE(doc.layer("Quote")->visible);
+    EXPECT_TRUE(doc.layer("0")->locked);
+    type({"-LA", "SB", "0", "ON", "*", "I", "quote", ""});
+    EXPECT_FALSE(doc.layer("0")->locked);
+    EXPECT_TRUE(doc.layer("Muri portanti")->locked);
+    EXPECT_TRUE(doc.layer("Arredi")->visible);
+    EXPECT_EQ(doc.currentLayer(), "Quote");
 }

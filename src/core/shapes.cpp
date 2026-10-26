@@ -89,8 +89,18 @@ std::vector<Piece> pieces(const Shape& shape)
                    [&](const Text&) {},
                    [&](const MText&) {},
                    [&](const Dimension& d) {
-                       for (const Line& l : dimensionGeometry(d).lines)
+                       const DimensionGeometry g = dimensionGeometry(d);
+                       for (const Line& l : g.lines)
                            out.push_back(Piece::segment(l.a, l.b));
+                       for (const Arc& a : g.arcs) {
+                           Piece p;
+                           p.isSegment = false;
+                           p.center = a.center;
+                           p.radius = a.radius;
+                           p.start = a.startAngle;
+                           p.end = a.endAngle;
+                           out.push_back(p);
+                       }
                    },
                    // Nor is a hatch: its outline usually lies on walls that
                    // must stay the cutting edges.
@@ -220,6 +230,8 @@ std::string labelText(const Dimension& d)
         value = "R" + value;
     else if (d.kind == Dimension::Kind::Diameter)
         value = "\xC3\x98" + value;  // Ø in UTF-8
+    else if (d.kind == Dimension::Kind::Angular)
+        value += "\xC2\xB0";  // °
     if (d.text.empty())
         return value;
     std::string out = d.text;
@@ -316,7 +328,75 @@ void radialGeometry(const Dimension& d, DimensionGeometry& g)
     g.label.position = d.location + Vec2{0.0, d.textHeight * 0.25};
 }
 
+void angularGeometry(const Dimension& d, DimensionGeometry& g)
+{
+    const auto [start, sweep] = angularSweep(d);
+    const Vec2 v = d.vertex;
+    double r = distance(d.location, v);
+    if (r < kEps)
+        r = d.arrowSize * 4.0;
+    const double end = start + sweep;
+    g.arcs.push_back(Arc{v, r, start, end});
+
+    // Extension lines from the picked points out to the arc, when it lies beyond them.
+    const double gap = d.arrowSize * 0.25;
+    const double beyond = d.arrowSize * 0.5;
+    for (const auto& [p, a] : {std::pair{d.p1, start}, std::pair{d.p2, end}}) {
+        const Vec2 u = polar(1.0, a);
+        const double from = std::max(dot(p - v, u), 0.0) + gap;
+        if (from < r)
+            g.lines.push_back(Line{v + u * from, v + u * (r + beyond)});
+    }
+
+    // Arrows tangent to the arc, pointing out of it.
+    g.arrows.push_back(arrowHead(v + polar(r, start), perpendicular(polar(1.0, start)) * -1.0, d.arrowSize));
+    g.arrows.push_back(arrowHead(v + polar(r, end), perpendicular(polar(1.0, end)), d.arrowSize));
+
+    const double mid = start + sweep / 2.0;
+    const Vec2 rd = readable(perpendicular(polar(1.0, mid)));
+    g.label.align = Text::Align::Center;
+    g.label.height = d.textHeight;
+    g.label.rotation = angleOf(rd);
+    // Outside the arc, so it never sits on the sides of the angle.
+    g.label.position = v + polar(r, mid) + polar(d.textHeight * 0.25, mid);
+    if (dot(perpendicular(rd), polar(1.0, mid)) < 0.0)
+        g.label.position = g.label.position + polar(d.textHeight, mid);
+}
+
 } // namespace
+
+std::pair<double, double> angularSweep(const Dimension& d)
+{
+    const double a1 = angleOf(d.p1 - d.vertex);
+    const double a2 = angleOf(d.p2 - d.vertex);
+    double sweep = std::fmod(a2 - a1 + 4.0 * kPi, 2.0 * kPi);
+    if (angleInSweep(angleOf(d.location - d.vertex), a1, a1 + sweep))
+        return {a1, sweep};
+    return {a2, 2.0 * kPi - sweep};
+}
+
+bool setAngularLines(Dimension& d, const Line& first, const Line& second)
+{
+    const Vec2 u1 = normalized(first.b - first.a), u2 = normalized(second.b - second.a);
+    const double denom = cross(u1, u2);
+    if (std::abs(denom) < 1e-9)
+        return false;
+    d.kind = Dimension::Kind::Angular;
+    d.vertex = first.a + u1 * (cross(second.a - first.a, u2) / denom);
+    // location - vertex = s1 u1 + s2 u2: the signs pick the rays round it.
+    const Vec2 rel = d.location - d.vertex;
+    const double s1 = cross(rel, u2) / denom >= 0.0 ? 1.0 : -1.0;
+    const double s2 = cross(u1, rel) / denom >= 0.0 ? 1.0 : -1.0;
+    // Each side ends where its line ends along the ray; a line that stops
+    // at the vertex gets an extension line from it.
+    const auto side = [&](const Line& l, Vec2 ray) {
+        const double reach = std::max(dot(l.a - d.vertex, ray), dot(l.b - d.vertex, ray));
+        return d.vertex + ray * std::max(reach, 1e-3 * distance(l.a, l.b));
+    };
+    d.p1 = side(first, u1 * s1);
+    d.p2 = side(second, u2 * s2);
+    return true;
+}
 
 void Polyline::setBulge(size_t i, double b)
 {
@@ -429,20 +509,23 @@ double Dimension::measurement() const
     case Kind::Aligned: return distance(p1, p2);
     case Kind::Radius: return distance(p1, p2);
     case Kind::Diameter: return 2.0 * distance(p1, p2);
+    case Kind::Angular: return radToDeg(angularSweep(*this).second);
     }
     return 0.0;
 }
 
-std::string formatMeasurement(double value)
+std::string formatMeasurement(double value, int decimals)
 {
     std::ostringstream out;
     out.imbue(std::locale::classic());
-    out << std::fixed << std::setprecision(2) << value;
+    out << std::fixed << std::setprecision(std::clamp(decimals, 0, 8)) << value;
     std::string s = out.str();
-    while (!s.empty() && s.back() == '0')
-        s.pop_back();
-    if (!s.empty() && s.back() == '.')
-        s.pop_back();
+    if (s.find('.') != std::string::npos) {
+        while (s.back() == '0')
+            s.pop_back();
+        if (s.back() == '.')
+            s.pop_back();
+    }
     if (s == "-0")
         s = "0";
     std::replace(s.begin(), s.end(), '.', ',');
@@ -538,6 +621,8 @@ DimensionGeometry dimensionGeometry(const Dimension& dim)
     g.label.content = labelText(dim);
     if (dim.kind == Dimension::Kind::Linear || dim.kind == Dimension::Kind::Aligned)
         linearGeometry(dim, g);
+    else if (dim.kind == Dimension::Kind::Angular)
+        angularGeometry(dim, g);
     else
         radialGeometry(dim, g);
     return g;
@@ -587,6 +672,8 @@ BBox boundingBox(const Shape& shape)
                            box.add(l.a);
                            box.add(l.b);
                        }
+                       for (const Arc& a : g.arcs)
+                           box.add(boundingBox(a));
                        for (const auto& arrow : g.arrows)
                            for (Vec2 p : arrow)
                                box.add(p);
@@ -798,6 +885,7 @@ Shape transformed(const Shape& shape, const Transform& t)
                               r.p1 = t.apply(dim.p1);
                               r.p2 = t.apply(dim.p2);
                               r.location = t.apply(dim.location);
+                              r.vertex = t.apply(dim.vertex);
                               r.angle = angleOf(t.applyVector(polar(1.0, dim.angle)));
                               r.textHeight = dim.textHeight * t.scaleFactor();
                               r.arrowSize = dim.arrowSize * t.scaleFactor();
@@ -915,9 +1003,14 @@ void collectSnapPoints(const Shape& shape, unsigned mask, std::vector<SnapPoint>
                    [&](const Text& t) { add(t.position, SnapInsertion); },
                    [&](const MText& m) { add(m.position, SnapInsertion); },
                    [&](const Dimension& d) {
-                       for (const Line& l : dimensionGeometry(d).lines) {
+                       const DimensionGeometry g = dimensionGeometry(d);
+                       for (const Line& l : g.lines) {
                            add(l.a, SnapEndpoint);
                            add(l.b, SnapEndpoint);
+                       }
+                       for (const Arc& a : g.arcs) {
+                           add(a.startPoint(), SnapEndpoint);
+                           add(a.endPoint(), SnapEndpoint);
                        }
                    },
                    [&](const Hatch&) {},
@@ -985,6 +1078,7 @@ bool crossesBox(const Shape& shape, const BBox& box)
     if (const auto* d = std::get_if<Dimension>(&shape)) {
         const DimensionGeometry g = dimensionGeometry(*d);
         return std::any_of(g.lines.begin(), g.lines.end(), [&](const Line& l) { return crossesBox(l, box); })
+            || std::any_of(g.arcs.begin(), g.arcs.end(), [&](const Arc& a) { return crossesBox(a, box); })
             || crossesBox(g.label, box);
     }
     if (const auto* h = std::get_if<Hatch>(&shape)) {

@@ -104,6 +104,28 @@ TEST(NativeFormat, TextAndDimensionRoundTrip)
     EXPECT_EQ(r.text, "<> max");
 }
 
+TEST(NativeFormat, AngularDimensionAndUnitsRoundTrip)
+{
+    Document doc;
+    Dimension d;
+    d.kind = Dimension::Kind::Angular;
+    d.vertex = {10, 10};
+    d.p1 = {20, 10};
+    d.p2 = {10, 30};
+    d.location = {15, 15};
+    doc.add(d);
+    doc.setUnits(6);
+    doc.setPrecision(3);
+    Document loaded;
+    ASSERT_TRUE(io::fromNativeJson(io::toNativeJson(doc), loaded));
+    EXPECT_EQ(loaded.units(), 6);
+    EXPECT_EQ(loaded.precision(), 3);
+    const Dimension r = std::get<Dimension>(loaded.entities().begin()->second.shape);
+    EXPECT_EQ(r.kind, Dimension::Kind::Angular);
+    EXPECT_EQ(r.vertex, (Vec2{10, 10}));
+    EXPECT_NEAR(r.measurement(), 90.0, 1e-9);
+}
+
 TEST(NativeFormat, WallRoundTrip)
 {
     Document doc;

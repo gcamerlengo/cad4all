@@ -234,6 +234,10 @@ private:
                 }
                 if (name == QLatin1String("$LTSCALE") && g.code == 40)
                     doc_.setLinetypeScale(toDouble(g.value));
+                else if (name == QLatin1String("$INSUNITS") && g.code == 70)
+                    doc_.setUnits(g.value.trimmed().toInt());
+                else if (name == QLatin1String("$LUPREC") && g.code == 70)
+                    doc_.setPrecision(g.value.trimmed().toInt());
                 else if (name == QLatin1String("$DIMSCALE") && g.code == 40)
                     dimScale_ = toDouble(g.value) > 0.0 ? toDouble(g.value) : 1.0;
                 else if (name == QLatin1String("$DIMTXT") && g.code == 40)
@@ -698,8 +702,23 @@ private:
             d.p2 = r.point(15);
             d.location = r.point(11);
             break;
+        case 2:
+            // Two lines (13-14 and 15-10) and a point on the arc (16).
+            d.location = r.point(16);
+            if (!setAngularLines(d, Line{r.point(13), r.point(14)}, Line{r.point(15), r.point(10)})) {
+                explodeDimensionBlock(r, xf, layer);
+                return;
+            }
+            break;
+        case 5:
+            d.kind = Dimension::Kind::Angular;
+            d.location = r.point(10);
+            d.p1 = r.point(13);
+            d.p2 = r.point(14);
+            d.vertex = r.point(15);
+            break;
         default:
-            // Angular and ordinate dimensions: CAD4All has no such object, so
+            // Ordinate dimensions: CAD4All has no such object, so
             // keep the lines, arrows and label the dimension's block draws.
             explodeDimensionBlock(r, xf, layer);
             return;
@@ -711,7 +730,7 @@ private:
     {
         const auto it = blocks_.find(r.str(2));
         if (r.str(2).isEmpty() || it == blocks_.end()) {
-            skip(QStringLiteral("DIMENSION angolare/coordinata"));
+            skip(QStringLiteral("DIMENSION coordinata"));
             return;
         }
         const EntityStyle outer = blockStyle_;
@@ -1526,6 +1545,8 @@ void DxfWriter::dimension(const std::string& layer, const Dimension& d)
         block.colorByBlock_ = true;
         for (const Line& l : g.lines)
             block.line("0", l.a, l.b);
+        for (const Arc& a : g.arcs)
+            block.shape("0", a);
         for (const auto& arrow : g.arrows)
             block.solid("0", arrow);
         block.text("0", g.label);
@@ -1571,6 +1592,25 @@ void DxfWriter::dimension(const std::string& layer, const Dimension& d)
         sub(diameter ? "AcDbDiametricDimension" : "AcDbRadialDimension");
         point(15, d.p2);
         group(40, 0.0);
+        break;
+    }
+    case Dimension::Kind::Angular: {
+        // As a 3-point angular dimension: 10 on the arc, 13 and 14 on the
+        // sides, 15 the vertex. The sides go in counter-clockwise order, so
+        // the angle AutoCAD measures is the one drawn.
+        const auto [start, sweep] = angularSweep(d);
+        const double r = distance(d.location, d.vertex);
+        point(10, d.vertex + polar(r, start + sweep / 2.0));
+        point(11, g.label.position);
+        group(70, 5 | (ctx_.modern ? 32 : 0));
+        if (!d.text.empty())
+            group(1, encode(d.text));
+        group(3, "STANDARD");
+        sub("AcDb3PointAngularDimension");
+        const bool firstAtStart = std::abs(normalizeAngle(angleOf(d.p1 - d.vertex)) - normalizeAngle(start)) < 1e-9;
+        point(13, firstAtStart ? d.p1 : d.p2);
+        point(14, firstAtStart ? d.p2 : d.p1);
+        point(15, d.vertex);
         break;
     }
     }
@@ -2014,6 +2054,12 @@ QByteArray toDxf(const Document& doc, DxfVersion version)
     w.point(10, ext.valid() ? ext.max : Vec2{0, 0});
     w.group(9, "$LTSCALE");
     w.group(40, doc.linetypeScale());
+    w.group(9, "$LUPREC");
+    w.group(70, doc.precision());
+    if (modern) {
+        w.group(9, "$INSUNITS");
+        w.group(70, doc.units());
+    }
     w.group(0, "ENDSEC");
     if (modern) {
         w.group(0, "SECTION");

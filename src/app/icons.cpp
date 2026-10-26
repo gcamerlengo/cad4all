@@ -7,7 +7,9 @@
 #include <QPainterPath>
 #include <QPalette>
 
+#include <cmath>
 #include <functional>
+#include <numbers>
 
 namespace icons {
 
@@ -369,6 +371,48 @@ QIcon make(const QString& name)
             p.drawLine(QPointF(6, 18), QPointF(18, 6));
             p.drawPolyline(QPolygonF({{15.5, 6}, {18, 6}, {18, 8.5}}));
             p.drawPolyline(QPolygonF({{6, 15.5}, {6, 18}, {8.5, 18}}));
+        };
+    } else if (name == QLatin1String("dimAngular")) {
+        painter = [](QPainter& p) {
+            p.drawLine(QPointF(3, 21), QPointF(22, 21));
+            p.drawLine(QPointF(3, 21), QPointF(15, 4));
+            accentPen(p);
+            p.drawArc(QRectF(-10, 8, 26, 26), 0, 55 * 16);
+            p.drawPolyline(QPolygonF({{14, 18}, {16, 21}, {18, 18}}));
+        };
+    } else if (name == QLatin1String("dimContinue")) {
+        painter = [](QPainter& p) {
+            for (const double x : {2.0, 12.0, 22.0})
+                p.drawLine(QPointF(x, 21), QPointF(x, 8));
+            accentPen(p);
+            p.drawLine(QPointF(2, 11), QPointF(22, 11));
+            p.drawPolyline(QPolygonF({{9, 9}, {12, 11}, {9, 13}}));
+            p.drawPolyline(QPolygonF({{15, 9}, {12, 11}, {15, 13}}));
+        };
+    } else if (name == QLatin1String("dimBaseline")) {
+        painter = [](QPainter& p) {
+            p.drawLine(QPointF(2, 22), QPointF(2, 3));
+            p.drawLine(QPointF(12, 22), QPointF(12, 13));
+            p.drawLine(QPointF(22, 22), QPointF(22, 5));
+            accentPen(p);
+            p.drawLine(QPointF(2, 16), QPointF(12, 16));
+            p.drawLine(QPointF(2, 8), QPointF(22, 8));
+            p.drawPolyline(QPolygonF({{19, 6}, {22, 8}, {19, 10}}));
+        };
+    } else if (name == QLatin1String("polygon")) {
+        painter = [](QPainter& p) {
+            QPolygonF hex;
+            for (int k = 0; k < 6; ++k)
+                hex << QPointF(12 + 9.5 * std::cos(k * std::numbers::pi / 3.0), 12 + 9.5 * std::sin(k * std::numbers::pi / 3.0));
+            p.drawPolygon(hex);
+        };
+    } else if (name == QLatin1String("break")) {
+        painter = [](QPainter& p) {
+            p.drawLine(QPointF(2, 16), QPointF(9, 12));
+            p.drawLine(QPointF(15, 9), QPointF(22, 5));
+            accentPen(p);
+            dot(p, {9, 12});
+            dot(p, {15, 9});
         };
     } else if (name == QLatin1String("select")) {
         painter = [](QPainter& p) {

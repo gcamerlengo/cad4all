@@ -141,7 +141,7 @@ TEST(Dxf, AttributesAndPoints)
     EXPECT_EQ(shapes<Point>(back).size(), 1u);
 }
 
-TEST(Dxf, AngularDimensionsKeepTheirDrawing)
+TEST(Dxf, OrdinateDimensionsKeepTheirDrawing)
 {
     const QByteArray data = dxf("0 SECTION|2 BLOCKS|"
                                 "0 BLOCK|8 0|2 *D7|70 1|10 0|20 0|"
@@ -149,7 +149,7 @@ TEST(Dxf, AngularDimensionsKeepTheirDrawing)
                                 "0 MTEXT|8 0|10 40|20 20|40 2.5|1 45°|"
                                 "0 ENDBLK|0 ENDSEC|"
                                 "0 SECTION|2 ENTITIES|"
-                                "0 DIMENSION|8 Quote|2 *D7|70 34|10 0|20 0|"
+                                "0 DIMENSION|8 Quote|2 *D7|70 38|10 0|20 0|"
                                 "0 ENDSEC|0 EOF");
     Document doc;
     QString message;
@@ -159,6 +159,43 @@ TEST(Dxf, AngularDimensionsKeepTheirDrawing)
     ASSERT_EQ(arcs.size(), 1u);
     EXPECT_EQ(arcs[0].first, "Quote");
     EXPECT_EQ(shapes<MText>(doc).size(), 1u);
+}
+
+TEST(Dxf, AngularDimensions)
+{
+    // A 3-point one (vertex 15, sides 13 and 14, arc through 10) and a
+    // 2-line one (13-14 and 15-10, arc through 16) reading the obtuse angle.
+    const QByteArray data = dxf("0 SECTION|2 ENTITIES|"
+                                "0 DIMENSION|8 0|10 30|20 30|70 37|13 100|23 0|14 0|24 100|15 0|25 0|"
+                                "0 DIMENSION|8 0|10 0|20 50|70 34|13 0|23 0|14 50|24 0|15 0|25 0|16 -20|26 20|"
+                                "0 ENDSEC|0 EOF");
+    Document doc;
+    ASSERT_TRUE(io::fromDxf(data, doc));
+    const auto dims = shapes<Dimension>(doc);
+    ASSERT_EQ(dims.size(), 2u);
+    EXPECT_EQ(dims[0].second.kind, Dimension::Kind::Angular);
+    EXPECT_NEAR(dims[0].second.measurement(), 90.0, 1e-9);
+    EXPECT_EQ(dimensionGeometry(dims[0].second).label.content, "90\xC2\xB0");
+    EXPECT_EQ(dims[1].second.vertex, (Vec2{0, 0}));
+    EXPECT_NEAR(dims[1].second.measurement(), 90.0, 1e-9);
+    EXPECT_LT(dims[1].second.p1.x, 0.0);
+
+    // Written as 3-point angular dimensions and read back the same, the
+    // reflex side included.
+    Document out;
+    Dimension reflex = dims[0].second;
+    reflex.location = {-30, -30};
+    out.add(dims[0].second);
+    out.add(reflex);
+    for (const auto version : {io::DxfVersion::R12, io::DxfVersion::R2000}) {
+        Document back;
+        ASSERT_TRUE(io::fromDxf(io::toDxf(out, version), back));
+        const auto again = shapes<Dimension>(back);
+        ASSERT_EQ(again.size(), 2u);
+        EXPECT_NEAR(again[0].second.measurement(), 90.0, 1e-9);
+        EXPECT_NEAR(again[1].second.measurement(), 270.0, 1e-9);
+        EXPECT_NEAR(distance(again[1].second.location, {0, 0}), distance(reflex.location, {0, 0}), 1e-9);
+    }
 }
 
 TEST(Dxf, ExplodesAnonymousBlocksAndArrays)
@@ -304,9 +341,13 @@ TEST(Dxf, Dxf2000KeepsStyleAndDimensionSize)
     d.textHeight = 250;
     d.arrowSize = 150;
     doc.add(d);
+    doc.setUnits(5);
+    doc.setPrecision(1);
 
     Document back;
     ASSERT_TRUE(io::fromDxf(io::toDxf(doc), back));
+    EXPECT_EQ(back.units(), 5);
+    EXPECT_EQ(back.precision(), 1);
     EXPECT_EQ(back.layer("Muri")->color, (Color{200, 100, 50}));
     EXPECT_EQ(back.layer("Muri")->lineweight, 50);
     const Entity& line = back.entities().begin()->second;

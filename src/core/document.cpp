@@ -17,6 +17,8 @@ void Document::reset()
     currentLayer_ = "0";
     linetypes_ = standardLinetypes();
     linetypeScale_ = 1.0;
+    units_ = 4;
+    precision_ = 2;
     currentStyle_ = {};
     stories_.clear();
     nextStory_ = 1;
@@ -114,6 +116,51 @@ bool Document::addLinetype(Linetype type)
     modified_ = true;
     touch();
     return true;
+}
+
+double unitInMillimetres(int units)
+{
+    switch (units) {
+    case 1: return 25.4;
+    case 2: return 304.8;
+    case 4: return 1.0;
+    case 5: return 10.0;
+    case 6: return 1000.0;
+    default: return 0.0;
+    }
+}
+
+const char* unitName(int units)
+{
+    switch (units) {
+    case 1: return "Pollici";
+    case 2: return "Piedi";
+    case 4: return "Millimetri";
+    case 5: return "Centimetri";
+    case 6: return "Metri";
+    default: return "Senza unit\xC3\xA0";
+    }
+}
+
+void Document::setUnits(int units)
+{
+    if (units != 0 && unitInMillimetres(units) == 0.0)
+        return;
+    if (units == units_)
+        return;
+    units_ = units;
+    modified_ = true;
+    touch();
+}
+
+void Document::setPrecision(int decimals)
+{
+    decimals = std::clamp(decimals, 0, 8);
+    if (decimals == precision_)
+        return;
+    precision_ = decimals;
+    modified_ = true;
+    touch();
 }
 
 void Document::setLinetypeScale(double scale)
