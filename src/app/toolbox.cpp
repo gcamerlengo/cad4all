@@ -15,16 +15,18 @@ Toolbox::Toolbox(CommandEngine& engine, QWidget* parent)
 {
     layout_ = new QVBoxLayout(this);
     layout_->setContentsMargins(4, 4, 4, 4);
-    layout_->setSpacing(1);
+    layout_->setSpacing(0);
     layout_->addStretch(1);
     connect(&engine_, &CommandEngine::changed, this, &Toolbox::refresh);
 }
 
 void Toolbox::addSection(const QString& title)
 {
-    auto* label = new QLabel(title, this);
+    auto* label = new QLabel(title.toUpper(), this);
+    label->setObjectName(QStringLiteral("toolboxSection"));
     QFont f = label->font();
     f.setBold(true);
+    f.setPointSizeF(f.pointSizeF() * 0.85);
     label->setFont(f);
     label->setContentsMargins(2, tools_.empty() ? 0 : 8, 0, 2);
     layout_->insertWidget(layout_->count() - 1, label);
@@ -35,7 +37,7 @@ void Toolbox::addTool(const QString& text, const QString& command, const QIcon& 
     auto* b = new QToolButton(this);
     b->setText(text);
     b->setIcon(icon);
-    b->setIconSize(QSize(22, 22));
+    b->setIconSize(QSize(20, 20));
     b->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     b->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     b->setAutoRaise(true);

@@ -2,9 +2,11 @@
 // The panels of the parametric interface, driven as a user would, without a display.
 #include "commandengine.h"
 #include "infobox.h"
+#include "layerpanel.h"
 #include "navigator.h"
 #include "properties.h"
 #include "stylecontrols.h"
+#include "theme.h"
 #include "toolbox.h"
 
 #include <QApplication>
@@ -12,6 +14,7 @@
 #include <QDoubleSpinBox>
 #include <QLabel>
 #include <QToolButton>
+#include <QTreeWidget>
 
 #include <gtest/gtest.h>
 
@@ -159,6 +162,47 @@ TEST_F(Ui, StyleControlsChangeSelectionOrCurrentStyle)
     EXPECT_EQ(doc.entity(id)->linetype, "HIDDEN");
     EXPECT_EQ(doc.entity(id)->color, std::optional<Color>(aciToColor(1)));
     EXPECT_EQ(color->currentText(), QStringLiteral("Rosso"));
+}
+
+TEST_F(Ui, LayerPanelSwitchesVisibilityAndLockWithAClick)
+{
+    LayerPanel panel(engine);
+    auto* tree = panel.findChild<QTreeWidget*>();
+    ASSERT_NE(tree, nullptr);
+    QTreeWidgetItem* item = tree->topLevelItem(0);
+    ASSERT_NE(item, nullptr);
+    const std::string name = item->text(LayerPanel::NameColumn).toStdString();
+    EXPECT_EQ(item->text(LayerPanel::ColorColumn), QStringLiteral("Bianco"));
+
+    emit tree->itemClicked(item, LayerPanel::VisibleColumn);
+    EXPECT_FALSE(doc.layer(name)->visible);
+    item = tree->topLevelItem(0);
+    emit tree->itemClicked(item, LayerPanel::LockedColumn);
+    EXPECT_TRUE(doc.layer(name)->locked);
+    // A click on the name only selects it.
+    item = tree->topLevelItem(0);
+    emit tree->itemClicked(item, LayerPanel::NameColumn);
+    EXPECT_FALSE(doc.layer(name)->visible);
+    EXPECT_TRUE(doc.layer(name)->locked);
+}
+
+TEST(Theme, NamesAndPalette)
+{
+    theme::Theme t = theme::Theme::Light;
+    EXPECT_TRUE(theme::fromName(QStringLiteral("Scuro"), &t));
+    EXPECT_EQ(t, theme::Theme::Dark);
+    EXPECT_TRUE(theme::fromName(QStringLiteral("chiaro"), &t));
+    EXPECT_EQ(t, theme::Theme::Light);
+    EXPECT_FALSE(theme::fromName(QStringLiteral("viola"), &t));
+    EXPECT_EQ(theme::name(theme::Theme::Dark), QStringLiteral("scuro"));
+
+    theme::apply(theme::Theme::Dark);
+    EXPECT_LT(QApplication::palette().color(QPalette::Window).lightness(), 100);
+    EXPECT_GT(QApplication::palette().color(QPalette::WindowText).lightness(), 180);
+    theme::apply(theme::Theme::Light);
+    EXPECT_GT(QApplication::palette().color(QPalette::Window).lightness(), 200);
+    EXPECT_EQ(theme::current(), theme::Theme::Light);
+    EXPECT_FALSE(qApp->styleSheet().contains(QLatin1Char('@')));
 }
 
 int main(int argc, char** argv)

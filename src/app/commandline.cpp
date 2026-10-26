@@ -74,26 +74,31 @@ CommandLine::CommandLine(QWidget* parent)
 {
     const QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
 
+    setObjectName(QStringLiteral("commandLine"));
     history_ = new QPlainTextEdit(this);
+    history_->setObjectName(QStringLiteral("commandHistory"));
     history_->setReadOnly(true);
     history_->setFont(mono);
     history_->setFocusPolicy(Qt::NoFocus);
     history_->setMaximumBlockCount(500);
-    history_->setFixedHeight(QFontMetrics(mono).lineSpacing() * 4 + 10);
+    history_->setFixedHeight(QFontMetrics(mono).lineSpacing() * 3 + 8);
 
     prompt_ = new QLabel(this);
+    prompt_->setObjectName(QStringLiteral("commandPrompt"));
     prompt_->setFont(mono);
     input_ = new CommandInput(this);
+    input_->setObjectName(QStringLiteral("commandInput"));
     input_->setFont(mono);
     input_->setPlaceholderText(tr("Digitare un comando (es. LINEA o L)"));
 
     auto* row = new QHBoxLayout;
     row->setContentsMargins(0, 0, 0, 0);
+    row->setSpacing(6);
     row->addWidget(prompt_);
     row->addWidget(input_, 1);
 
     auto* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(4, 4, 4, 4);
+    layout->setContentsMargins(6, 4, 6, 6);
     layout->setSpacing(2);
     layout->addWidget(history_);
     layout->addLayout(row);

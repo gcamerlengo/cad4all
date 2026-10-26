@@ -10,6 +10,7 @@
 #include "navigator.h"
 #include "ribbon.h"
 #include "stylecontrols.h"
+#include "theme.h"
 #include "toolbox.h"
 #include "dwgreader.h"
 #include "dxf.h"
@@ -29,6 +30,7 @@
 #include <QDialogButtonBox>
 #include <QDesktopServices>
 #include <QDockWidget>
+#include <QFontDatabase>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -40,6 +42,8 @@
 #include <QLocale>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QSettings>
 #include <QSplitter>
 #include <QStatusBar>
@@ -99,6 +103,8 @@ MainWindow::MainWindow()
     commandDock->setObjectName(QStringLiteral("commandDock"));
     commandDock->setWidget(commandLine_);
     commandDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+    // Always under the drawing: no title bar, its prompt says what it is.
+    commandDock->setTitleBarWidget(new QWidget(commandDock));
     addDockWidget(Qt::BottomDockWidgetArea, commandDock);
 
     layerPanel_ = new LayerPanel(engine_, this);
@@ -587,6 +593,18 @@ void MainWindow::createActions()
         profiles_->addAction(a);
         connect(a, &QAction::triggered, this, [this, profile] { setProfile(profile, true); });
     }
+    QMenu* themeMenu = viewMenu->addMenu(tr("&Tema"));
+    themes_ = new QActionGroup(this);
+    for (const auto& [text, look] : {std::pair{tr("&Scuro"), theme::Theme::Dark}, std::pair{tr("&Chiaro"), theme::Theme::Light}}) {
+        QAction* a = themeMenu->addAction(text);
+        a->setCheckable(true);
+        a->setChecked(theme::current() == look);
+        themes_->addAction(a);
+        connect(a, &QAction::triggered, this, [look] {
+            theme::apply(look);
+            theme::save(look);
+        });
+    }
     QMenu* layoutMenu = viewMenu->addMenu(tr("Vista &3D"));
     layouts_ = new QActionGroup(this);
     for (const auto& [text, layout] : {std::pair{tr("In un &pannello"), ViewLayout::Docked},
@@ -707,6 +725,9 @@ void MainWindow::createRibbon()
     p = ribbon_->addPanel(viewPage, tr("Interfaccia"));
     for (QAction* a : profiles_->actions())
         p->addSmall(a);
+    p = ribbon_->addPanel(viewPage, tr("Tema"));
+    for (QAction* a : themes_->actions())
+        p->addSmall(a);
 
     QWidget* output = ribbon_->addPage(tr("Output"));
     p = ribbon_->addPanel(output, tr("Stampa"));
@@ -761,7 +782,14 @@ void MainWindow::createToolbox()
 
     toolboxDock_ = new QDockWidget(tr("Strumenti"), this);
     toolboxDock_->setObjectName(QStringLiteral("toolboxDock"));
-    toolboxDock_->setWidget(toolbox_);
+    // A short screen scrolls the tools instead of making the window taller.
+    auto* toolboxScroll = new QScrollArea(this);
+    toolboxScroll->setFrameShape(QFrame::NoFrame);
+    toolboxScroll->setWidgetResizable(true);
+    toolboxScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    toolboxScroll->setWidget(toolbox_);
+    toolboxScroll->setMinimumWidth(toolbox_->sizeHint().width() + toolboxScroll->verticalScrollBar()->sizeHint().width());
+    toolboxDock_->setWidget(toolboxScroll);
     addDockWidget(Qt::LeftDockWidgetArea, toolboxDock_);
     toolboxDock_->hide();
     named_.value(QStringLiteral("panels"))->menu()->addAction(toolboxDock_->toggleViewAction());
@@ -812,7 +840,9 @@ void MainWindow::insertBlock()
 void MainWindow::createStatusBar()
 {
     coordinates_ = new QLabel(this);
-    coordinates_->setMinimumWidth(260);
+    coordinates_->setObjectName(QStringLiteral("coordinates"));
+    coordinates_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    coordinates_->setMinimumWidth(300);
     statusBar()->addWidget(coordinates_);
     for (QToolButton* b : {osnapButton_, orthoButton_, gridButton_, lineweightButton_}) {
         b->setFocusPolicy(Qt::NoFocus);
